@@ -1,0 +1,48 @@
+id: btn-long
+displayName: "Botão Longo (CTA)"
+icon: "▭"
+category: navigation
+nodeType: btn-long
+flowControl: linear
+
+description: |
+  Botão único (call-to-action) com label longo. Renderiza como botão de
+  Reply Button do WhatsApp ocupando largura inteira.
+
+  Usado quando há UMA única ação/opção pra avançar — ex: "Continuar",
+  "Aceitar termos", "Iniciar atendimento".
+
+detectionCues:
+  - 'Lista com apenas 1 item após uma pergunta/instrução'
+  - 'CTAs explícitos: "Clique aqui pra continuar", "Aceitar e prosseguir"'
+  - 'Frase como "o usuário toca em Continuar pra avançar"'
+
+usageRules:
+  - 'Use APENAS quando há 1 ÚNICA opção/ação. Se houver 2-3, use `buttons`. Se 4+, use `menu`.'
+  - 'O `label` é o texto exibido no botão — geralmente um verbo de ação'
+
+fields:
+  label:
+    type: string
+    required: true
+    description: Texto do botão (CTA)
+    aiHint: 'Comece com verbo de ação: "Continuar", "Aceitar termos", "Ver detalhes"'
+
+builderRules:
+  edgeFromPrevious: true
+  updatesLastFlowId: true
+
+examples:
+  - description: Aceitar termos antes de continuar
+    input: |
+      Bot: Para continuar, é necessário aceitar nossos termos.
+      - Aceito os termos e desejo continuar
+    output:
+      - { kind: bot, text: "Para continuar, é necessário aceitar nossos termos." }
+      - { kind: btn-long, label: "Aceito os termos e desejo continuar" }
+
+  - description: CTA único pra abrir um link
+    input: 'Bot: Veja todas as ofertas no nosso site.\n[Acessar site]'
+    output:
+      - { kind: bot, text: "Veja todas as ofertas no nosso site." }
+      - { kind: btn-long, label: "Acessar site" }

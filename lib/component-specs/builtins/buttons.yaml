@@ -1,0 +1,82 @@
+id: buttons
+displayName: "Botões Curtos (Row)"
+icon: "▦"
+category: navigation
+nodeType: btn-short
+flowControl: parallel
+
+description: |
+  Linha de 2 ou 3 botões curtos dispostos LADO A LADO. Renderiza como
+  Reply Buttons do WhatsApp Business (limite de 3 botões).
+
+  Diferente do `menu` (modal com lista vertical), `buttons` é uma row horizontal
+  e cria BRANCHES PARALELOS no fluxo — cada botão leva a um caminho diferente.
+
+detectionCues:
+  - 'Lista de 2 ou 3 itens, geralmente precedida por uma pergunta'
+  - 'Padrão Sim/Não, A/B, ou A/B/C'
+  - 'Botões/escolhas curtas (uma palavra ou frase pequena cada)'
+
+usageRules:
+  - 'Use APENAS quando há 2 OU 3 opções. Pra 4+ é `menu`. Pra 1 é `btn-long`.'
+  - 'A `question` é opcional: se preenchida, gera UM bubble-bot ANTES da row de botões. Use quando a pergunta é curta e cabe inline.'
+  - 'Se a pergunta é longa ou tem várias frases, separe: 1 bloco `bot` (pergunta) + 1 bloco `buttons` (sem question, só options)'
+  - 'Os botões NÃO atualizam o cursor de fluxo (são branches paralelos). O próximo bloco semântico vai conectar via `direcionamento` ou re-convergir.'
+
+commonMistakes:
+  - 'Usar buttons pra 4+ opções (deveria ser menu)'
+  - 'Esquecer de adicionar os direcionamentos/próximos passos pra cada branch'
+  - 'Duplicar a pergunta: emitir 1 `bot` E preencher `question` (escolha um caminho)'
+
+fields:
+  question:
+    type: string
+    required: false
+    description: 'Pergunta opcional que antecede os botões. Se preenchida, vira um bubble-bot ANTES da row.'
+    aiHint: 'Use apenas pra perguntas curtas inline. Pra perguntas longas, prefira 1 bloco `bot` separado + `buttons` só com options.'
+  options:
+    type: array
+    itemType: string
+    required: true
+    description: Lista de 2 ou 3 labels de botão
+    aiHint: 'Mantenha labels CURTOS (max ~20 chars). Preserve texto e ordem do documento.'
+
+builderRules:
+  edgeFromPrevious: true  # cada botão recebe edge do bloco anterior
+  updatesLastFlowId: false  # parallel — não atualiza cursor
+  sideEffectOnPrevious:
+    whenPreviousIsKind: ['bot', 'menu']
+    addChild:
+      nodeType: tracking
+      labelTemplate: "{{slug(previous.text || previous.header)}}_selecao"
+      relativePosition: { x: -256, y: 0 }
+      description: 'Tracking de seleção — adicionado ao bot/menu anterior quando há botões abaixo'
+
+examples:
+  - description: Sim/Não inline
+    input: |
+      Bot: Deseja receber ofertas?
+      - Sim
+      - Não
+    output:
+      - { kind: bot, text: "Deseja receber ofertas?" }
+      - { kind: buttons, options: ["Sim", "Não"] }
+
+  - description: Localidade com 2 opções (cada uma leva a uma mídia diferente)
+    input: |
+      Em qual estado você está?
+      - Pernambuco
+      - Paraíba
+
+      [Encarte Pernambuco - PDF]
+      [Encarte Paraíba - PDF]
+    output:
+      - { kind: bot, text: "Em qual estado você está?" }
+      - { kind: buttons, options: ["Pernambuco", "Paraíba"] }
+      - { kind: media, media_kind: documento, sender: bot, caption: "Encarte Pernambuco" }
+      - { kind: media, media_kind: documento, sender: bot, caption: "Encarte Paraíba" }
+
+  - description: Buttons com question inline (forma alternativa)
+    input: 'Deseja continuar? (Sim/Não)'
+    output: { kind: buttons, question: "Deseja continuar?", options: ["Sim", "Não"] }
+    note: 'Quando a pergunta é uma única frase curta, `question` inline é OK'

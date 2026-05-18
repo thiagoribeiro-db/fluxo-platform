@@ -1,0 +1,92 @@
+id: integracao
+displayName: "Integração (API/Planilha)"
+icon: "🔌"
+category: integration
+nodeType:
+  - integracao-api
+  - integracao-planilha
+flowControl: linear
+
+description: |
+  Card representando uma INTEGRAÇÃO externa do bot — consulta a API REST,
+  planilha do Google Sheets, ou outro sistema. Renderiza como card retangular
+  no canvas com header colorido (azul=API, verde=planilha) + lista de campos.
+
+  Não é uma mensagem trocada — é uma operação de backend que o bot executa
+  antes/depois de responder ao usuário.
+
+detectionCues:
+  - 'Frases "consulta a API", "busca no sistema", "valida no Serasa", "verifica no CRM"'
+  - 'Menções a serviços específicos: "API dos Correios", "ViaCEP", "Salesforce", "Vtex"'
+  - 'Planilhas: "busca na planilha", "consulta a base", "Google Sheets"'
+  - 'Endpoints HTTP descritos: "POST /api/pedido", "GET /clientes/{id}"'
+
+usageRules:
+  - 'Use `integracao_type: "api"` pra HTTP/REST/SOAP/qualquer serviço externo'
+  - 'Use `integracao_type: "planilha"` pra Google Sheets/Excel'
+  - 'O `title` é o nome curto da operação. Ex: "Consultar CEP", "Buscar pedido"'
+  - 'Os `fields` descrevem inputs/outputs/config da integração. Use chaves padronizadas: "url", "method", "input", "output", "auth"'
+  - 'Se o escopo não detalha campos, deixe vazio — o usuário preenche depois no editor'
+
+commonMistakes:
+  - 'Tratar narrativa "o bot consulta a base" como bubble — isso é integração'
+  - 'Confundir com `iag` (IA generativa): integração é serviço EXTERNO; iag é prompt pra um LLM'
+
+fields:
+  integracao_type:
+    type: string
+    required: true
+    enum: ['api', 'planilha']
+    description: Tipo de integração
+    default: 'api'
+  title:
+    type: string
+    required: true
+    description: Nome curto da operação
+    aiHint: 'Verbo + substantivo: "Consultar CEP", "Buscar pedido", "Validar CPF"'
+  fields:
+    type: array
+    itemType: object
+    required: false
+    description: Lista de campos da integração ({label, key, value})
+    aiHint: 'Use chaves padrão: "url", "method", "input", "output", "auth". Pode deixar vazio se escopo não detalha.'
+    fields:
+      label:
+        type: string
+        required: true
+        description: Label humano do campo. Ex "Endpoint", "Input do usuário"
+      key:
+        type: string
+        required: true
+        description: Chave técnica. Ex "url", "input", "output"
+      value:
+        type: string
+        required: true
+        description: Valor (pode ter placeholders entre chaves)
+
+builderRules:
+  edgeFromPrevious: true
+  updatesLastFlowId: true
+
+examples:
+  - description: Consulta de CEP via API
+    input: 'O bot consulta o CEP via API ViaCEP pra retornar o endereço completo do cliente.'
+    output:
+      kind: integracao
+      integracao_type: api
+      title: "Consultar CEP"
+      fields:
+        - { label: "Endpoint", key: "url", value: "https://viacep.com.br/ws/{cep}/json" }
+        - { label: "Input", key: "input", value: "{CEP do cliente}" }
+        - { label: "Output", key: "output", value: "{logradouro, bairro, cidade, UF}" }
+
+  - description: Busca de pedido em planilha
+    input: 'Bot busca o pedido na planilha de pedidos pelo número.'
+    output:
+      kind: integracao
+      integracao_type: planilha
+      title: "Buscar pedido"
+      fields:
+        - { label: "Planilha", key: "sheet", value: "Pedidos 2025" }
+        - { label: "Busca por", key: "input", value: "{número do pedido}" }
+        - { label: "Retorna", key: "output", value: "{status, data, valor}" }

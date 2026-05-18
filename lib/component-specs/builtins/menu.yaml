@@ -1,0 +1,100 @@
+id: menu
+displayName: "Menu Modal"
+icon: "📋"
+category: navigation
+nodeType: menu
+flowControl: linear
+
+description: |
+  Menu modal exibido pelo WhatsApp quando há 4 ou MAIS opções de escolha.
+  Tecnicamente: lista interativa do WhatsApp Business API (List Message).
+  Visualmente: um cabeçalho + opções clicáveis + botão "Enviar" no rodapé.
+
+detectionCues:
+  - 'Lista de 4+ itens precedida por uma pergunta ou cabeçalho'
+  - 'Palavras "menu", "lista", "opções" precedendo as escolhas'
+  - 'Frase "selecione uma opção", "escolha uma", "qual deseja"'
+  - 'Listas marcadas com `-`, `*`, `•` ou numeradas `1.`, `2.` com 4+ itens'
+
+usageRules:
+  - 'Use APENAS quando há 4 OU MAIS opções. Para 2-3 opções, use `buttons`. Para 1, use `btn-long`.'
+  - 'O `header` deve ser CURTO (cabeçalho do menu, max ~60 chars). Se a pergunta original era longa, divida: 1 bloco `bot` com a pergunta longa + 1 `menu` com header sintético'
+  - 'As `options` devem ser as opções LITERAIS do documento, na MESMA ordem'
+  - 'Default do `footer`: "Enviar" (texto do botão final)'
+  - 'APÓS o menu, geralmente vêm `direcionamento`s — um por opção, apontando pro `target_frame_id` correspondente'
+
+commonMistakes:
+  - 'Usar menu pra 2-3 opções (deveria ser buttons)'
+  - 'Não emitir os direcionamentos pós-menu — o fluxo fica "morto" após escolha'
+  - 'Misturar `header` com texto longo de pergunta — separe'
+
+fields:
+  header:
+    type: string
+    required: true
+    description: Cabeçalho/título do menu (max ~60 chars)
+    aiHint: 'Curto e direto. Ex: "Menu Principal", "Selecione uma opção", "Loja atacado"'
+  options:
+    type: array
+    itemType: string
+    required: true
+    description: Lista de opções (mínimo 4 itens)
+    aiHint: 'Preserve o texto LITERAL e a ORDEM do documento original'
+  footer:
+    type: string
+    default: "Enviar"
+    description: Texto do botão final do menu (default "Enviar")
+
+builderRules:
+  edgeFromPrevious: true
+  updatesLastFlowId: true
+  autoChildren:
+    - nodeType: tracking
+      labelTemplate: "{{slug(header)}}_exibicao"
+      relativePosition: { x: -256, y: 0 }
+      description: 'Tracking quando o menu é exibido'
+    - nodeType: tracking
+      labelTemplate: "{{slug(header)}}_selecao"
+      relativePosition: { x: -256, y: 52 }
+      description: 'Tracking quando uma opção é selecionada'
+    - nodeType: tracking
+      labelTemplate: "{{slug(header)}}_inesperado"
+      relativePosition: { x: -256, y: 104 }
+      description: 'Tracking quando o input é inesperado/fora das opções'
+
+examples:
+  - description: Menu principal com 9 opções
+    input: |
+      Bot: Escolha uma opção:
+      - Ofertas
+      - Lojas
+      - Cartão de crédito
+      - Comprar no site
+      - Devolução
+      - SAC
+      - Ética e conduta
+      - Falar com atendente
+    output:
+      - { kind: bot, text: "Escolha uma opção:" }
+      - kind: menu
+        header: "Menu Principal"
+        options: ["Ofertas", "Lojas", "Cartão de crédito", "Comprar no site", "Devolução", "SAC", "Ética e conduta", "Falar com atendente"]
+        footer: "Enviar"
+
+  - description: Menu com 4 opções (limite mínimo)
+    input: |
+      Como avalia o atendimento?
+      - Muito satisfeito
+      - Satisfeito
+      - Pouco satisfeito
+      - Insatisfeito
+    output:
+      - { kind: bot, text: "Como avalia o atendimento?" }
+      - kind: menu
+        header: "Avaliação"
+        options: ["Muito satisfeito", "Satisfeito", "Pouco satisfeito", "Insatisfeito"]
+
+aiInstructions: |
+  IMPORTANTE: depois de um menu, emita um bloco `direcionamento` PARA CADA opção,
+  apontando pro frame correspondente (use `target_frame_id` = slug do frame
+  destino). Sem isso, o fluxo fica desconectado.

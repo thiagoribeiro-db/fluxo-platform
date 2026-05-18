@@ -1,0 +1,77 @@
+id: link
+displayName: "Link Externo"
+icon: "🔗"
+category: media
+nodeType: link
+flowControl: linear
+
+description: |
+  Card que referencia uma URL externa (site, app, documento, formulário).
+  Renderiza como uma "link preview" do WhatsApp: ícone 🔗 + título + descrição
+  opcional + URL completa. Suporta sender bot ou user.
+
+  Use quando o documento descreve EXPLICITAMENTE o envio de um link, ou quando
+  uma frase do bot é dominada por um URL (ex: "🔗 {link do site}").
+
+detectionCues:
+  - 'Texto entre `{ }` que claramente é um link: `{link do site}`, `{link iOS / Android}`, `{link de cadastro}`, `{URL oficial}`'
+  - 'Frase do bot que é PRINCIPALMENTE um URL, com ou sem texto curto antes ("🔗 https://...", "Acesse: https://...")'
+  - 'Menção a "documentação", "site oficial", "página de cadastro", "formulário" acompanhada de URL ou placeholder'
+  - 'Linhas com emoji 🔗 ou "https://" como elemento dominante'
+
+usageRules:
+  - 'Use `link` em vez de `bot` quando o conteúdo da mensagem é DOMINADO por um URL'
+  - 'Se o bot manda um link com texto explicativo ANTES ("Baixe o app: {link}"), separe: 1 bloco `bot` com o texto + 1 bloco `link` com o URL'
+  - 'Preserve placeholders em `{}` no campo `url` se o documento não tem a URL real'
+  - 'O `linkTitle` é o que aparece em destaque no card — use texto curto e claro ("Acessar site", "Baixar app", "Solicitar cartão")'
+
+commonMistakes:
+  - 'Embutir URL dentro do texto de um bubble bot em vez de criar um link separado'
+  - 'Esquecer de definir `sender` (default `bot` se omitido)'
+  - 'Colocar a URL no `linkTitle` em vez do `url`'
+
+fields:
+  url:
+    type: string
+    required: true
+    description: URL alvo (pode ser placeholder em chaves se o documento não tem a URL real)
+    aiHint: 'Preserve placeholders como `{link do site}`. Inclua `https://` se vier sem protocolo.'
+  linkTitle:
+    type: string
+    required: true
+    description: Título exibido em destaque no card (CTA curto)
+    aiHint: 'Texto curto e direto: "Acessar site", "Baixar app", "Solicitar cartão". Default: "Acessar link".'
+  linkDescription:
+    type: string
+    required: false
+    description: Descrição curta opcional (1-2 linhas)
+  sender:
+    type: string
+    enum: ['bot', 'user']
+    default: 'bot'
+    description: Quem envia o link (bot ou usuário)
+
+builderRules:
+  edgeFromPrevious: true
+  updatesLastFlowId: true
+
+examples:
+  - description: Link de cadastro do cartão
+    input: 'Bot: 🔗 {link oficial para solicitação do cartão junto à administradora}'
+    output:
+      kind: link
+      url: "{link oficial para solicitação do cartão junto à administradora}"
+      linkTitle: "Solicitar cartão"
+      sender: bot
+
+  - description: Texto + link como blocos separados
+    input: 'Bot: Baixe o app na loja do seu celular.\n📱 {link iOS / Android}'
+    output:
+      - { kind: bot, text: "Baixe o app na loja do seu celular." }
+      - { kind: link, url: "{link iOS / Android}", linkTitle: "Baixar app", sender: bot }
+
+  - description: Link explícito com descrição
+    input: 'Bot: Confira nossa documentação: https://docs.exemplo.com/inicio'
+    output:
+      - { kind: bot, text: "Confira nossa documentação:" }
+      - { kind: link, url: "https://docs.exemplo.com/inicio", linkTitle: "Documentação", sender: bot }

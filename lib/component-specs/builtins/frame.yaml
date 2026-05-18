@@ -1,0 +1,76 @@
+id: frame
+displayName: "Frame (Container)"
+icon: "🗂"
+category: structure
+nodeType: frame
+flowControl: none
+
+description: |
+  Container/agrupador de um conjunto de blocos do fluxo. Representa um
+  CENÁRIO, ETAPA ou SEÇÃO do chatbot. Visualmente: header roxo com título
+  + corpo branco com os blocos dentro.
+
+  Frame NÃO é um `kind` emitido pela IA — é o nível ACIMA dos blocos. Cada
+  AIFrame (com title, prefix, frame_id, blocks) vira um frame no canvas.
+
+  Atributos importantes:
+  - `prefix`: 1-3 letras maiúsculas, define IDs dos blocos dentro (S001, OF001…)
+  - `frame_id`: slug usado em `target_frame_id` de direcionamentos
+
+usageRules:
+  - 'Identifique frames por cabeçalhos explícitos: "Cenário 1:", "Cenário 2:", "Abertura", "Encerramento", "Frame: X"'
+  - 'Cada cenário/seção lógica = um frame'
+  - 'Frames REUTILIZÁVEIS (referenciados por múltiplos direcionamentos) precisam ser frame próprio: "Algo Mais", "Falar com atendente", "Encerramento"'
+  - 'Garanta UNICIDADE de prefix e frame_id no documento'
+
+commonMistakes:
+  - 'Juntar 2 cenários em 1 frame só'
+  - 'Quebrar 1 cenário em 2 frames quando ele é único'
+  - 'Repetir prefix ou frame_id entre frames diferentes'
+
+fields:
+  title:
+    type: string
+    required: true
+    description: Título humano do frame
+    aiHint: 'Ex: "Saudação", "Cenário 1: Ofertas", "Encerramento"'
+  prefix:
+    type: string
+    required: true
+    description: Prefixo de 1-3 letras maiúsculas pra IDs dos blocos
+    aiHint: |
+      Convenções:
+      - 1 palavra → primeira letra: "Saudação" → "S"
+      - 2 palavras → iniciais: "Algo Mais" → "AM", "Falar Atendente" → "FA"
+      - Acrônimos preservados: "SAC", "FAQ"
+      - DEVE ser único no documento
+  frame_id:
+    type: string
+    required: true
+    description: Slug do frame (lowercase, sem acentos, hífens)
+    aiHint: |
+      Slugs canônicos comuns:
+      - saudacao, ofertas, lojas, atendente, algo-mais, encerramento
+      - sac, devolucao, etica, cartao, comprar-site, comprar-atacado
+      DEVE ser único; outros frames usam isso em target_frame_id.
+
+aiInstructions: |
+  Frames canônicos (use esses nomes/prefixos/slugs quando reconhecer o padrão):
+
+  | Tipo no escopo | Título | prefix | frame_id |
+  |---|---|---|---|
+  | Saudação inicial / abertura | "Saudação" | "S" | "saudacao" |
+  | Encerramento / CSAT | "Encerramento" | "EN" | "encerramento" |
+  | Continuidade ("Algo mais?") | "Algo Mais" | "AM" | "algo-mais" |
+  | Falar com atendente | "Falar com atendente" | "FA" | "atendente" |
+  | Ofertas / promoções | "Ofertas" | "OF" | "ofertas" |
+  | Lojas / localização | "Lojas" | "LJ" | "lojas" |
+  | SAC / suporte | "SAC" | "SAC" | "sac" |
+  | Devolução | "Devolução" | "DV" | "devolucao" |
+  | Ética e conduta | "Ética e conduta" | "ET" | "etica" |
+  | Cartão de crédito | "Cartão de crédito" | "CC" | "cartao" |
+  | Site / app | "Comprar no site" | "CS" | "comprar-site" |
+  | Atacado / B2B | "Comprar atacado" | "CA" | "comprar-atacado" |
+
+  Pra frames sem padrão pré-definido, gere prefix e frame_id consistentes
+  com o título.

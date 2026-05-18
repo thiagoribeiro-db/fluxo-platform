@@ -1,0 +1,57 @@
+id: atendimento-humano
+displayName: "Atendimento Humano (transbordo)"
+icon: "👤"
+category: navigation
+nodeType: atendimento-humano
+flowControl: leaf
+
+description: |
+  Marca o TRANSBORDO do fluxo automatizado para um humano. Visualmente é
+  uma pílula compacta laranja vibrante com ícone 👤.
+
+  Diferente do `direcionamento` "Falar com atendente" (que é um botão/salto
+  pra outro frame), este componente marca o PONTO EXATO onde o bot encerra
+  e o humano assume o controle da conversa.
+
+detectionCues:
+  - 'Frases como "o cliente entra em atendimento humano", "inicia atendimento humanizado", "transbordo para humano"'
+  - 'Após "Falar com atendente" ser selecionado e o bot já ter feito o handoff'
+  - 'Em frames de transbordo, após o bot dizer "vou te conectar com um atendente"'
+  - 'Marcadores no escopo como "{início do atendimento humanizado}", "humano assume", "fila de atendentes"'
+
+usageRules:
+  - 'Use apenas para marcar o MOMENTO real do transbordo, não para botões de menu (que viram `direcionamento` ou `buttons`)'
+  - 'Geralmente é o ÚLTIMO bloco do frame de transbordo — terminal do fluxo automatizado'
+  - 'Não confundir com `direcionamento target_frame_id="atendente"` que é o SALTO pro frame; este é o transbordo EFETIVO dentro desse frame'
+
+commonMistakes:
+  - 'Usar `atendimento-humano` em vez de `direcionamento` no menu principal (deveria ser direcionamento)'
+  - 'Esquecer de marcar o transbordo no frame de "Falar com atendente" — deixa o fluxo sem ponto claro de handoff'
+
+fields:
+  label:
+    type: string
+    default: "Atendimento humano"
+    description: Texto exibido no badge
+    aiHint: 'Default "Atendimento humano". Pode customizar: "Início do atendimento humanizado", "Transbordo equipe", "Fila SAC".'
+
+builderRules:
+  edgeFromPrevious: true
+  updatesLastFlowId: false  # terminal — não atualiza cursor
+
+examples:
+  - description: Frame de transbordo termina em atendimento humano
+    input: |
+      Bot: Certo! Vou te direcionar para um dos nossos atendentes.
+      Bot: 👤 {Início do atendimento humanizado}
+    output:
+      - { kind: bot, text: "Certo! Vou te direcionar para um dos nossos atendentes." }
+      - { kind: "atendimento-humano", label: "Início do atendimento humanizado" }
+
+  - description: Após coleta de dados, transbordo
+    input: |
+      Bot: Obrigada! Vou encaminhar seu atendimento para a equipe.
+      [transbordo]
+    output:
+      - { kind: bot, text: "Obrigada! Vou encaminhar seu atendimento para a equipe." }
+      - { kind: "atendimento-humano", label: "Transbordo equipe" }

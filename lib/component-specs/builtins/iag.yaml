@@ -1,0 +1,92 @@
+id: iag
+displayName: "IA Generativa"
+icon: "🤖"
+category: ai
+nodeType:
+  - iag-entrada
+  - iag-reentrada
+  - iag-saida
+flowControl: linear
+
+description: |
+  Card representando uma chamada a um modelo de LINGUAGEM (LLM) — OpenAI,
+  Claude, Gemini, etc. — pra interpretar input do usuário, classificar intenção,
+  ou gerar uma resposta.
+
+  Três tipos:
+  - `entrada`: primeira chamada. Recebe input do usuário e classifica intenção/extrai dados.
+  - `reentrada`: chamada subsequente após uma rodada anterior (multi-turn).
+  - `saida`: gera a resposta final pro usuário usando IA.
+
+detectionCues:
+  - 'Menções a "IA", "GPT", "Claude", "LLM", "ChatGPT"'
+  - 'Frases "interpreta o input", "classifica a intenção", "extrai entidades"'
+  - 'NLU/NLP descrito: "entende a pergunta", "processa em linguagem natural"'
+  - 'Geração: "responde com IA", "gera resposta personalizada", "compõe mensagem"'
+
+usageRules:
+  - 'Use `iag_type: "entrada"` quando o input livre do usuário é processado pela IA pela primeira vez'
+  - 'Use `iag_type: "reentrada"` quando há rodadas de conversa com a IA (followup, esclarecimento)'
+  - 'Use `iag_type: "saida"` quando a IA GERA a resposta que o bot envia (em vez de texto fixo)'
+  - 'Diferencie de `integracao`: integracao é API genérica de backend; iag é prompt pra LLM'
+
+commonMistakes:
+  - 'Confundir com `integracao` quando o sistema externo é uma IA'
+  - 'Não distinguir entrada vs reentrada vs saida — fica genérico demais'
+
+fields:
+  iag_type:
+    type: string
+    required: true
+    enum: ['entrada', 'reentrada', 'saida']
+    description: Tipo de chamada à IA
+    default: 'entrada'
+  title:
+    type: string
+    required: true
+    description: Nome curto da chamada
+    aiHint: 'Ex: "Classificar intenção", "Extrair dados do pedido", "Gerar resposta personalizada"'
+  fields:
+    type: array
+    itemType: object
+    required: false
+    description: Campos da chamada (prompt, input, output)
+    aiHint: 'Chaves padrão: "prompt", "input", "model", "temperature", "output"'
+    fields:
+      label:
+        type: string
+        required: true
+        description: Label humano
+      key:
+        type: string
+        required: true
+        description: Chave técnica
+      value:
+        type: string
+        required: true
+        description: Valor
+
+builderRules:
+  edgeFromPrevious: true
+  updatesLastFlowId: true
+
+examples:
+  - description: Classificação de intenção
+    input: 'A IA classifica a intenção do cliente entre: agendamento, suporte, cancelamento.'
+    output:
+      kind: iag
+      iag_type: entrada
+      title: "Classificar intenção"
+      fields:
+        - { label: "Input", key: "input", value: "{texto livre do cliente}" }
+        - { label: "Output", key: "output", value: "agendamento | suporte | cancelamento" }
+
+  - description: Geração de resposta personalizada
+    input: 'O bot usa IA pra gerar uma resposta personalizada baseada no perfil do cliente.'
+    output:
+      kind: iag
+      iag_type: saida
+      title: "Gerar resposta personalizada"
+      fields:
+        - { label: "Input", key: "input", value: "{perfil + última mensagem}" }
+        - { label: "Modelo", key: "model", value: "gpt-4o" }

@@ -1,0 +1,78 @@
+id: bot
+displayName: "Mensagem do Bot"
+icon: "💬"
+category: messaging
+nodeType: bubble-bot
+flowControl: linear
+
+description: |
+  Mensagem ENVIADA PELO BOT ao usuário. É a unidade básica de comunicação
+  de saída do chatbot — renderiza como uma bubble cinza/branca alinhada à
+  esquerda no preview do WhatsApp.
+
+detectionCues:
+  - 'Linhas começando com "Bot:", "Gui:", "Atendente:", "Assistente:", "Chatbot:", "Atendente virtual:" (ou variações com "diz", "envia", "responde")'
+  - 'Texto declarativo descrevendo fala do bot mesmo sem prefixo explícito ("O bot então pergunta...", "Em seguida, o bot informa...")'
+  - 'Frases que terminam com `?` precedendo uma lista de opções (geralmente é uma pergunta do bot)'
+  - 'Mensagens placeholder em escopo: textos com `{variavel}` ou `{nome do cliente}`'
+
+usageRules:
+  - 'Cada PARÁGRAFO/MENSAGEM do bot é UM bloco separado — nunca concatene duas falas em uma única bubble'
+  - 'Preservar EXATAMENTE o texto original: emojis, links 🔗, placeholders `{var}`, formatação Markdown se houver'
+  - 'Quebras de linha dentro de uma mesma bubble são permitidas (use `\n` no campo text)'
+  - 'NÃO inventar conteúdo — se o documento diz "Bot: Olá", emita "Olá", não "Olá! Tudo bem?"'
+  - 'Mensagens que descrevem AÇÃO interna do bot ("o bot então consulta a API") NÃO viram bubble — vire integração ou nota'
+
+commonMistakes:
+  - 'Concatenar 2 bubbles em uma só ("Bot: Olá. Por favor, digite seu nome." quando o documento tinha 2 bubbles separadas)'
+  - 'Adicionar emojis ou pontuação que não estavam no original'
+  - 'Traduzir/parafrasear o texto — preserve EXATO'
+  - 'Confundir narrativa ("O bot cumprimenta o cliente") com mensagem — narrativa vira UMA bubble com texto INFERIDO; mensagem explícita preserva LITERAL'
+
+fields:
+  text:
+    type: string
+    required: true
+    description: Texto exato da mensagem que o bot envia
+    aiHint: 'Preserve formatação visível (emojis, links, placeholders em {} e quebras de linha)'
+  time:
+    type: string
+    default: "9.41 AM"
+    visible: false
+    description: Horário simulado da mensagem (default fixo, não importa)
+
+builderRules:
+  edgeFromPrevious: true
+  updatesLastFlowId: true
+  autoChildren:
+    - nodeType: tracking
+      labelTemplate: "{{slug(text)}}_exibicao"
+      relativePosition: { x: -256, y: 0 }
+      description: 'Tracking de exibição — disparado quando a bubble é renderizada ao usuário'
+
+examples:
+  - description: Duas mensagens sequenciais (cada uma um bloco)
+    input: |
+      Bot: Olá! Sou o assistente virtual da MarcaX, e vou te ajudar.
+      Bot: Por favor, digite o seu nome.
+    output:
+      - { kind: bot, text: "Olá! Sou o assistente virtual da MarcaX, e vou te ajudar." }
+      - { kind: bot, text: "Por favor, digite o seu nome." }
+
+  - description: Bot com placeholders preservados
+    input: 'Bot: Bem-vindo(a), {nome}! Posso te ajudar com a {marca}.'
+    output: { kind: bot, text: "Bem-vindo(a), {nome}! Posso te ajudar com a {marca}." }
+
+  - description: Bot com emoji e link
+    input: 'Bot: Baixe o app aqui: 📱 {link iOS / Android}'
+    output: { kind: bot, text: "Baixe o app aqui: 📱 {link iOS / Android}" }
+
+  - description: Texto narrativo vira bubble com texto INFERIDO (não literal)
+    input: 'Em seguida, o bot cumprimenta o cliente de forma amigável.'
+    output: { kind: bot, text: "Olá! Tudo bem?" }
+    note: 'Origem era narrativa — texto literal não existia, inferido com tom amigável conforme orientação do documento'
+
+aiInstructions: |
+  Bubble bot é o tipo MAIS comum em fluxos. Quando estiver em dúvida se um
+  trecho é narrativa ou mensagem real do bot, prefira interpretar como mensagem
+  e usar o texto literal se houver, ou inferir um curto se não houver.

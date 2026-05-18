@@ -1,0 +1,85 @@
+id: media
+displayName: "Mídia (Imagem/Documento/Vídeo)"
+icon: "🖼️"
+category: media
+# Múltiplos nodeTypes: o builder escolhe baseado em media_kind + sender
+nodeType:
+  - midia-imagem-bot
+  - midia-imagem-user
+  - midia-documento-bot
+  - midia-documento-user
+  - midia-video-bot
+  - midia-video-user
+flowControl: linear
+
+description: |
+  Anexo de mídia trocado na conversa: imagem, documento (PDF/Word/etc) ou vídeo.
+  Pode ser enviado pelo BOT (mais comum — ex: encartes, fotos de produto) ou
+  pelo USUÁRIO (ex: foto da NF, comprovante, documento).
+
+  O tipo concreto do node é decidido pela combinação `media_kind` + `sender`:
+  midia-imagem-bot, midia-imagem-user, midia-documento-bot, etc.
+
+detectionCues:
+  - 'Texto entre `[...]` mencionando "encarte", "foto", "imagem", "PDF", "vídeo", "card", "documento"'
+  - 'Frases como "o bot envia o encarte", "o bot mostra a imagem", "o cliente envia uma foto"'
+  - 'Listagens com nomes de arquivos: ".pdf", ".jpg", ".mp4"'
+  - 'Stand-alone entre colchetes: `[Encarte Pernambuco - PDF]`, `[Foto do produto]`'
+
+usageRules:
+  - 'Identifique o `media_kind` pelo conteúdo:'
+  - '  - imagem: foto, card, figura, encarte gráfico, banner, gif, screenshot'
+  - '  - documento: PDF, Word, planilha, encarte em PDF, contrato, política, comprovante (a não ser que esteja claro que é imagem)'
+  - '  - video: vídeo, reel, animação, mp4, gif animado'
+  - 'Identifique o `sender` pelo contexto:'
+  - '  - bot: "o bot envia", "o bot mostra", encarte/material institucional'
+  - '  - user: "o cliente envia", "o usuário anexa", foto/comprovante do cliente'
+  - 'O `caption` deve descrever a mídia (vem do conteúdo entre colchetes ou da frase descritiva)'
+
+commonMistakes:
+  - 'Confundir "encarte em PDF" como imagem — é documento'
+  - 'Não distinguir bot vs user — sempre considere quem envia no contexto'
+  - 'Esquecer mídias inline dentro de um parágrafo (procure por `[...]` em qualquer lugar)'
+
+fields:
+  media_kind:
+    type: string
+    required: true
+    enum: ['imagem', 'documento', 'video']
+    description: Tipo da mídia
+  sender:
+    type: string
+    required: true
+    enum: ['bot', 'user']
+    description: Quem envia a mídia (bot ou user)
+    default: 'bot'
+  caption:
+    type: string
+    required: true
+    description: Legenda/descrição da mídia
+    aiHint: 'Use o texto entre colchetes ou descreva o conteúdo. Ex: "Encarte Pernambuco", "Foto do produto", "Comprovante de pagamento"'
+
+builderRules:
+  edgeFromPrevious: true
+  updatesLastFlowId: true
+
+examples:
+  - description: Encarte em PDF enviado pelo bot
+    input: '[Encarte Pernambuco - PDF]'
+    output: { kind: media, media_kind: documento, sender: bot, caption: "Encarte Pernambuco" }
+
+  - description: Card de produto (imagem do bot)
+    input: 'O bot envia um card com os principais benefícios do cartão.'
+    output: { kind: media, media_kind: imagem, sender: bot, caption: "Card com os principais benefícios do cartão" }
+
+  - description: Foto enviada pelo cliente
+    input: 'Cliente: [foto do produto com defeito]'
+    output: { kind: media, media_kind: imagem, sender: user, caption: "Foto do produto com defeito" }
+
+  - description: Vídeo institucional
+    input: 'Bot exibe um vídeo institucional explicando o programa de fidelidade.'
+    output: { kind: media, media_kind: video, sender: bot, caption: "Vídeo institucional do programa de fidelidade" }
+
+  - description: PDF enviado pelo cliente (comprovante)
+    input: '[Cliente envia comprovante em PDF]'
+    output: { kind: media, media_kind: documento, sender: user, caption: "Comprovante de pagamento" }

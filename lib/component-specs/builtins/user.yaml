@@ -1,0 +1,76 @@
+id: user
+displayName: "Input do Usuário"
+icon: "👤"
+category: messaging
+nodeType: bubble-user
+flowControl: linear
+
+description: |
+  Input ENVIADO PELO USUÁRIO ao bot. Renderiza como bubble verde-clara alinhada
+  à direita no preview do WhatsApp. Representa uma resposta livre digitada (não
+  uma escolha de menu/botão).
+
+detectionCues:
+  - 'Linhas começando com "Cliente:", "User:", "Usuário:", "Customer:", "Você:" (ou variações com "diz", "envia", "responde", "escolhe")'
+  - 'Texto entre `{ }` representando resposta esperada: `{nome do cliente}`, `{CPF}`, `{loja selecionada}`'
+  - 'Narrativa descrevendo input: "O cliente informa o nome", "O usuário digita o telefone"'
+
+usageRules:
+  - 'Use APENAS para inputs LIVRES (texto digitado). Escolhas entre opções específicas viram `buttons`, `menu` ou `btn-long`.'
+  - 'O texto deve representar a resposta ESPERADA — geralmente um placeholder em chaves'
+  - 'Bubble user vem SEMPRE depois de uma bubble bot ou menu (que faz a pergunta) — NUNCA emita user como PRIMEIRO bloco de um frame, NUNCA emita 2 users consecutivos'
+  - 'Se o documento descreve "o cliente envia Oi para iniciar" ou similar mensagem inicial do usuário, IGNORE — o fluxo SEMPRE começa com bot (cumprimentando ou apresentando o menu), não com user'
+
+commonMistakes:
+  - 'Emitir `user` para uma escolha entre opções fechadas (Sim/Não, A/B/C) — isso é `buttons` ou `menu`'
+  - 'Tentar prever a resposta exata do usuário em vez de usar um placeholder genérico'
+
+fields:
+  text:
+    type: string
+    required: true
+    description: Texto esperado do usuário (geralmente um placeholder em chaves)
+    aiHint: 'Use `{nome do cliente}`, `{CPF/CNPJ}`, `{telefone}`, `{e-mail}`, `{loja selecionada}` etc.'
+  time:
+    type: string
+    default: "9.41 AM"
+    visible: false
+    description: Horário simulado
+
+builderRules:
+  edgeFromPrevious: true
+  updatesLastFlowId: true
+  autoChildren:
+    - nodeType: excecao
+      labelTemplate: "Exceção / Fallback"
+      relativePosition: { x: 0, y: 140 }
+      description: 'Exceção auto-criada — disparada se input não atende validação'
+  sideEffectOnPrevious:
+    whenPreviousIsKind: ['bot', 'menu']
+    addChild:
+      nodeType: tracking
+      labelTemplate: "{{slug(previous.text || previous.header)}}_input"
+      relativePosition: { x: -256, y: 0 }
+      description: 'Tracking de input — adicionado ao bot/menu anterior pra rastrear que o usuário respondeu'
+
+examples:
+  - description: Input direto após pergunta do bot
+    input: |
+      Bot: Por favor, digite seu nome.
+      Cliente: {nome do cliente}
+    output:
+      - { kind: bot, text: "Por favor, digite seu nome." }
+      - { kind: user, text: "{nome do cliente}" }
+
+  - description: Múltiplas informações em um input
+    input: |
+      Bot: Informe nome, CPF, telefone e e-mail.
+      Cliente: {dados do cliente}
+    output:
+      - { kind: bot, text: "Informe nome, CPF, telefone e e-mail." }
+      - { kind: user, text: "{dados do cliente}" }
+
+  - description: Input narrativo (sem placeholder literal)
+    input: 'Em seguida, o cliente informa qual loja deseja.'
+    output: { kind: user, text: "{loja selecionada}" }
+    note: 'Quando narrativa, escolha placeholder semanticamente apropriado'

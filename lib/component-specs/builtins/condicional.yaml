@@ -1,0 +1,79 @@
+id: condicional
+displayName: "Condicional (if/else)"
+icon: "🔀"
+category: navigation
+nodeType: condicional
+flowControl: parallel
+
+description: |
+  Decisão CONDICIONAL com 2 saídas (TRUE e FALSE). Visualmente é um "varal"
+  horizontal com a condição no centro e dois pontos de conexão nas extremidades:
+  esquerda = TRUE (verde), direita = FALSE (vermelho).
+
+  Use quando o fluxo precisa DIVIDIR em dois caminhos baseado em uma condição
+  AVALIADA pelo sistema (não pelo usuário). Diferente de `buttons`/`menu`
+  (que pedem escolha do usuário), `condicional` é uma decisão LÓGICA do bot.
+
+detectionCues:
+  - 'Frases como "se X então Y senão Z", "se cliente é VIP", "caso o CPF seja válido"'
+  - 'Avaliações automáticas: "horário comercial?", "cliente cadastrado?", "primeira interação?"'
+  - 'Lógica de validação após integração API ("se retornou sucesso, segue ... se não, ...")'
+  - 'Decisão pós-IAG ("se intenção classificada for X, ... senão ...")'
+
+usageRules:
+  - 'Use APENAS para decisões AUTOMÁTICAS do sistema, NÃO para escolhas do usuário (escolha do usuário é `menu` ou `buttons`)'
+  - 'A `condition` deve ser CURTA e DECLARATIVA, terminando com `?` ou afirmação ("Cliente é VIP?", "CPF válido", "Horário comercial")'
+  - 'Labels TRUE/FALSE são editáveis — use "Sim/Não", "Válido/Inválido", "Aprovado/Negado" quando fizer sentido no contexto'
+  - 'Em FRAMES sequenciais, condicional substitui um menu/buttons quando a decisão NÃO depende do usuário'
+
+commonMistakes:
+  - 'Usar `condicional` quando o usuário escolhe entre opções (deveria ser `menu` ou `buttons`)'
+  - 'Esquecer de definir condition (campo obrigatório)'
+  - 'Confundir com `direcionamento` (que é salto pra outro frame, não decisão)'
+
+fields:
+  condition:
+    type: string
+    required: true
+    description: Condição/pergunta avaliada pelo sistema
+    aiHint: 'Mantenha curta. Ex: "Cliente é VIP?", "CPF válido", "Horário comercial"'
+  true_label:
+    type: string
+    default: "Verdadeiro"
+    description: Texto exibido no caminho TRUE
+    aiHint: 'Default "Verdadeiro" mas pode ser "Sim", "Válido", "Aprovado", etc.'
+  false_label:
+    type: string
+    default: "Falso"
+    description: Texto exibido no caminho FALSE
+    aiHint: 'Default "Falso" mas pode ser "Não", "Inválido", "Negado", etc.'
+
+builderRules:
+  edgeFromPrevious: true
+  updatesLastFlowId: false  # parallel — não atualiza cursor (2 branches separados)
+
+examples:
+  - description: Validação pós integração
+    input: |
+      O bot consulta o CPF na API e:
+      - Se válido: prossegue com cadastro
+      - Se inválido: avisa o cliente
+    output:
+      - { kind: integracao, integracao_type: api, title: "Consultar CPF", fields: [{label: "Endpoint", key: "url", value: "API Validação"}] }
+      - { kind: condicional, condition: "CPF válido?", true_label: "Válido", false_label: "Inválido" }
+
+  - description: Decisão por contexto temporal
+    input: 'Se for horário comercial, atende o cliente. Fora do horário, mostra mensagem de retorno.'
+    output:
+      - kind: condicional
+        condition: "Horário comercial?"
+        true_label: "Sim"
+        false_label: "Não"
+
+  - description: Decisão baseada em VIP
+    input: 'Verificar se o cliente é VIP. Se for, direcionar para atendimento prioritário. Senão, fluxo normal.'
+    output:
+      - kind: condicional
+        condition: "Cliente é VIP?"
+        true_label: "VIP"
+        false_label: "Comum"

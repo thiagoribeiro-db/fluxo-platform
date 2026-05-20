@@ -1,3 +1,4 @@
+import type { Edge } from '@xyflow/react';
 import type { FluxoNode, FluxoNodeType } from '@/lib/types';
 
 /**
@@ -57,11 +58,24 @@ export const APPROX_WIDTH_BY_TYPE: Partial<Record<FluxoNodeType, number>> = {
 export const GAP = 24;
 export const TRACKING_GAP_X = 16;
 export const TRACKING_HEIGHT = 44;
+// Largura "âncora" do tracking — TEM que bater com o valor usado dentro do
+// TrackingNode no `transform: translateX(calc(240px - 100%))`. Mudou um, muda
+// o outro. Esse valor anchora a BORDA DIREITA visual do tracking no
+// `bubble.x - TRACKING_GAP_X`, então quando o label cresce a pílula expande
+// pra ESQUERDA em vez de invadir o bubble.
 export const TRACKING_WIDTH_APPROX = 240;
+
 // Posicionamento RELATIVO da exceção em relação ao USER (parentId).
-// Agora vai ABAIXO (não à direita) pra ficar dentro do frame após organize.
-export const EXCECAO_REL_X = 0;
-export const EXCECAO_REL_Y = 140;
+//
+// REGRA: exceção fica HORIZONTALMENTE ALINHADA À DIREITA do bubble-user,
+// a uma distância fixa (EXCECAO_GAP_X). Esses constants são usados como
+// fallback na CRIAÇÃO inicial — o `organizeLayoutByFrame` recalcula REL_X
+// dinamicamente baseado na largura MEDIDA do bubble-user, garantindo que o
+// gap seja respeitado mesmo com bubbles de tamanhos variados.
+export const EXCECAO_REL_X = 240; // ≈ bubble-user width médio (200) + GAP (16) com folga
+export const EXCECAO_REL_Y = 0;   // mesmo Y do bubble-user
+export const EXCECAO_GAP_X = 16;  // gap entre bubble-user e exceção
+export const EXCECAO_APPROX_WIDTH = 200; // pílula compacta — pouca variação
 
 // =============================================================================
 // BOUNDING BOX & FRAME DETECTION
@@ -123,6 +137,37 @@ export function findContainingFrame(
   return findContainingFrameAt(box.x + box.w / 2, box.y + box.h / 2, allNodes);
 }
 
+/**
+ * Frame "dono" de um node, com prioridade SEMÂNTICA sobre espacial:
+ *  1. Se o node tem `data.code` no formato `<prefix><número>` (ex: "S001",
+ *     "OF002"), procura um frame com `resolveFramePrefix` == prefix. Match
+ *     exclusivo do code wins sobre posição.
+ *  2. Senão (ou se nenhum frame casa o prefix), fallback pra containment
+ *     espacial via `findContainingFrame`.
+ *
+ * Motivo: depois de um organize que reposicionou blocos, posições podem
+ * vazar pra dentro de frames vizinhos. Mas o `code` é estável e expressa
+ * a intenção — bloco "S001" pertence à Saudação não importa onde caiu.
+ */
+export function findOwnerFrame(
+  node: FluxoNode,
+  allNodes: FluxoNode[]
+): FluxoNode | undefined {
+  if (node.type === 'frame') return undefined;
+  const code = node.data?.code as string | undefined;
+  if (code) {
+    const m = code.match(/^([A-Z]+)\d+$/);
+    if (m) {
+      const prefix = m[1];
+      const byPrefix = allNodes.find(
+        (n) => n.type === 'frame' && resolveFramePrefix(n) === prefix
+      );
+      if (byPrefix) return byPrefix;
+    }
+  }
+  return findContainingFrame(node, allNodes);
+}
+
 // =============================================================================
 // PREFIX RESOLUTION
 // =============================================================================
@@ -151,7 +196,8 @@ export function resolveFramePrefix(frame: FluxoNode | undefined): string {
 }
 
 // =============================================================================
-// SLUGIFY (nomes de tracking a partir do texto)
+// SLUGIFY — usado pra gerar IDs URL-safe (ex: frameId de "Saudação" → "saudacao").
+// NÃO é mais usado pra rótulos de tracking — use `extractTrackingName` pra isso.
 // =============================================================================
 export function slugify(text: string, maxLen = 30): string {
   if (!text) return 'sem_texto';
@@ -167,6 +213,114 @@ export function slugify(text: string, maxLen = 30): string {
       .slice(0, maxLen)
       .replace(/_+$/, '') || 'sem_texto'
   );
+}
+
+// =============================================================================
+// TRACKING NAMES — extração de rótulos significativos pra trackings
+// =============================================================================
+
+/**
+ * Sufixos conhecidos dos trackings auto-gerados. Usados pra reconhecer
+ * rótulos automáticos (vs customizados pelo usuário) na hora de sincronizar
+ * mudanças de texto do bloco pai.
+ */
+export const TRACKING_SUFFIXES = [
+  'exibicao',
+  'selecao',
+  'inesperado',
+  'input',
+] as const;
+export type TrackingSuffix = (typeof TRACKING_SUFFIXES)[number];
+
+// Stopwords PT-BR — palavras conectivas/auxiliares que NÃO viram nome de
+// tracking. Lista deliberadamente conservadora: preposições, artigos, pronomes,
+// auxiliares comuns. Verbos significativos (ex: "registrar", "comprar",
+// "agendar") são mantidos.
+const TRACKING_STOPWORDS_PT = new Set([
+  // Artigos
+  'a', 'o', 'as', 'os', 'um', 'uma', 'uns', 'umas',
+  // Conjunções/conectivos
+  'e', 'ou', 'mas', 'porem', 'entao', 'pois',
+  'que', 'se', 'como', 'quando', 'onde', 'quem', 'qual',
+  // Preposições e contrações
+  'de', 'do', 'da', 'dos', 'das', 'em', 'no', 'na', 'nos', 'nas',
+  'por', 'para', 'com', 'sem', 'ao', 'aos',
+  'pelo', 'pela', 'pelos', 'pelas', 'sob', 'sobre', 'entre', 'ate',
+  // Pronomes
+  'voce', 'voces', 'eu', 'tu', 'ele', 'ela', 'eles', 'elas',
+  'nos', 'vos', 'lhe', 'lhes',
+  'meu', 'minha', 'meus', 'minhas', 'seu', 'sua', 'seus', 'suas',
+  'teu', 'tua', 'nosso', 'nossa', 'nossos', 'nossas',
+  // Demonstrativos
+  'este', 'esta', 'estes', 'estas', 'isto',
+  'esse', 'essa', 'esses', 'essas', 'isso',
+  'aquele', 'aquela', 'aqueles', 'aquelas', 'aquilo',
+  // Auxiliares e verbos genéricos
+  'deseja', 'quer', 'precisa', 'pode', 'posso', 'devemos', 'podemos',
+  'sou', 'somos', 'foi', 'foram', 'sera', 'serao',
+  'tem', 'temos', 'tinha', 'ter', 'estar', 'estao',
+  'ha', 'havia', 'haver', 'faz', 'fazer',
+  // Saudações
+  'ola', 'oi', 'tchau', 'obrigado', 'obrigada',
+  // Adverbios genéricos
+  'aqui', 'la', 'ali', 'agora', 'hoje', 'ontem', 'amanha',
+  'mais', 'menos', 'muito', 'muita', 'muitos', 'muitas', 'pouco', 'pouca',
+  'todo', 'toda', 'todos', 'todas', 'cada', 'tao', 'tambem',
+  'apenas',
+  // Respostas
+  'sim', 'nao',
+]);
+
+/**
+ * Extrai um NOME CURTO de um texto, pra usar como rótulo de tracking.
+ *
+ * Algoritmo:
+ *  1. Lowercase + remove diacríticos
+ *  2. Remove pontuação (mantém só letras/números/espaço)
+ *  3. Filtra stopwords PT-BR e palavras com <= 2 chars
+ *  4. Retorna as primeiras `maxWords` palavras restantes, separadas por ESPAÇO
+ *
+ * Exemplo:
+ *   "Se você deseja registrar um relato relacionado a conduta..."
+ *   → "registrar relato"
+ *
+ * Diferente de `slugify`, NÃO usa underscore — o separador é espaço, conforme
+ * convenção do usuário. E NÃO trunca os primeiros 30 chars literais; pega as
+ * palavras significativas.
+ */
+export function extractTrackingName(text: string, maxWords = 2): string {
+  if (!text) return 'sem nome';
+  const cleaned = text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // diacríticos
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const words = cleaned
+    .split(' ')
+    .filter((w) => w.length > 2 && !TRACKING_STOPWORDS_PT.has(w));
+  if (words.length === 0) return 'sem nome';
+  return words.slice(0, maxWords).join(' ');
+}
+
+/**
+ * Divide um label de tracking em `{name} {suffix}`. Retorna null se o label
+ * não termina com um sufixo conhecido — sinal de que foi customizado pelo
+ * usuário (e portanto NÃO deve ser sobrescrito por re-sync automático).
+ */
+export function parseTrackingLabel(
+  label: string
+): { name: string; suffix: TrackingSuffix } | null {
+  for (const suffix of TRACKING_SUFFIXES) {
+    if (label.endsWith(` ${suffix}`)) {
+      return {
+        name: label.slice(0, label.length - suffix.length - 1),
+        suffix,
+      };
+    }
+  }
+  return null;
 }
 
 // =============================================================================
@@ -226,8 +380,12 @@ export function reorganizeCodes(nodes: FluxoNode[]): FluxoNode[] {
   //  - btn-short/btn-long: botões são "ação" do bloco anterior, não bloco próprio
   //  - midia-*: mídias representam conteúdo da bubble anterior
   //  - link: card de URL externa, conteúdo do sender (igual mídia)
+  //  - atendimento-humano: terminal do fluxo automatizado, não numerado
   //
-  // direcionamento TEM código (é unidade endereçável de salto).
+  // direcionamento E condicional TÊM código (são unidades endereçáveis).
+  // condicional especificamente é referenciado nas mensagens-de-corte da
+  // cascata do frame "Falar com atendente" (FA001 = É feriado?, FA002 =
+  // mensagem-de-corte, FA003 = É final de semana?, etc.).
   const NO_CODE_TYPES = new Set<string>([
     'frame',
     'tracking',
@@ -235,7 +393,6 @@ export function reorganizeCodes(nodes: FluxoNode[]): FluxoNode[] {
     'bubble-user',
     'btn-short',
     'btn-long',
-    'condicional',
     'atendimento-humano',
     'link',
     'midia-imagem-bot',
@@ -378,6 +535,399 @@ export const LAYOUT_TOP_PADDING = 50;        // espaço pro header
 export const LAYOUT_BOTTOM_PADDING = 40;     // espaço inferior antes de fechar o frame
 export const LAYOUT_COL_WIDTH = 300;         // (legado)
 
+// Distância horizontal entre os CENTROS de duas colunas adjacentes no
+// layout em diamante. Calculado pra que: a borda direita do bubble da
+// coluna esquerda + GAP + tracking_w + GAP + borda esquerda do bubble da
+// coluna direita não se sobreponham. Bubble ~380, tracking ~240,
+// gaps ~16+20 → ~660. Arredondado pra 680 com folga.
+export const DIAMOND_COLUMN_SPACING = 680;
+
+// =============================================================================
+// DIAMOND LAYOUT (in progress — passos 1+2 do plano)
+// =============================================================================
+/**
+ * Tipos "transparentes" para o grafo de mains: arestas que passam por eles
+ * são consideradas continuidade entre os mains nas pontas. Botões representam
+ * "ramificação imediata" do main pai.
+ */
+const TRANSPARENT_TYPES = new Set<FluxoNodeType>(['btn-short', 'btn-long']);
+
+/**
+ * Reescreve as edges de um fluxo pra respeitar a sequência lógica:
+ * `pergunta (main) → opção (btn-short) → resposta (main)`. Lida com dois
+ * cenários:
+ *
+ *   (A) **Edge atalho com btns órfãos** — main_A tem edge direta pra main_B
+ *       E há btns órfãos saindo de main_A (sem edge de saída). O parser/IA
+ *       criou os btns mas não os conectou ao destino. Auto-repair: cria
+ *       edges `btn → main_B` para cada órfão e remove a direta. Só dispara
+ *       quando existe APENAS UMA edge direta saindo de main_A — havendo
+ *       mais de uma, fica ambíguo e só logamos warn.
+ *
+ *   (B) **Edge redundante** — main_A → main_B direta E já existe caminho
+ *       alternativo main_A → btn → ... → main_B. Aqui só removemos a direta;
+ *       não criamos nada.
+ *
+ * Edges main→main legítimas (linha sem decisão, sem btns no caminho) são
+ * preservadas.
+ */
+export function repairMainFlowEdges(
+  edges: Edge[],
+  nodes: FluxoNode[]
+): Edge[] {
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const isMain = (id: string): boolean => {
+    const n = nodeById.get(id);
+    return !!n?.type && MAIN_FLOW_TYPES.has(n.type as FluxoNodeType);
+  };
+  const isTransparent = (id: string): boolean => {
+    const n = nodeById.get(id);
+    return !!n?.type && TRANSPARENT_TYPES.has(n.type as FluxoNodeType);
+  };
+
+  const outAdj = new Map<string, string[]>();
+  const inAdj = new Map<string, string[]>();
+  for (const e of edges) {
+    if (!outAdj.has(e.source)) outAdj.set(e.source, []);
+    outAdj.get(e.source)!.push(e.target);
+    if (!inAdj.has(e.target)) inAdj.set(e.target, []);
+    inAdj.get(e.target)!.push(e.source);
+  }
+
+  const toRemove = new Set<string>();
+  const toAdd: Edge[] = [];
+  let repairCounter = 0;
+  const mkRepairId = () =>
+    `e-repair-${Date.now().toString(36)}-${repairCounter++}`;
+
+  // Agrupa edges main→main por source pra detectar ambiguidade
+  const directMainEdgesBySource = new Map<string, Edge[]>();
+  for (const e of edges) {
+    if (!isMain(e.source) || !isMain(e.target)) continue;
+    if (e.source === e.target) continue;
+    if (!directMainEdgesBySource.has(e.source))
+      directMainEdgesBySource.set(e.source, []);
+    directMainEdgesBySource.get(e.source)!.push(e);
+  }
+
+  // Processa cada source: tenta (A) repair, senão (B) redundancy check
+  for (const [source, directEdges] of directMainEdgesBySource) {
+    // Btns órfãos saindo deste source
+    const orphanBtns = (outAdj.get(source) ?? [])
+      .map((id) => nodeById.get(id))
+      .filter(
+        (n): n is FluxoNode =>
+          !!n &&
+          isTransparent(n.id) &&
+          (outAdj.get(n.id)?.length ?? 0) === 0
+      );
+
+    if (orphanBtns.length > 0) {
+      // (A) Auto-repair — só quando há 1 destino claro
+      if (directEdges.length === 1) {
+        const direct = directEdges[0];
+        for (const btn of orphanBtns) {
+          toAdd.push({
+            id: mkRepairId(),
+            source: btn.id,
+            target: direct.target,
+          });
+        }
+        toRemove.add(direct.id);
+        if (typeof window !== 'undefined') {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[repair] conectando ${orphanBtns.length} btn(s) órfãos ao destino e removendo edge direta`,
+            {
+              source,
+              target: direct.target,
+              btns: orphanBtns.map((b) => b.id),
+            }
+          );
+        }
+        continue;
+      }
+      // Ambíguo: vários destinos main + btns órfãos → não dá pra mapear automaticamente
+      if (typeof window !== 'undefined') {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[repair] AMBÍGUO: source ${source} tem ${directEdges.length} edges main→main e ${orphanBtns.length} btn(s) órfãos. Não vou consertar automaticamente.`,
+          {
+            source,
+            targets: directEdges.map((e) => e.target),
+            btns: orphanBtns.map((b) => b.id),
+          }
+        );
+      }
+      continue;
+    }
+
+    // (B) Sem órfãos: checa redundância clássica (caminho alternativo via btn já completo)
+    for (const e of directEdges) {
+      const seen = new Set<string>([e.source]);
+      const queue: string[] = [];
+      for (const t of outAdj.get(e.source) ?? []) {
+        if (t === e.target) continue;
+        queue.push(t);
+      }
+      let viaBtn = false;
+      while (queue.length) {
+        const cur = queue.shift()!;
+        if (seen.has(cur)) continue;
+        seen.add(cur);
+        if (cur === e.target) {
+          viaBtn = true;
+          break;
+        }
+        if (isTransparent(cur)) {
+          for (const nxt of outAdj.get(cur) ?? []) queue.push(nxt);
+        }
+      }
+      if (viaBtn) toRemove.add(e.id);
+    }
+  }
+
+  if (toRemove.size > 0 && typeof window !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[repair] removendo ${toRemove.size} edge(s) redundante(s) main→main`
+    );
+  }
+
+  return [...edges.filter((e) => !toRemove.has(e.id)), ...toAdd];
+}
+
+/**
+ * @deprecated use {@link repairMainFlowEdges}. Mantida só pra retro-compat
+ * imediato dentro deste módulo; remover em seguida.
+ */
+export const removeRedundantMainEdges = repairMainFlowEdges;
+
+/**
+ * Para cada main do frame, devolve os mains do MESMO frame alcançáveis via
+ * BFS pelas edges, atravessando `btn-short`/`btn-long` como nós transparentes.
+ *
+ * `direcionamento`, `condicional` e qualquer outro tipo NÃO são atravessados —
+ * eles são pontos de saída do frame (ou ramificações que merecem tratamento
+ * próprio mais à frente).
+ */
+function buildMainSuccessors(
+  frameMains: FluxoNode[],
+  edges: Edge[],
+  allNodes: FluxoNode[]
+): Map<string, string[]> {
+  const mainIds = new Set(frameMains.map((m) => m.id));
+  const nodeById = new Map(allNodes.map((n) => [n.id, n]));
+  const outAdj = new Map<string, string[]>();
+  for (const e of edges) {
+    if (!outAdj.has(e.source)) outAdj.set(e.source, []);
+    outAdj.get(e.source)!.push(e.target);
+  }
+
+  const succ = new Map<string, string[]>();
+  for (const m of frameMains) {
+    const reached: string[] = [];
+    const seen = new Set<string>([m.id]);
+    const queue: string[] = [m.id];
+    while (queue.length) {
+      const cur = queue.shift()!;
+      for (const next of outAdj.get(cur) ?? []) {
+        if (seen.has(next)) continue;
+        seen.add(next);
+        if (mainIds.has(next)) {
+          if (!reached.includes(next)) reached.push(next);
+          continue; // para em main
+        }
+        const n = nodeById.get(next);
+        if (n?.type && TRANSPARENT_TYPES.has(n.type as FluxoNodeType)) {
+          queue.push(next);
+        }
+        // outros tipos (direcionamento, condicional, tracking, etc.) não propagam
+      }
+    }
+    succ.set(m.id, reached);
+  }
+  return succ;
+}
+
+export interface MainGraphInfo {
+  id: string;
+  code: string;
+  type: string;
+  depth: number;
+  column: number;
+  isLateral: boolean;
+  succ: string[];
+  pred: string[];
+}
+
+/**
+ * Tipos que, quando aparecem como FILHO de uma ramificação E não têm
+ * sucessores próprios (terminal), não contam como branch principal —
+ * representam saídas laterais do fluxo principal. Tipicamente:
+ *  - `condicional`: ponto de decisão lateral (admin/erro/fallback)
+ *  - `atendimento-humano`: transbordo (terminal da automação)
+ *
+ * Esses filhos recebem coluna lateral (negativa, fora do bloco principal)
+ * e o(s) filho(s) conversacional(is) herda(m) a coluna do pai.
+ */
+const LATERAL_MAIN_TYPES = new Set<FluxoNodeType>([
+  'condicional',
+  'atendimento-humano',
+]);
+
+/**
+ * BFS layer-by-layer a partir das raízes do frame. Calcula (depth, column,
+ * isLateral) para cada main:
+ *  - depth: max sobre os predecessores + 1 (lida com merges)
+ *  - column: filhos de branch (>1 sucessor) recebem offsets simétricos
+ *           -⌊N/2⌋..+⌈N/2⌉ APENAS pra filhos conversacionais; laterais
+ *           terminais ficam em coluna negativa fora (não inflam o frame).
+ *           Filho conversacional único herda coluna do pai.
+ *           Merges recebem média das colunas dos predecessores.
+ *  - isLateral: true quando o nó representa saída lateral (cond/hum
+ *               terminal) — usado pra excluir do cálculo de numCols.
+ */
+function computeDiamondLayout(
+  frameMains: FluxoNode[],
+  succ: Map<string, string[]>
+): Map<string, { depth: number; column: number; isLateral: boolean }> {
+  const mainById = new Map(frameMains.map((m) => [m.id, m]));
+  const isLateralTerminal = (id: string): boolean => {
+    const n = mainById.get(id);
+    if (!n?.type) return false;
+    if (!LATERAL_MAIN_TYPES.has(n.type as FluxoNodeType)) return false;
+    return (succ.get(id) ?? []).length === 0;
+  };
+
+  const pred = new Map<string, string[]>();
+  for (const [from, tos] of succ.entries()) {
+    for (const to of tos) {
+      if (!pred.has(to)) pred.set(to, []);
+      pred.get(to)!.push(from);
+    }
+  }
+
+  const roots = frameMains.filter(
+    (m) => !pred.has(m.id) || pred.get(m.id)!.length === 0
+  );
+
+  const depth = new Map<string, number>();
+  const column = new Map<string, number>();
+  const lateral = new Set<string>();
+  const queue: string[] = [];
+  for (const r of roots) {
+    depth.set(r.id, 0);
+    column.set(r.id, 0);
+    queue.push(r.id);
+  }
+
+  // BFS — pode revisitar nodes em caso de merge (atualiza depth=max)
+  let guard = 0;
+  while (queue.length && guard++ < 10000) {
+    const id = queue.shift()!;
+    const d = depth.get(id) ?? 0;
+    const c = column.get(id) ?? 0;
+    const children = succ.get(id) ?? [];
+    if (children.length === 0) continue;
+
+    // Separa filhos em: laterais terminais vs conversacionais
+    const lateralChildren = children.filter(isLateralTerminal);
+    const mainChildren = children.filter((id) => !isLateralTerminal(id));
+
+    // Posiciona filhos conversacionais (branch normal)
+    if (mainChildren.length === 1) {
+      const child = mainChildren[0];
+      const newD = d + 1;
+      if (!depth.has(child) || depth.get(child)! < newD) depth.set(child, newD);
+      if (!column.has(child)) column.set(child, c);
+      queue.push(child);
+    } else if (mainChildren.length > 1) {
+      const N = mainChildren.length;
+      mainChildren.forEach((child, idx) => {
+        const offset = idx - (N - 1) / 2;
+        const newD = d + 1;
+        if (!depth.has(child) || depth.get(child)! < newD) depth.set(child, newD);
+        if (!column.has(child)) column.set(child, c + offset);
+        queue.push(child);
+      });
+    }
+
+    // Posiciona laterais terminais em coluna lateral à ESQUERDA, fora do
+    // bloco principal. Usamos colunas inteiras negativas crescentes
+    // (-2, -3, ...) que mais tarde serão remapeadas pra um offset fixo
+    // (sem espaçamento por DIAMOND_COLUMN_SPACING). A flag isLateral é
+    // o que sinaliza pro reposicionamento usar essa lógica.
+    lateralChildren.forEach((child, idx) => {
+      const newD = d + 1;
+      if (!depth.has(child) || depth.get(child)! < newD) depth.set(child, newD);
+      if (!column.has(child)) column.set(child, -2 - idx);
+      lateral.add(child);
+    });
+  }
+
+  // Resolução de MERGES: só pra mains conversacionais
+  for (const m of frameMains) {
+    if (lateral.has(m.id)) continue;
+    const ps = pred.get(m.id) ?? [];
+    if (ps.length > 1) {
+      const avg =
+        ps.reduce((s, p) => s + (column.get(p) ?? 0), 0) / ps.length;
+      column.set(m.id, avg);
+    }
+  }
+
+  const out = new Map<
+    string,
+    { depth: number; column: number; isLateral: boolean }
+  >();
+  for (const m of frameMains) {
+    out.set(m.id, {
+      depth: depth.get(m.id) ?? 0,
+      column: column.get(m.id) ?? 0,
+      isLateral: lateral.has(m.id),
+    });
+  }
+  return out;
+}
+
+/**
+ * Empacota dados estruturados pra log/inspeção visual durante o passo de
+ * validação do layout em diamante.
+ */
+function buildMainGraphReport(
+  frameMains: FluxoNode[],
+  succ: Map<string, string[]>,
+  layout: Map<
+    string,
+    { depth: number; column: number; isLateral: boolean }
+  >
+): MainGraphInfo[] {
+  const pred = new Map<string, string[]>();
+  for (const [from, tos] of succ.entries()) {
+    for (const to of tos) {
+      if (!pred.has(to)) pred.set(to, []);
+      pred.get(to)!.push(from);
+    }
+  }
+  const codeOf = (id: string): string => {
+    const n = frameMains.find((m) => m.id === id);
+    return (n?.data?.code as string | undefined) ?? id.slice(0, 6);
+  };
+  return frameMains
+    .map((m) => ({
+      id: m.id,
+      code: (m.data?.code as string | undefined) ?? m.id.slice(0, 6),
+      type: m.type ?? '?',
+      depth: layout.get(m.id)?.depth ?? 0,
+      column: layout.get(m.id)?.column ?? 0,
+      isLateral: layout.get(m.id)?.isLateral ?? false,
+      succ: (succ.get(m.id) ?? []).map(codeOf),
+      pred: (pred.get(m.id) ?? []).map(codeOf),
+    }))
+    .sort((a, b) => a.depth - b.depth || a.column - b.column);
+}
+
 /**
  * Reorganiza componentes principais (bubbles, menus, mídias, integrações, IAG)
  * alinhando-os em coluna vertical à direita do frame mais próximo.
@@ -390,12 +940,18 @@ export const LAYOUT_COL_WIDTH = 300;         // (legado)
  * Children (trackings, exceções com parentId) movem automaticamente porque
  * sua position é relativa ao parent.
  *
+ * `edges`: usado pelo cálculo (em validação) do layout em diamante — quando
+ * houver branches/merges entre mains, é a única forma de inferir a topologia.
+ * Por enquanto a função CONTINUA aplicando o layout vertical antigo; o cálculo
+ * de diamante apenas emite `console.log` por frame pra validação visual.
+ *
  * `getMeasured` (opcional): callback que retorna as dimensões REAIS medidas
  * pelo React Flow após o render. Quando fornecido, é preferido sobre os
  * valores aproximados de `APPROX_WIDTH_BY_TYPE` / `APPROX_HEIGHT_BY_TYPE`.
  */
 export function organizeLayoutByFrame(
   nodes: FluxoNode[],
+  edges: Edge[] = [],
   getMeasured?: (id: string) => { w: number; h: number } | undefined
 ): FluxoNode[] {
   // Helper local: usa medições reais quando disponíveis, senão fallback approx.
@@ -431,15 +987,17 @@ export function organizeLayoutByFrame(
       continue;
     }
 
-    const box = measuredBox(m);
-    const cx = box.x + box.w / 2;
-    const cy = box.y + box.h / 2;
-
-    // 1. Tenta containing
-    let target: FluxoNode | undefined = findContainingFrameAt(cx, cy, nodes);
+    // 1. Prioridade SEMÂNTICA: se o main tem code "S001"-like, manda pro
+    //    frame de prefix "S" mesmo que esteja fisicamente em outro lugar.
+    //    Resolve o caso em que blocos foram posicionados (manualmente ou
+    //    por organize antigo) fora do bbox do seu frame conceitual.
+    let target: FluxoNode | undefined = findOwnerFrame(m, nodes);
 
     // 2. Fallback: frame mais próximo (centroid)
     if (!target) {
+      const box = measuredBox(m);
+      const cx = box.x + box.w / 2;
+      const cy = box.y + box.h / 2;
       let minDist = Infinity;
       for (const f of frames) {
         const fbox = measuredBox(f);
@@ -461,6 +1019,110 @@ export function organizeLayoutByFrame(
     }
   }
 
+  // ===========================================================
+  // REASSIGN BY GRAPH — mains sem code prefix herdam frame do
+  // predecessor mapeado (resolve bubble-user/mídia/link/etc.
+  // que ficaram no frame errado pelo containment espacial).
+  // ===========================================================
+  {
+    const nodeByIdLocal = new Map(nodes.map((n) => [n.id, n]));
+    const codeRegex = /^[A-Z]+\d+$/;
+    const hasCodeAnchor = (n: FluxoNode): boolean => {
+      const c = n.data?.code as string | undefined;
+      return !!c && codeRegex.test(c);
+    };
+
+    // predOfMain[m] = lista de mains que apontam pra m (direto ou via btn)
+    const predOfMain = new Map<string, string[]>();
+    // Edges out por source
+    const outBySource = new Map<string, string[]>();
+    for (const e of edges) {
+      if (!outBySource.has(e.source)) outBySource.set(e.source, []);
+      outBySource.get(e.source)!.push(e.target);
+    }
+    const mainIdSet = new Set(mains.map((m) => m.id));
+    for (const m of mains) {
+      // BFS reverso a partir de m via edges, atravessando btns transparentes
+      const reached = new Set<string>();
+      const seen = new Set<string>([m.id]);
+      // Coleta sources que apontam pra m (e atravessa btns)
+      for (const e of edges) {
+        if (e.target !== m.id) continue;
+        const src = nodeByIdLocal.get(e.source);
+        if (!src) continue;
+        if (mainIdSet.has(src.id)) {
+          reached.add(src.id);
+        } else if (TRANSPARENT_TYPES.has(src.type as FluxoNodeType)) {
+          // Sobe pelas edges que apontam pro btn
+          const q = [src.id];
+          while (q.length) {
+            const cur = q.shift()!;
+            if (seen.has(cur)) continue;
+            seen.add(cur);
+            for (const e2 of edges) {
+              if (e2.target !== cur) continue;
+              const ss = nodeByIdLocal.get(e2.source);
+              if (!ss) continue;
+              if (mainIdSet.has(ss.id)) reached.add(ss.id);
+              else if (TRANSPARENT_TYPES.has(ss.type as FluxoNodeType))
+                q.push(ss.id);
+            }
+          }
+        }
+      }
+      predOfMain.set(m.id, [...reached]);
+    }
+
+    // frame inicial de cada main
+    const frameOfMain = new Map<string, string>();
+    for (const [fid, list] of groupByFrame) {
+      for (const m of list) frameOfMain.set(m.id, fid);
+    }
+
+    // Itera: mains SEM code anchor herdam frame do(s) predecessor(es)
+    let changed = true;
+    let iter = 0;
+    while (changed && iter++ < 10) {
+      changed = false;
+      for (const m of mains) {
+        if (hasCodeAnchor(m)) continue;
+        const preds = predOfMain.get(m.id) ?? [];
+        const currentFrame = frameOfMain.get(m.id);
+        // Conta predecessores por frame; escolhe o majoritário
+        const counts = new Map<string, number>();
+        for (const pid of preds) {
+          const pf = frameOfMain.get(pid);
+          if (!pf) continue;
+          counts.set(pf, (counts.get(pf) ?? 0) + 1);
+        }
+        if (counts.size === 0) continue;
+        let bestFrame = currentFrame;
+        let bestCount = currentFrame ? counts.get(currentFrame) ?? 0 : -1;
+        for (const [f, c] of counts) {
+          if (c > bestCount) {
+            bestFrame = f;
+            bestCount = c;
+          }
+        }
+        if (bestFrame && bestFrame !== currentFrame) {
+          // remove de currentFrame, adiciona em bestFrame
+          if (currentFrame) {
+            const lst = groupByFrame.get(currentFrame) ?? [];
+            groupByFrame.set(
+              currentFrame,
+              lst.filter((x) => x.id !== m.id)
+            );
+          }
+          if (!groupByFrame.has(bestFrame))
+            groupByFrame.set(bestFrame, []);
+          groupByFrame.get(bestFrame)!.push(m);
+          frameOfMain.set(m.id, bestFrame);
+          changed = true;
+        }
+      }
+    }
+  }
+
   const next = [...nodes];
   const idxById = new Map<string, number>();
   next.forEach((n, i) => idxById.set(n.id, i));
@@ -476,14 +1138,144 @@ export function organizeLayoutByFrame(
     if (!frame) continue;
     const fbox = measuredBox(frame);
 
+    // ---- DIAMOND LAYOUT (topologia) ----
+    // Calcula grafo + depth/column UMA VEZ por frame. Resultado é usado tanto
+    // pra decidir se entra no modo diamante quanto pra reposicionar de fato.
+    let diamondLayout:
+      | Map<string, { depth: number; column: number; isLateral: boolean }>
+      | undefined;
+    let diamondSucc: Map<string, string[]> | undefined;
+    let diamondPred: Map<string, string[]> | undefined;
+    let useDiamond = false;
+    let diamondMinCol = 0;
+    let diamondMaxCol = 0;
+    let diamondMaxDepth = 0;
+    if (list.length > 1) {
+      diamondSucc = buildMainSuccessors(list, edges, nodes);
+      const totalEdges = [...diamondSucc.values()].reduce(
+        (s, a) => s + a.length,
+        0
+      );
+      if (totalEdges > 0) {
+        diamondLayout = computeDiamondLayout(list, diamondSucc);
+        diamondPred = new Map<string, string[]>();
+        for (const [from, tos] of diamondSucc.entries()) {
+          for (const to of tos) {
+            if (!diamondPred.has(to)) diamondPred.set(to, []);
+            diamondPred.get(to)!.push(from);
+          }
+        }
+        // Branch só conta filhos CONVERSACIONAIS (não-laterais). Se um
+        // main tem 2 filhos onde 1 é lateral terminal (cond/hum), não é
+        // branch — é continuação linear com saída lateral.
+        const mainBranchSucc = new Map<string, string[]>();
+        for (const [from, tos] of diamondSucc.entries()) {
+          mainBranchSucc.set(
+            from,
+            tos.filter((id) => !diamondLayout!.get(id)?.isLateral)
+          );
+        }
+        const hasBranch = [...mainBranchSucc.values()].some((s) => s.length > 1);
+        const hasMerge = [...diamondPred.values()].some((p) => p.length > 1);
+        useDiamond = hasBranch || hasMerge;
+        // Cols pra cálculo de width: apenas mains não-laterais
+        const mainCols = [...diamondLayout.values()]
+          .filter((v) => !v.isLateral)
+          .map((v) => v.column);
+        const depths = [...diamondLayout.values()].map((v) => v.depth);
+        diamondMinCol = mainCols.length ? Math.min(...mainCols) : 0;
+        diamondMaxCol = mainCols.length ? Math.max(...mainCols) : 0;
+        diamondMaxDepth = depths.length ? Math.max(...depths) : 0;
+        if (typeof window !== 'undefined') {
+          const report = buildMainGraphReport(list, diamondSucc, diamondLayout);
+          const frameTitle =
+            (frame.data?.title as string | undefined) ??
+            (frame.data?.frameName as string | undefined) ??
+            resolveFramePrefix(frame);
+          // eslint-disable-next-line no-console
+          console.log(
+            `[diamond] frame="${frameTitle}" mains=${list.length} edges=${totalEdges} useDiamond=${useDiamond}`,
+            report
+          );
+        }
+      }
+    }
+
     // Width máximo do grupo (usado pra calcular o tamanho mínimo do frame)
     const maxW = Math.max(...list.map((m) => measuredBox(m).w));
 
-    // Width NECESSÁRIO do frame: tracking-à-esquerda + bubble + margens
-    // Layout interno: [margem-esquerda] [tracking 240px] [gap 16px] [bubble maxW] [margem-direita]
+    // Largura efetiva ocupada por trackings DESTE frame. Se algum tracking
+    // tem label longo (ex: "baixe_o_nosso_app_na_loja_de_a_exibicao"), sua
+    // largura medida pode passar de TRACKING_WIDTH_APPROX (240). O CSS do
+    // tracking ancora a BORDA DIREITA no bubble.x - GAP, então a pílula
+    // expande pra esquerda — o frame precisa crescer pra contê-la.
+    const frameTrackings = nodes.filter(
+      (n) =>
+        n.type === 'tracking' &&
+        n.parentId &&
+        list.some((m) => m.id === n.parentId)
+    );
+    const trackingMaxW = frameTrackings.reduce(
+      (m, t) => Math.max(m, measuredBox(t).w),
+      TRACKING_WIDTH_APPROX
+    );
+
+    // Largura efetiva ocupada por bubble-user+exceção (dupla horizontal).
+    // Se algum bubble-user do grupo tem exceção filha, a dupla ocupa
+    // (bubble_w + GAP + exceção_w) — verificamos pra garantir que o frame
+    // seja largo o suficiente. Caso contrário, organize repõe o bubble-user
+    // pra direita demais e a exceção vaza pra fora do frame à direita.
+    let userPairMaxW = 0;
+    for (const m of list) {
+      if (m.type !== 'bubble-user') continue;
+      const exc = nodes.find((n) => n.type === 'excecao' && n.parentId === m.id);
+      if (!exc) continue;
+      const w = measuredBox(m).w + EXCECAO_GAP_X + measuredBox(exc).w;
+      if (w > userPairMaxW) userPairMaxW = w;
+    }
+
+    // Width NECESSÁRIO do frame: tracking-à-esquerda + max(bubble, dupla user) + margens
+    // Layout interno: [margem-esquerda] [tracking] [gap] [main] [margem-direita]
+    const contentRightW = Math.max(maxW, userPairMaxW);
     const requiredWidth =
-      24 + TRACKING_WIDTH_APPROX + TRACKING_GAP_X + maxW + LAYOUT_RIGHT_MARGIN;
-    const newWidth = Math.max(400, requiredWidth); // mínimo de 400px
+      24 + trackingMaxW + TRACKING_GAP_X + contentRightW + LAYOUT_RIGHT_MARGIN;
+
+    // Em modo diamante o frame precisa acomodar N colunas + tracking na coluna
+    // mais à esquerda + margem direita.
+    const numCols = useDiamond
+      ? Math.ceil(diamondMaxCol) - Math.floor(diamondMinCol) + 1
+      : 1;
+    const requiredDiamondW = useDiamond
+      ? numCols * DIAMOND_COLUMN_SPACING +
+        trackingMaxW +
+        TRACKING_GAP_X +
+        24 +
+        LAYOUT_RIGHT_MARGIN
+      : 0;
+
+    const desiredWidth = Math.max(400, requiredWidth, requiredDiamondW);
+
+    // CAP POR VIZINHO: o frame não pode crescer além do x do vizinho à
+    // direita (na mesma faixa vertical). Sem esse cap, frames com muitos
+    // branches (ou diamond largo) invadem frames adjacentes.
+    let maxAllowedW = Infinity;
+    const frameTop = fbox.y;
+    const frameBot = fbox.y + Math.max(fbox.h, 200);
+    for (const other of frames) {
+      if (other.id === frame.id) continue;
+      const ob = measuredBox(other);
+      // Só vizinhos à DIREITA (ob.x > fbox.x)
+      if (ob.x <= fbox.x) continue;
+      // Só os que tem overlap em Y com o frame atual
+      const otherTop = ob.y;
+      const otherBot = ob.y + ob.h;
+      const overlap = !(otherBot < frameTop || otherTop > frameBot);
+      if (!overlap) continue;
+      // Margem mínima de respiro entre frames
+      const allowed = ob.x - fbox.x - 24;
+      if (allowed > 0 && allowed < maxAllowedW) maxAllowedW = allowed;
+    }
+    const newWidth = Math.min(desiredWidth, maxAllowedW);
 
     // Borda direita compartilhada por todos os componentes (alinha PELA DIREITA real)
     const rightEdge = fbox.x + newWidth - LAYOUT_RIGHT_MARGIN;
@@ -501,59 +1293,220 @@ export function organizeLayoutByFrame(
     });
 
     let currentY = fbox.y + LAYOUT_TOP_PADDING;
-    for (let mainIdx = 0; mainIdx < list.length; mainIdx++) {
-      const comp = list[mainIdx];
-      const compBox = measuredBox(comp);
-      const i = idxById.get(comp.id);
-      if (i === undefined) continue;
 
-      // X individual: cada componente alinha sua borda direita com rightEdge
-      const origY = comp.position.y; // Y ORIGINAL (antes de reposicionar)
-      next[i] = {
-        ...next[i],
-        position: { x: rightEdge - compBox.w, y: currentY },
+    if (useDiamond && diamondLayout) {
+      // ===========================================================
+      // DIAMOND POSITIONING — mains por (depth, column)
+      // ===========================================================
+      // 1. Altura máxima de cada layer (depth) — todos os mains da
+      //    mesma depth recebem o mesmo Y, calculado pela maior altura.
+      const maxHeightByDepth = new Map<number, number>();
+      for (const m of list) {
+        const lay = diamondLayout.get(m.id);
+        if (!lay) continue;
+        const h = measuredBox(m).h;
+        const cur = maxHeightByDepth.get(lay.depth) ?? 0;
+        if (h > cur) maxHeightByDepth.set(lay.depth, h);
+      }
+
+      // Slot extra entre depths pra caber 1 row de btn-short (quando houver)
+      const BTN_INTERLAYER_SLOT = 50 + LAYOUT_VERTICAL_GAP;
+
+      // 2. Y cumulativo por depth.
+      const yByDepth = new Map<number, number>();
+      let y = fbox.y + LAYOUT_TOP_PADDING;
+      for (let d = 0; d <= diamondMaxDepth; d++) {
+        yByDepth.set(d, y);
+        y +=
+          (maxHeightByDepth.get(d) ?? 0) +
+          LAYOUT_VERTICAL_GAP +
+          BTN_INTERLAYER_SLOT;
+      }
+
+      // 3. Centro horizontal do frame (coluna 0 = centro)
+      const frameCenterX = fbox.x + newWidth / 2;
+
+      // 4. Posicionar mains.
+      // Laterais (cond/hum terminais) ficam à ESQUERDA, em coluna lateral
+      // fixa colada na borda do frame, sem ocupar espaço do bloco principal.
+      const LATERAL_X_OFFSET = 16;
+      const lateralByDepth = new Map<number, number>(); // contador pra empilhar
+      for (const m of list) {
+        const lay = diamondLayout.get(m.id);
+        const i = idxById.get(m.id);
+        if (!lay || i === undefined) continue;
+        const compBox = measuredBox(m);
+        const yPos = yByDepth.get(lay.depth) ?? fbox.y + LAYOUT_TOP_PADDING;
+
+        let x: number;
+        if (lay.isLateral) {
+          // Empilha laterais lado a lado (se houver vários no mesmo depth)
+          const slot = lateralByDepth.get(lay.depth) ?? 0;
+          lateralByDepth.set(lay.depth, slot + 1);
+          x = fbox.x + LATERAL_X_OFFSET + slot * (compBox.w + 12);
+        } else {
+          x = frameCenterX + lay.column * DIAMOND_COLUMN_SPACING - compBox.w / 2;
+        }
+
+        // Preserva tratamento da exceção horizontal do bubble-user
+        const excChild =
+          m.type === 'bubble-user'
+            ? nodes.find((n) => n.type === 'excecao' && n.parentId === m.id)
+            : undefined;
+        next[i] = { ...next[i], position: { x, y: yPos } };
+        if (excChild) {
+          const ei = idxById.get(excChild.id);
+          if (ei !== undefined) {
+            next[ei] = {
+              ...next[ei],
+              position: { x: compBox.w + EXCECAO_GAP_X, y: 0 },
+            };
+          }
+        }
+      }
+
+      // 5. btn-shorts: cada btn na coluna do filho-main correspondente,
+      //    Y centralizado no slot entre o main pai e o main filho.
+      const edgeBySource = new Map<string, string[]>();
+      const edgeByTarget = new Map<string, string[]>();
+      for (const e of edges) {
+        if (!edgeBySource.has(e.source)) edgeBySource.set(e.source, []);
+        edgeBySource.get(e.source)!.push(e.target);
+        if (!edgeByTarget.has(e.target)) edgeByTarget.set(e.target, []);
+        edgeByTarget.get(e.target)!.push(e.source);
+      }
+      const mainSet = new Set(list.map((m) => m.id));
+      const nodeById = new Map(nodes.map((n) => [n.id, n]));
+
+      const findMainEndpoint = (
+        startId: string,
+        direction: 'fwd' | 'back'
+      ): string | undefined => {
+        const adj = direction === 'fwd' ? edgeBySource : edgeByTarget;
+        const seen = new Set<string>([startId]);
+        const q: string[] = [...(adj.get(startId) ?? [])];
+        while (q.length) {
+          const cur = q.shift()!;
+          if (seen.has(cur)) continue;
+          seen.add(cur);
+          if (mainSet.has(cur)) return cur;
+          const n = nodeById.get(cur);
+          if (n?.type && TRANSPARENT_TYPES.has(n.type as FluxoNodeType)) {
+            for (const next of adj.get(cur) ?? []) q.push(next);
+          }
+        }
+        return undefined;
       };
 
-      // Gap normal entre componentes — se bubble-user tem exceção child,
-      // somar a altura extra (exceção ABAIXO ocupa EXCECAO_REL_Y + ~50px)
-      let extraGap = 0;
-      if (comp.type === 'bubble-user') {
-        const hasExcecao = nodes.some(
-          (n) => n.type === 'excecao' && n.parentId === comp.id
-        );
-        if (hasExcecao) extraGap = EXCECAO_REL_Y + 50 - compBox.h;
-      }
-      currentY += compBox.h + Math.max(0, extraGap) + LAYOUT_VERTICAL_GAP;
+      for (const b of frameBtnShorts) {
+        const childMainId = findMainEndpoint(b.id, 'fwd');
+        if (!childMainId) continue;
+        const childLay = diamondLayout.get(childMainId);
+        if (!childLay) continue;
+        const parentMainId = findMainEndpoint(b.id, 'back');
+        const parentLay = parentMainId
+          ? diamondLayout.get(parentMainId)
+          : undefined;
 
-      // INLINE btn-shorts: encontra os btns cuja posição original estava
-      // ENTRE este main e o próximo. Coloca em row logo após o main.
-      // Heurística: btn.y >= main.origY && (sem próximo OU btn.y < próximo.origY)
-      const nextOrigY =
-        mainIdx + 1 < list.length ? list[mainIdx + 1].position.y : Infinity;
-      const inlineBtns = frameBtnShorts
-        .filter((b) => b.position.y >= origY && b.position.y < nextOrigY)
-        .sort((a, b) => a.position.x - b.position.x);
-
-      if (inlineBtns.length > 0) {
         const BTN_W = 130;
         const BTN_H = 50;
-        const GAP_X = 12;
-        const cols = inlineBtns.length;
-        const totalW = cols * BTN_W + (cols - 1) * GAP_X;
-        const startX = fbox.x + (newWidth - totalW) / 2;
+        const childX =
+          frameCenterX + childLay.column * DIAMOND_COLUMN_SPACING;
+        const btnX = childX - BTN_W / 2;
+        const childY = yByDepth.get(childLay.depth) ?? 0;
 
-        inlineBtns.forEach((b, idx) => {
-          const bi = idxById.get(b.id);
-          if (bi === undefined) return;
-          next[bi] = {
-            ...next[bi],
-            position: {
-              x: startX + idx * (BTN_W + GAP_X),
-              y: currentY,
-            },
+        let btnY: number;
+        if (parentLay) {
+          const parentY = yByDepth.get(parentLay.depth) ?? 0;
+          const parentH = maxHeightByDepth.get(parentLay.depth) ?? 0;
+          const slotTop = parentY + parentH + LAYOUT_VERTICAL_GAP;
+          const slotBot = childY - LAYOUT_VERTICAL_GAP;
+          btnY = slotTop + Math.max(0, (slotBot - slotTop - BTN_H) / 2);
+        } else {
+          btnY = childY - BTN_H - LAYOUT_VERTICAL_GAP;
+        }
+
+        const bi = idxById.get(b.id);
+        if (bi !== undefined) {
+          next[bi] = { ...next[bi], position: { x: btnX, y: btnY } };
+        }
+      }
+
+      // Atualiza currentY pra o grid de direcionamentos no fim do frame
+      currentY =
+        (yByDepth.get(diamondMaxDepth) ?? fbox.y + LAYOUT_TOP_PADDING) +
+        (maxHeightByDepth.get(diamondMaxDepth) ?? 0) +
+        LAYOUT_VERTICAL_GAP;
+    } else {
+      // ===========================================================
+      // VERTICAL POSITIONING — mains empilhados, btn-shorts em row
+      // ===========================================================
+      for (let mainIdx = 0; mainIdx < list.length; mainIdx++) {
+        const comp = list[mainIdx];
+        const compBox = measuredBox(comp);
+        const i = idxById.get(comp.id);
+        if (i === undefined) continue;
+
+        // Y ORIGINAL (antes de reposicionar) — usado pra associar btn-shorts
+        const origY = comp.position.y;
+
+        // CASO ESPECIAL: bubble-user com exceção filha = dupla horizontal.
+        const excChild =
+          comp.type === 'bubble-user'
+            ? nodes.find((n) => n.type === 'excecao' && n.parentId === comp.id)
+            : undefined;
+
+        if (excChild) {
+          const excBox = measuredBox(excChild);
+          const pairW = compBox.w + EXCECAO_GAP_X + excBox.w;
+          next[i] = {
+            ...next[i],
+            position: { x: rightEdge - pairW, y: currentY },
           };
-        });
-        currentY += BTN_H + LAYOUT_VERTICAL_GAP;
+          const ei = idxById.get(excChild.id);
+          if (ei !== undefined) {
+            next[ei] = {
+              ...next[ei],
+              position: { x: compBox.w + EXCECAO_GAP_X, y: 0 },
+            };
+          }
+        } else {
+          next[i] = {
+            ...next[i],
+            position: { x: rightEdge - compBox.w, y: currentY },
+          };
+        }
+
+        currentY += compBox.h + LAYOUT_VERTICAL_GAP;
+
+        // INLINE btn-shorts entre este main e o próximo (centralizados em row)
+        const nextOrigY =
+          mainIdx + 1 < list.length ? list[mainIdx + 1].position.y : Infinity;
+        const inlineBtns = frameBtnShorts
+          .filter((b) => b.position.y >= origY && b.position.y < nextOrigY)
+          .sort((a, b) => a.position.x - b.position.x);
+
+        if (inlineBtns.length > 0) {
+          const BTN_W = 130;
+          const BTN_H = 50;
+          const GAP_X = 12;
+          const cols = inlineBtns.length;
+          const totalW = cols * BTN_W + (cols - 1) * GAP_X;
+          const startX = fbox.x + (newWidth - totalW) / 2;
+
+          inlineBtns.forEach((b, idx) => {
+            const bi = idxById.get(b.id);
+            if (bi === undefined) return;
+            next[bi] = {
+              ...next[bi],
+              position: {
+                x: startX + idx * (BTN_W + GAP_X),
+                y: currentY,
+              },
+            };
+          });
+          currentY += BTN_H + LAYOUT_VERTICAL_GAP;
+        }
       }
     }
 
@@ -564,13 +1517,14 @@ export function organizeLayoutByFrame(
       .filter((n) => {
         if (n.parentId) return false;
         if (!n.type || !GRID_FLOW_TYPES.has(n.type as FluxoNodeType)) return false;
-        const box = measuredBox(n);
-        const cx = box.x + box.w / 2;
-        const cy = box.y + box.h / 2;
-        const containing = findContainingFrameAt(cx, cy, nodes);
-        if (containing?.id === frame.id) return true;
-        // Também aceita "mais próximo" pra direcionamentos que escaparam
-        if (!containing && frames.length > 0) {
+        // Prefere ownership por code (direcionamentos têm code, ex: "S005")
+        const owner = findOwnerFrame(n, nodes);
+        if (owner?.id === frame.id) return true;
+        // Fallback: frame mais próximo por centroid pra órfãos sem code
+        if (!owner && frames.length > 0) {
+          const box = measuredBox(n);
+          const cx = box.x + box.w / 2;
+          const cy = box.y + box.h / 2;
           let minDist = Infinity;
           let nearest: FluxoNode | undefined;
           for (const f of frames) {
@@ -594,11 +1548,15 @@ export function organizeLayoutByFrame(
       );
 
     if (gridItems.length > 0) {
-      // ITEM_W reduzido de 230 → 145 pra permitir 4 colunas em frame estreito
-      // (676px). Direcionamentos com label curto cabem sem overflow; labels
-      // longos (ex: "Cartão de crédito") podem encostar, mas é aceitável
-      // visualmente (espelha o layout manual do usuário).
-      const ITEM_W = 145;
+      // Largura por item: usa max measurado entre os items do grid, com piso
+      // de 145 (caso measured não venha ainda) e teto suave de 260. Garante
+      // que direcionamentos com label longo (ex: "Cartão de crédito") não
+      // sobreponham o vizinho de coluna.
+      const measuredMaxW = Math.max(
+        145,
+        ...gridItems.map((g) => measuredBox(g).w)
+      );
+      const ITEM_W = Math.min(260, measuredMaxW);
       const ITEM_H = 50;
       const GAP_X = 12;
       const GAP_Y = 8;

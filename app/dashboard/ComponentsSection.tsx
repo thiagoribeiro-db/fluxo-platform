@@ -1,12 +1,17 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   createComponentSpec,
   updateComponentSpec,
   deleteComponentSpec,
   cloneComponentSpec,
+  exportSpecsMarkdown,
+  importSpecsMarkdownDiff,
+  applySpecsImport,
   type ListedSpec,
+  type ImportDiff,
 } from '@/lib/actions/component-specs';
 import type { ComponentSpec } from '@/lib/component-specs/spec-schema';
 
@@ -44,8 +49,82 @@ const CATEGORY_ORDER: ComponentSpec['category'][] = [
  * Editor: modal full-screen com formulário pros campos principais do spec.
  */
 export default function ComponentsSection({ specs }: ComponentsSectionProps) {
+  const router = useRouter();
   const [editing, setEditing] = useState<ListedSpec | null>(null);
   const [creating, setCreating] = useState(false);
+  // ---- Export/Import state ----
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importDiff, setImportDiff] = useState<ImportDiff | null>(null);
+  const [applying, setApplying] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const md = await exportSpecsMarkdown();
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `componentes-${new Date().toISOString().slice(0, 10)}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(
+        'Falha ao exportar: ' + (e instanceof Error ? e.message : String(e))
+      );
+    }
+    setExporting(false);
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const diff = await importSpecsMarkdownDiff(text);
+      setImportDiff(diff);
+    } catch (err) {
+      alert(
+        'Falha ao parsear: ' +
+          (err instanceof Error ? err.message : String(err))
+      );
+    }
+    setImporting(false);
+    // reset pra permitir re-importar o mesmo arquivo se necessário
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  async function handleApplyImport() {
+    if (!importDiff) return;
+    setApplying(true);
+    try {
+      const toUpdateMin = importDiff.toUpdate.map((u) => ({
+        id: u.id,
+        merged: u.merged,
+      }));
+      const res = await applySpecsImport(importDiff.toCreate, toUpdateMin);
+      if (res.errors.length > 0) {
+        alert(
+          `Aplicado com erros:\n\n${res.errors.join('\n')}\n\nCriados: ${res.created} · Atualizados: ${res.updated}`
+        );
+      } else {
+        alert(`✓ ${res.created} criados, ${res.updated} atualizados.`);
+      }
+      setImportDiff(null);
+      router.refresh();
+    } catch (err) {
+      alert(
+        'Falha ao aplicar: ' +
+          (err instanceof Error ? err.message : String(err))
+      );
+    }
+    setApplying(false);
+  }
 
   const totalCount = specs.length;
   const builtinCount = specs.filter((s) => s.source === 'builtin').length;
@@ -86,13 +165,40 @@ export default function ComponentsSection({ specs }: ComponentsSectionProps) {
             )}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className="bg-blip-purple hover:bg-blip-purple-dark text-white px-4 py-2 rounded-lg font-semibold text-sm flex items-center gap-1.5"
-        >
-          <span>+</span> Novo componente
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={exporting}
+            className="border border-gray-300 hover:border-blip-purple/40 hover:text-blip-purple text-gray-700 px-3 py-2 rounded-lg font-semibold text-sm flex items-center gap-1.5 disabled:opacity-50"
+            title="Baixa um .md com todos os specs pra editar fora"
+          >
+            <span>📥</span> {exporting ? 'Exportando…' : 'Exportar'}
+          </button>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className="border border-gray-300 hover:border-blip-purple/40 hover:text-blip-purple text-gray-700 px-3 py-2 rounded-lg font-semibold text-sm flex items-center gap-1.5 disabled:opacity-50"
+            title="Lê um .md editado e mostra o diff antes de aplicar"
+          >
+            <span>📤</span> {importing ? 'Lendo…' : 'Importar'}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".md,.markdown,text/markdown,text/plain"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="bg-blip-purple hover:bg-blip-purple-dark text-white px-4 py-2 rounded-lg font-semibold text-sm flex items-center gap-1.5"
+          >
+            <span>+</span> Novo componente
+          </button>
+        </div>
       </div>
 
       {/* Lista agrupada por categoria */}
@@ -143,7 +249,229 @@ export default function ComponentsSection({ specs }: ComponentsSectionProps) {
           }}
         />
       )}
+
+      {/* Modal de diff de import */}
+      {importDiff && (
+        <ImportDiffModal
+          diff={importDiff}
+          applying={applying}
+          onCancel={() => setImportDiff(null)}
+          onApply={handleApplyImport}
+        />
+      )}
     </section>
+  );
+}
+
+// ============================================================================
+// Modal de diff de import
+// ============================================================================
+
+function ImportDiffModal({
+  diff,
+  applying,
+  onCancel,
+  onApply,
+}: {
+  diff: ImportDiff;
+  applying: boolean;
+  onCancel: () => void;
+  onApply: () => void;
+}) {
+  const totalChanges = diff.toCreate.length + diff.toUpdate.length;
+  const nothingToDo = totalChanges === 0;
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+      onClick={applying ? undefined : onCancel}
+    >
+      <div
+        className="bg-white rounded-xl w-full max-w-2xl shadow-xl max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-6 py-4 border-b border-gray-200 flex items-start justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">
+              📋 Pré-visualização do import
+            </h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Confira o que será criado/atualizado antes de aplicar. Nada é
+              alterado no banco até você clicar em <strong>Aplicar</strong>.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={applying}
+            className="text-gray-400 hover:text-gray-700 text-xl leading-none disabled:opacity-50"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="px-6 py-4 overflow-y-auto flex-1 space-y-4">
+          {/* Avisos do parser */}
+          {diff.warnings.length > 0 && (
+            <DiffSection
+              tone="amber"
+              icon="⚠️"
+              title={`Avisos do parser (${diff.warnings.length})`}
+            >
+              <ul className="space-y-1 text-sm text-amber-900">
+                {diff.warnings.map((w, i) => (
+                  <li key={i}>• {w}</li>
+                ))}
+              </ul>
+            </DiffSection>
+          )}
+
+          {/* A criar */}
+          {diff.toCreate.length > 0 && (
+            <DiffSection
+              tone="emerald"
+              icon="✨"
+              title={`A criar (${diff.toCreate.length})`}
+            >
+              <ul className="space-y-1 text-sm text-emerald-900">
+                {diff.toCreate.map((s) => (
+                  <li key={s.id}>
+                    <code className="font-mono text-xs">{s.id}</code>
+                    {s.displayName && ` — ${s.displayName}`}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-emerald-700 mt-2 italic">
+                Vão ser criados como <strong>customs</strong>. Você pode
+                ajustar nodeType / fields via UI depois.
+              </p>
+            </DiffSection>
+          )}
+
+          {/* A atualizar */}
+          {diff.toUpdate.length > 0 && (
+            <DiffSection
+              tone="purple"
+              icon="✏️"
+              title={`A atualizar (${diff.toUpdate.length})`}
+            >
+              <ul className="space-y-2 text-sm text-blip-purple-dark">
+                {diff.toUpdate.map((u) => (
+                  <li
+                    key={u.id}
+                    className="border-l-2 border-blip-purple/30 pl-3"
+                  >
+                    <div className="font-mono text-xs">{u.id}</div>
+                    {u.diff.changes.length > 0 && (
+                      <div className="text-xs text-gray-600 mt-0.5">
+                        Campos: {u.diff.changes.join(', ')}
+                      </div>
+                    )}
+                    {Object.keys(u.diff.fieldChanges).length > 0 && (
+                      <div className="text-xs text-gray-600 mt-0.5">
+                        Campos editados:{' '}
+                        {Object.entries(u.diff.fieldChanges)
+                          .map(([n, props]) => `${n} (${props.join('/')})`)
+                          .join(', ')}
+                      </div>
+                    )}
+                    {u.intent === 'create-override' && (
+                      <div className="text-[10px] uppercase font-semibold text-amber-700 mt-0.5">
+                        → vai criar override do builtin
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </DiffSection>
+          )}
+
+          {/* Sem mudanças */}
+          {diff.unchanged.length > 0 && (
+            <DiffSection
+              tone="gray"
+              icon="✓"
+              title={`Sem mudanças (${diff.unchanged.length})`}
+            >
+              <p className="text-xs text-gray-600">
+                {diff.unchanged.join(', ')}
+              </p>
+            </DiffSection>
+          )}
+
+          {/* Ausentes no arquivo */}
+          {diff.missing.length > 0 && (
+            <DiffSection
+              tone="red"
+              icon="🗒"
+              title={`Ausentes no arquivo (${diff.missing.length})`}
+            >
+              <p className="text-sm text-red-900">
+                Esses specs existem hoje mas não estavam no arquivo importado.
+                Eles <strong>NÃO serão deletados</strong> — só estão sendo
+                listados pra revisão:
+              </p>
+              <p className="text-xs text-red-800 mt-2 font-mono">
+                {diff.missing.join(', ')}
+              </p>
+            </DiffSection>
+          )}
+
+          {nothingToDo && diff.warnings.length === 0 && (
+            <p className="text-sm text-gray-500 italic text-center py-8">
+              Tudo igual — nada a aplicar.
+            </p>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={applying}
+            className="px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onApply}
+            disabled={applying || nothingToDo}
+            className="bg-blip-purple hover:bg-blip-purple-dark text-white px-4 py-2 rounded-lg font-semibold text-sm disabled:opacity-50"
+          >
+            {applying ? 'Aplicando…' : `Aplicar (${totalChanges})`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DiffSection({
+  tone,
+  icon,
+  title,
+  children,
+}: {
+  tone: 'emerald' | 'purple' | 'amber' | 'red' | 'gray';
+  icon: string;
+  title: string;
+  children: React.ReactNode;
+}) {
+  const styles: Record<typeof tone, string> = {
+    emerald: 'bg-emerald-50 border-emerald-200',
+    purple: 'bg-blip-purple/5 border-blip-purple/20',
+    amber: 'bg-amber-50 border-amber-200',
+    red: 'bg-red-50 border-red-200',
+    gray: 'bg-gray-50 border-gray-200',
+  };
+  return (
+    <div className={`border rounded-lg p-3 ${styles[tone]}`}>
+      <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-2">
+        <span>{icon}</span> {title}
+      </h3>
+      {children}
+    </div>
   );
 }
 

@@ -29,12 +29,16 @@ import {
   type JumpToFrameDetail,
 } from '@/lib/components/nodes/DirecionamentoNode';
 import {
-  slugify,
+  extractTrackingName,
+  parseTrackingLabel,
   generateNextCodeForPrefix,
   findContainingFrameAt,
   resolveFramePrefix,
   reorganizeCodes,
   organizeLayoutByFrame,
+  repairMainFlowEdges,
+} from '@/lib/components/nodes/helpers';
+import {
   getPositionBelow,
   getRelativePositionLeft,
   APPROX_WIDTH_BY_TYPE,
@@ -50,6 +54,7 @@ import Palette from './Palette';
 import PropertiesPanel from './PropertiesPanel';
 import ShareDialog from './ShareDialog';
 import TemplateDialog from './TemplateDialog';
+import BlipExportDialog from './BlipExportDialog';
 import BottomToolbar from './BottomToolbar';
 import CommentsPanel from './CommentsPanel';
 import PagesSidebar from './PagesSidebar';
@@ -227,6 +232,7 @@ function FlowEditorInner({
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
+  const [blipExportOpen, setBlipExportOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   // Modo de seleção retangular: panOnDrag false, selectionOnDrag true
@@ -530,24 +536,26 @@ function FlowEditorInner({
           t === 'midia-documento-user' ||
           t === 'midia-video-user';
 
-        // Helper: deriva slug do texto/caption/header conforme tipo
-        const getSlug = (n: FluxoNode | undefined): string => {
+        // Helper: deriva NOME CURTO do bloco (pra usar em label de tracking).
+        // Substitui o antigo `getSlug` — agora usa palavras-chave separadas por
+        // ESPAÇO em vez de underscore, e ignora stopwords PT.
+        const getTrackingName = (n: FluxoNode | undefined): string => {
           if (!n) return '';
           const t = n.type as FluxoNodeType;
           if (t === 'bubble-bot' || t === 'bubble-user') {
-            return slugify((n.data.text as string | undefined) ?? '');
+            return extractTrackingName((n.data.text as string | undefined) ?? '');
           }
           if (t === 'menu') {
-            return slugify((n.data.header as string | undefined) ?? '');
+            return extractTrackingName((n.data.header as string | undefined) ?? '');
           }
           if (t?.startsWith('midia-')) {
-            return slugify(
+            return extractTrackingName(
               (n.data.caption as string | undefined) ??
                 (n.data.filename as string | undefined) ??
                 ''
             );
           }
-          return slugify((n.data.label as string | undefined) ?? '');
+          return extractTrackingName((n.data.label as string | undefined) ?? '');
         };
 
         // 3) Auto-connect: se o anterior é flowNode e o novo também → liga
@@ -568,7 +576,7 @@ function FlowEditorInner({
 
         // 4) Tracking auto pra BOT e Menu (children do próprio newNode)
         if (type === 'bubble-bot' || type === 'menu') {
-          const slug = getSlug(newNode);
+          const name = getTrackingName(newNode);
 
           const kinds: string[] =
             type === 'bubble-bot'
@@ -584,7 +592,7 @@ function FlowEditorInner({
                 type: 'tracking',
                 parentId: id,
                 position: getRelativePositionLeft(idx),
-                data: { label: `${slug}_${kind}` },
+                data: { label: `${name} ${kind}` },
               },
             ];
             // SEM edge: tracking é "filho" visual do bubble (via parentId),
@@ -603,7 +611,7 @@ function FlowEditorInner({
             isFlowNode(refNode.type) &&
             !isUserInput(refNode.type)
           ) {
-            const refSlug = getSlug(refNode);
+            const refName = getTrackingName(refNode);
 
             // Conta trackings já filhos do anterior pra empilhar abaixo
             const existingTrackings = nextNodes.filter(
@@ -619,7 +627,7 @@ function FlowEditorInner({
                 type: 'tracking',
                 parentId: refNode.id,
                 position: getRelativePositionLeft(stackIdx),
-                data: { label: `${refSlug}_input` },
+                data: { label: `${refName} input` },
               },
             ];
           }
@@ -689,11 +697,67 @@ function FlowEditorInner({
     (patch: Partial<FluxoNodeData>) => {
       if (!selectedId) return;
       pushHistory();
-      setNodes((prev) =>
-        prev.map((n) =>
-          n.id === selectedId ? { ...n, data: { ...n.data, ...patch } } : n
-        )
-      );
+      setNodes((prev) => {
+        const selected = prev.find((n) => n.id === selectedId);
+        if (!selected) return prev;
+
+        // ----- RE-SYNC de trackings filhos -----
+        // Se o usuário alterou o texto-fonte do nome (bot.text / menu.header /
+        // midia-*.caption), as labels dos trackings filhos auto-gerados
+        // (formato "{nome antigo} {sufixo}") precisam virar
+        // "{nome novo} {sufixo}". Labels que NÃO terminam com sufixo conhecido
+        // (exibicao/selecao/inesperado/input) ficam intactos — assume-se
+        // customização do usuário.
+        const type = selected.type;
+        let oldSource: string | undefined;
+        let newSource: string | undefined;
+        if (
+          (type === 'bubble-bot' || type === 'bubble-user') &&
+          patch.text !== undefined
+        ) {
+          oldSource = (selected.data.text as string | undefined) ?? '';
+          newSource = patch.text as string;
+        } else if (type === 'menu' && patch.header !== undefined) {
+          oldSource = (selected.data.header as string | undefined) ?? '';
+          newSource = patch.header as string;
+        } else if (
+          typeof type === 'string' &&
+          type.startsWith('midia-') &&
+          patch.caption !== undefined
+        ) {
+          oldSource = (selected.data.caption as string | undefined) ?? '';
+          newSource = patch.caption as string;
+        }
+
+        const newName =
+          newSource !== undefined ? extractTrackingName(newSource) : '';
+        const shouldResync =
+          oldSource !== undefined &&
+          newSource !== undefined &&
+          extractTrackingName(oldSource) !== newName;
+
+        return prev.map((n) => {
+          if (n.id === selectedId) {
+            return { ...n, data: { ...n.data, ...patch } };
+          }
+          // Tracking auto-gerado filho do node alterado → re-slug
+          if (
+            shouldResync &&
+            n.type === 'tracking' &&
+            n.parentId === selectedId
+          ) {
+            const currentLabel = n.data.label as string | undefined;
+            if (!currentLabel) return n;
+            const parsed = parseTrackingLabel(currentLabel);
+            if (!parsed) return n; // não casa com formato auto — customizado
+            return {
+              ...n,
+              data: { ...n.data, label: `${newName} ${parsed.suffix}` },
+            };
+          }
+          return n;
+        });
+      });
     },
     [selectedId, setNodes, pushHistory]
   );
@@ -1102,9 +1166,17 @@ function FlowEditorInner({
         return undefined;
       };
 
-      setNodes((prev) => organizeLayoutByFrame(prev, getMeasured));
+      // Conserta o grafo ANTES do organize: conecta btn-shorts órfãos ao
+      // seu main destino e remove edges direct main→main redundantes. O
+      // organize precisa ver o grafo corrigido pra calcular branches/merges.
+      const cleanedEdges = repairMainFlowEdges(edges, nodes);
+      const edgesChanged =
+        cleanedEdges.length !== edges.length ||
+        cleanedEdges.some((e, i) => e.id !== edges[i]?.id);
+      if (edgesChanged) setEdges(cleanedEdges);
+      setNodes((prev) => organizeLayoutByFrame(prev, cleanedEdges, getMeasured));
     },
-    [setNodes, getInternalNode, pushHistory]
+    [setNodes, setEdges, edges, nodes, getInternalNode, pushHistory]
   );
 
   // Auto-organize ao carregar com ?autoOrganize=1 (após aplicar template)
@@ -1322,6 +1394,19 @@ function FlowEditorInner({
                 📐 Organizar layout
               </button>
               <div className="w-px h-4 bg-gray-200" />
+              {!isDemo && !isReadOnly && projectId && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setBlipExportOpen(true)}
+                    className="px-3 py-1 text-xs font-medium text-blip-purple hover:bg-blip-purple/10 rounded"
+                    title="Exporta o projeto como .zip de JSONs compatível com a plataforma Blip"
+                  >
+                    📦 Exportar Blip
+                  </button>
+                  <div className="w-px h-4 bg-gray-200" />
+                </>
+              )}
               <button
                 type="button"
                 onClick={handleOpenTemplateDialog}
@@ -1430,6 +1515,18 @@ function FlowEditorInner({
           projectId={projectId}
           open={templateOpen}
           onClose={() => setTemplateOpen(false)}
+        />
+      )}
+
+      {/* Modal "Exportar Blip" — gera .zip de JSONs por frame */}
+      {!isDemo && !isReadOnly && projectId && blipExportOpen && (
+        <BlipExportDialog
+          projectId={projectId}
+          projectName={projectName ?? 'fluxo'}
+          currentPageId={activePageId ?? undefined}
+          currentNodes={nodes as unknown as FluxoNode[]}
+          currentEdges={edges as unknown as Edge[]}
+          onClose={() => setBlipExportOpen(false)}
         />
       )}
     </div>

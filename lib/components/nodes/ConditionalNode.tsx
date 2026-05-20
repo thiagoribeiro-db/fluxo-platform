@@ -28,7 +28,8 @@ import type { FluxoNode } from '@/lib/types';
  * Quando selecionado: NodeResizer aparece pra ajustar largura e altura.
  * Tamanho persiste em data.width/data.height.
  *
- * NÃO recebe `code` — é ponto de decisão lógica, não unidade emissora.
+ * RECEBE `code` — é unidade endereçável da cascata (ex: no frame "Falar
+ * com atendente", FA001 = "É feriado?", FA003 = "É fim de semana?", etc).
  */
 function ConditionalNode({ id, data, selected }: NodeProps<FluxoNode>) {
   const width = (data.width as number | undefined) ?? 320;

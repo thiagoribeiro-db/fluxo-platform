@@ -22,7 +22,7 @@
  */
 import type { Edge } from '@xyflow/react';
 import type { FluxoNode, ProjectState } from '@/lib/types';
-import { slugify } from '@/lib/components/nodes/helpers';
+import { extractTrackingName } from '@/lib/components/nodes/helpers';
 
 // --------------------------------------------------------------------------
 // Builder helpers
@@ -98,7 +98,7 @@ function bot(
     type: 'tracking',
     parentId: id,
     position: { x: -256, y: 0 },
-    data: { label: `${slugify(text)}_exibicao` },
+    data: { label: `${extractTrackingName(text)} exibicao` },
   });
   if (connectFromLast && ctx.lastFlowId) {
     ctx.edges.push({
@@ -127,7 +127,7 @@ function user(ctx: FrameContext, text: string, pos: { x: number; y: number }): s
       (prev.data?.text as string | undefined) ??
       (prev.data?.header as string | undefined) ??
       '';
-    const slug = slugify(prevText);
+    const name = extractTrackingName(prevText);
     const existing = ctx.nodes.filter(
       (n) => n.type === 'tracking' && n.parentId === prev.id
     );
@@ -136,7 +136,7 @@ function user(ctx: FrameContext, text: string, pos: { x: number; y: number }): s
       type: 'tracking',
       parentId: prev.id,
       position: { x: -256, y: existing.length * 52 },
-      data: { label: `${slug}_input` },
+      data: { label: `${name} input` },
     });
   }
   // Exceção como child do USER, posicionada ABAIXO (não à direita)
@@ -175,14 +175,14 @@ function menu(
     position: pos,
     data: { code, header, options, footer },
   });
-  const slug = slugify(header);
+  const name = extractTrackingName(header);
   ['exibicao', 'selecao', 'inesperado'].forEach((kind, idx) => {
     ctx.nodes.push({
       id: uid('trk'),
       type: 'tracking',
       parentId: id,
       position: { x: -256, y: idx * 52 },
-      data: { label: `${slug}_${kind}` },
+      data: { label: `${name} ${kind}` },
     });
   });
   if (ctx.lastFlowId) {
@@ -219,6 +219,69 @@ function direcionamento(
       animated: true,
     });
   }
+  return id;
+}
+
+/**
+ * Cria um condicional (decisão if/else, 2 saídas TRUE/FALSE).
+ * Por padrão conecta auto a partir do último node — útil pra cascata.
+ */
+function condicional(
+  ctx: FrameContext,
+  condition: string,
+  pos: { x: number; y: number },
+  trueLabel = 'Sim',
+  falseLabel = 'Não',
+  connectFromLast = true
+): string {
+  const id = uid('cond');
+  const code = nextCode(ctx);
+  ctx.nodes.push({
+    id,
+    type: 'condicional',
+    position: pos,
+    data: { code, condition, trueLabel, falseLabel },
+  });
+  if (connectFromLast && ctx.lastFlowId) {
+    ctx.edges.push({
+      id: uid('e'),
+      source: ctx.lastFlowId,
+      target: id,
+      animated: true,
+    });
+  }
+  ctx.lastFlowId = id;
+  return id;
+}
+
+/**
+ * Cria um atendimento-humano (transbordo terminal — caixa laranja).
+ * Geralmente só usado no fim do frame "Falar com atendente" depois das
+ * validações; cenários normais devem direcionar pra "atendente" em vez
+ * de usar esse componente.
+ */
+function atendimentoHumano(
+  ctx: FrameContext,
+  pos: { x: number; y: number },
+  connectFromLast = true,
+  label = 'Início do atendimento humanizado'
+): string {
+  const id = uid('hum');
+  ctx.nodes.push({
+    id,
+    type: 'atendimento-humano',
+    position: pos,
+    data: { label },
+  });
+  if (connectFromLast && ctx.lastFlowId) {
+    ctx.edges.push({
+      id: uid('e'),
+      source: ctx.lastFlowId,
+      target: id,
+      animated: true,
+    });
+  }
+  ctx.lastFlowId = id;
   return id;
 }
 
@@ -317,7 +380,7 @@ function buttonsRow(
         type: 'tracking',
         parentId: sourceId,
         position: { x: -256, y: existing.length * 52 },
-        data: { label: `${slugify(sourceText)}_selecao` },
+        data: { label: `${extractTrackingName(sourceText)} selecao` },
       });
     }
   }
@@ -910,7 +973,20 @@ export function buildVarejoExemploTemplate(): ProjectState {
   }
 
   // ========================================================================
-  // FRAME: Falar com atendente (FA) — termina com direcionamento ao Algo Mais
+  // FRAME: Falar com atendente (FA)
+  //
+  // Padrão Blip/Digitalbot — cascata de 4 condicionais ANTES do
+  // atendimento-humano. Cada condicional tem 2 saídas (TRUE/FALSE) com
+  // sourceHandle explícito:
+  //
+  //   FA001 (cond "feriado?")        TRUE  → FA002 (mensagem feriado)
+  //                                  FALSE → FA003 (cond fim de semana?)
+  //   FA003 (cond "fim de semana?")  TRUE  → FA004 (mensagem fds)
+  //                                  FALSE → FA005 (cond horário?)
+  //   FA005 (cond "horário?")        TRUE  → FA006 (mensagem fora horário)
+  //                                  FALSE → FA007 (cond disponível?)
+  //   FA007 (cond "disponível?")     FALSE → FA008 (mensagem aguarde)
+  //                                  TRUE  → atendimento-humano
   // ========================================================================
   {
     const { ctx } = newFrame({
@@ -919,17 +995,77 @@ export function buildVarejoExemploTemplate(): ProjectState {
       frameId: 'atendente',
       ...positions.atendente,
       width: FW,
-      height: 700,
+      height: 1200,
     });
-    const bx = positions.atendente.x + 400;
+    const bx = positions.atendente.x + 200;
+    const sideX = positions.atendente.x + 600; // mensagens-de-corte à direita
     let y = positions.atendente.y + 80;
 
-    bot(ctx, 'Certo! Vou te direcionar para um dos nossos atendentes.', { x: bx, y });
-    y += 160;
-    bot(ctx, '👤 {Início do atendimento humanizado}', { x: bx, y });
-    y += 180;
+    // helper local pra criar edge com sourceHandle explícito
+    const link = (
+      source: string,
+      target: string,
+      sourceHandle?: 'true' | 'false'
+    ) =>
+      ctx.edges.push({
+        id: uid('e'),
+        source,
+        target,
+        animated: true,
+        ...(sourceHandle ? { sourceHandle } : {}),
+      });
 
-    endWithAlgoMais(ctx, positions.atendente, FW, y);
+    // 1. Feriado? (FA001)
+    const cond1 = condicional(ctx, 'É feriado?', { x: bx, y }, 'Sim', 'Não', false);
+    const botFeriado = bot(
+      ctx,
+      'Agradecemos seu contato. No momento estamos em feriado e não temos atendimento. Tente novamente em horário comercial.',
+      { x: sideX, y: y - 20 },
+      false
+    );
+    link(cond1, botFeriado, 'true');
+    y += 200;
+
+    // 2. Final de semana? (FA003) — entrada vem do FALSE da cond1
+    const cond2 = condicional(ctx, 'É final de semana?', { x: bx, y }, 'Sim', 'Não', false);
+    link(cond1, cond2, 'false');
+    const botFds = bot(
+      ctx,
+      'Agradecemos seu contato. Aos finais de semana não temos atendimento. Tente nos contatar em dias úteis.',
+      { x: sideX, y: y - 20 },
+      false
+    );
+    link(cond2, botFds, 'true');
+    y += 200;
+
+    // 3. Fora do horário? (FA005)
+    const cond3 = condicional(ctx, 'Está fora do horário?', { x: bx, y }, 'Sim', 'Não', false);
+    link(cond2, cond3, 'false');
+    const botFora = bot(
+      ctx,
+      'Agradecemos seu contato. No momento estamos fora do nosso horário de atendimento.',
+      { x: sideX, y: y - 20 },
+      false
+    );
+    link(cond3, botFora, 'true');
+    y += 200;
+
+    // 4. Atendente disponível? (FA007)
+    const cond4 = condicional(ctx, 'Atendente disponível?', { x: bx, y }, 'Sim', 'Não', false);
+    link(cond3, cond4, 'false');
+    const botAguarde = bot(
+      ctx,
+      'Em alguns instantes um atendente fará seu atendimento. Por favor, aguarde.',
+      { x: sideX, y: y - 20 },
+      false
+    );
+    // cond4 FALSE (não tem atendente) → mensagem aguarde
+    link(cond4, botAguarde, 'false');
+    y += 200;
+
+    // 5. Atendimento humano efetivo — cond4 TRUE (tem atendente)
+    const atend = atendimentoHumano(ctx, { x: bx, y }, false);
+    link(cond4, atend, 'true');
 
     allNodes.push(...ctx.nodes);
     allEdges.push(...ctx.edges);

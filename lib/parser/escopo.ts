@@ -20,7 +20,7 @@
  */
 import type { Edge } from '@xyflow/react';
 import type { FluxoNode, ProjectState, FluxoNodeType } from '@/lib/types';
-import { slugify } from '@/lib/components/nodes/helpers';
+import { slugify, extractTrackingName } from '@/lib/components/nodes/helpers';
 
 // --------------------------------------------------------------------------
 // Tokenizer — quebra o texto em "blocos" (seções, mensagens, listas, etc.)
@@ -362,7 +362,7 @@ export function parseEscopoText(text: string): ProjectState {
           type: 'tracking',
           parentId: id,
           position: { x: -256, y: 0 },
-          data: { label: `${slugify(block.text)}_exibicao` },
+          data: { label: `${extractTrackingName(block.text)} exibicao` },
         });
         if (lastFlowId) {
           allEdges.push({
@@ -397,7 +397,7 @@ export function parseEscopoText(text: string): ProjectState {
             type: 'tracking',
             parentId: prev.id,
             position: { x: -256, y: existing.length * 52 },
-            data: { label: `${slugify(prevText)}_input` },
+            data: { label: `${extractTrackingName(prevText)} input` },
           });
         }
         allNodes.push({
@@ -486,7 +486,7 @@ export function parseEscopoText(text: string): ProjectState {
               type: 'tracking',
               parentId: id,
               position: { x: -256, y: k * 52 },
-              data: { label: `selecione_uma_opcao_${kind}` },
+              data: { label: `selecione opcao ${kind}` },
             });
           });
           if (lastFlowId) {

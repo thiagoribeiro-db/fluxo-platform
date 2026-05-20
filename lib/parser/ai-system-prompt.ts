@@ -74,7 +74,70 @@ const FRAMEWORK_FIDELITY_RULES = `# Regras CRÍTICAS de fidelidade
 
 7. **Detecção de mídia inline**: textos entre colchetes \`[...]\` que mencionam "encarte", "foto", "imagem", "PDF", "vídeo", "card" são mídia. Extraia o tipo e a descrição.
 
-8. **Transbordo / atendente humano**: quando o escopo menciona "atendimento humano", "transbordo", "falar com atendente" como AÇÃO (não como item de menu), emita um \`direcionamento\` com target_frame_id="atendente".`;
+8. **Transbordo / atendente humano**: quando o escopo menciona "atendimento humano", "transbordo", "falar com atendente" como AÇÃO em algum cenário, **NUNCA emita o bloco \`atendimento-humano\` inline**. Em vez disso, emita um \`direcionamento\` com \`target_frame_id="atendente"\` apontando pro frame **Falar com atendente** (regra detalhada em #10).
+
+9. **Skills reutilizáveis ("Algo Mais", "Encerramento", "Saudação"):** algumas funcionalidades padrão do bot são SKILLS de frame único, reusadas por TODOS os cenários — não devem ser duplicadas inline. Sempre que o escopo descrever, no fim de um cenário:
+
+   - "Posso te ajudar com algo mais?" / "Algo mais?" / "Mais alguma coisa?"
+   - "Voltar ao menu principal / falar com atendente / finalizar" como opções pós-conclusão
+
+   ❌ NÃO emita \`bot "Posso te ajudar com algo mais?"\` + dirs ("Algo Mais", "Não/encerrar") DENTRO do cenário.
+
+   ✅ Emita APENAS UM \`direcionamento\` com \`label: "Algo Mais"\` e \`target_frame_id: "algo-mais"\` (apontando pro frame de skill).
+
+   E garanta que o JSON tenha UM frame separado dedicado, ex:
+   \`\`\`json
+   {
+     "title": "Algo Mais",
+     "prefix": "AM",
+     "frame_id": "algo-mais",
+     "blocks": [
+       { "kind": "bot", "text": "Posso te ajudar com algo mais?" },
+       { "kind": "direcionamento", "label": "Voltar ao menu", "target_frame_id": "saudacao" },
+       { "kind": "direcionamento", "label": "Falar com atendente", "target_frame_id": "atendente" },
+       { "kind": "direcionamento", "label": "Finalizar", "target_frame_id": "encerramento" }
+     ]
+   }
+   \`\`\`
+
+   A mesma lógica vale pra outras skills reutilizáveis (Encerramento → frame_id="encerramento", Saudação → "saudacao"). Cada uma é UM frame único; os cenários só direcionam pra elas.
+
+10. **Frame "Falar com atendente" com cascata de validações**: o frame \`atendente\` (prefix "FA") tem estrutura padronizada — NÃO é só um \`atendimento-humano\` direto. Antes do transbordo, emita 4 validações \`condicional\` em cascata, NESTA ORDEM:
+
+    1. \`condicional\` com \`condition: "É feriado?"\`, \`true_label: "Sim"\`, \`false_label: "Não"\`
+       - **TRUE**: \`bot\` "Agradecemos seu contato. No momento estamos em feriado e não temos atendimento disponível. Tente novamente em horário comercial." → terminar
+       - **FALSE**: próxima validação
+    2. \`condicional\` "É final de semana?"
+       - TRUE: bot "Agradecemos seu contato. Aos finais de semana não temos atendimento. Tente em dias úteis." → terminar
+       - FALSE: próxima
+    3. \`condicional\` "Está fora do horário de atendimento?"
+       - TRUE: bot "Agradecemos seu contato. Estamos fora do nosso horário de atendimento." → terminar
+       - FALSE: próxima
+    4. \`condicional\` "Atendente disponível?"
+       - FALSE: bot "Em alguns instantes um atendente fará seu atendimento. Por favor aguarde." → terminar
+       - TRUE: \`atendimento-humano\` (= transbordo efetivo)
+
+    Exemplo JSON resumido:
+    \`\`\`json
+    {
+      "title": "Falar com atendente",
+      "prefix": "FA",
+      "frame_id": "atendente",
+      "blocks": [
+        { "kind": "condicional", "condition": "É feriado?", "true_label": "Sim", "false_label": "Não" },
+        { "kind": "bot", "text": "Agradecemos seu contato. Estamos em feriado e não temos atendimento disponível." },
+        { "kind": "condicional", "condition": "É final de semana?", "true_label": "Sim", "false_label": "Não" },
+        { "kind": "bot", "text": "Agradecemos seu contato. Aos finais de semana não temos atendimento." },
+        { "kind": "condicional", "condition": "Está fora do horário?", "true_label": "Sim", "false_label": "Não" },
+        { "kind": "bot", "text": "Agradecemos seu contato. Estamos fora do horário de atendimento." },
+        { "kind": "condicional", "condition": "Atendente disponível?", "true_label": "Sim", "false_label": "Não" },
+        { "kind": "bot", "text": "Em alguns instantes um atendente fará seu atendimento. Aguarde." },
+        { "kind": "atendimento-humano" }
+      ]
+    }
+    \`\`\`
+
+    **Sempre crie este frame FA quando o fluxo tem qualquer ponto de transbordo**, mesmo se o escopo não descrever explicitamente as 4 validações. Elas são padrão obrigatório do framework Blip/Digitalbot.`;
 
 const FRAMEWORK_EDGE_CASES = `# Casos extremos
 
@@ -165,8 +228,34 @@ Bot: Posso te ajudar com algo mais?
         { "kind": "buttons", "options": ["Pernambuco", "Paraíba"] },
         { "kind": "media", "media_kind": "documento", "sender": "bot", "caption": "Encarte Pernambuco" },
         { "kind": "media", "media_kind": "documento", "sender": "bot", "caption": "Encarte Paraíba" },
-        { "kind": "bot", "text": "Posso te ajudar com algo mais?" },
         { "kind": "direcionamento", "label": "Algo Mais", "target_frame_id": "algo-mais" }
+      ]
+    },
+    {
+      "title": "Algo Mais",
+      "prefix": "AM",
+      "frame_id": "algo-mais",
+      "blocks": [
+        { "kind": "bot", "text": "Posso te ajudar com algo mais?" },
+        { "kind": "direcionamento", "label": "Voltar ao menu", "target_frame_id": "saudacao" },
+        { "kind": "direcionamento", "label": "Falar com atendente", "target_frame_id": "atendente" },
+        { "kind": "direcionamento", "label": "Finalizar", "target_frame_id": "encerramento" }
+      ]
+    },
+    {
+      "title": "Falar com atendente",
+      "prefix": "FA",
+      "frame_id": "atendente",
+      "blocks": [
+        { "kind": "condicional", "condition": "É feriado?", "true_label": "Sim", "false_label": "Não" },
+        { "kind": "bot", "text": "Agradecemos seu contato. Estamos em feriado e não temos atendimento disponível. Tente em horário comercial." },
+        { "kind": "condicional", "condition": "É final de semana?", "true_label": "Sim", "false_label": "Não" },
+        { "kind": "bot", "text": "Agradecemos seu contato. Aos finais de semana não temos atendimento." },
+        { "kind": "condicional", "condition": "Está fora do horário?", "true_label": "Sim", "false_label": "Não" },
+        { "kind": "bot", "text": "Agradecemos seu contato. Estamos fora do horário de atendimento." },
+        { "kind": "condicional", "condition": "Atendente disponível?", "true_label": "Sim", "false_label": "Não" },
+        { "kind": "bot", "text": "Em alguns instantes um atendente fará seu atendimento. Aguarde." },
+        { "kind": "atendimento-humano" }
       ]
     }
   ],
@@ -181,7 +270,9 @@ Note que:
 - "Em seguida, exibe o menu" não vira um bloco — é narrativa explicando o que segue
 - "(Observação: tom amigável...)" foi pra \`notes\`
 - Cada opção do menu gerou um \`direcionamento\` correspondente
-- "Cenário 1: Ofertas" virou um frame com prefix="OF"`;
+- "Cenário 1: Ofertas" virou um frame com prefix="OF"
+- **"Posso te ajudar com algo mais?" NÃO ficou no cenário Ofertas** — virou direcionamento → frame "Algo Mais", que é uma SKILL reutilizável separada (regra de fidelidade #9)
+- **"Falar com atendente" (opção do menu) gerou o frame FA** com cascata de 4 condicionais antes do \`atendimento-humano\`, mesmo o escopo não descrevendo isso explicitamente — é padrão obrigatório do Blip/Digitalbot (regra #10). Mesma coisa quando algum cenário tem AÇÃO de transbordo: ele direciona pra FA, NUNCA emite \`atendimento-humano\` inline`;
 
 /**
  * System prompt completo, montado a partir do framework + specs em YAML.

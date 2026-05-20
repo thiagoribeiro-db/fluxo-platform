@@ -16,6 +16,14 @@ import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { loadBuiltinSpecs } from '@/lib/component-specs/loader';
 import type { ComponentSpec } from '@/lib/component-specs/spec-schema';
+import {
+  specsToMarkdown,
+  parseMarkdownSpecs,
+  mergeIntoSpec,
+  diffSpec,
+  type ParsedSpec,
+  type SpecDiff,
+} from '@/lib/component-specs/markdown';
 
 /**
  * Linha do DB serializada com o spec dentro de `data`.
@@ -310,4 +318,145 @@ export async function cloneComponentSpec(
 
   revalidatePath('/dashboard');
   return { id: data.id };
+}
+
+// =============================================================================
+// EXPORT / IMPORT (markdown)
+// =============================================================================
+
+/**
+ * Exporta TODOS os specs (builtins + overrides + customs) em um único
+ * markdown human-readable. Usado pelo botão "Exportar" da dashboard.
+ */
+export async function exportSpecsMarkdown(): Promise<string> {
+  const listed = await listComponentSpecs();
+  const specs = listed.map((l) => l.data);
+  return specsToMarkdown(specs);
+}
+
+// Tipo retornado pelo diff: pra UI mostrar antes de aplicar.
+export interface ImportDiff {
+  /** Specs novos (id inexistente) — serão criados como CUSTOM. */
+  toCreate: ParsedSpec[];
+  /** Specs que existem e mudaram (incluindo qual override/custom criar). */
+  toUpdate: Array<{
+    id: string;
+    merged: ComponentSpec;
+    diff: SpecDiff;
+    /** O que vai acontecer no apply: 'create-override' | 'update-row'. */
+    intent: 'create-override' | 'update-row';
+  }>;
+  /** Specs presentes mas sem alterações detectadas. */
+  unchanged: string[];
+  /** Specs que existem no DB/builtins mas NÃO estão no arquivo. NÃO são deletados — só listados pra revisão. */
+  missing: string[];
+  /** Avisos do parser (header não reconhecido, etc). */
+  warnings: string[];
+}
+
+/**
+ * Parseia o markdown enviado pelo usuário e retorna o DIFF contra o estado
+ * atual. NÃO escreve nada no DB — só calcula.
+ *
+ * O caller (UI) mostra o diff, o usuário confirma, e aí chama `applySpecsImport`.
+ */
+export async function importSpecsMarkdownDiff(md: string): Promise<ImportDiff> {
+  const { specs: parsed, warnings } = parseMarkdownSpecs(md);
+
+  const listed = await listComponentSpecs();
+  const existingMap = new Map(listed.map((l) => [l.data.id, l]));
+  const builtinIds = new Set(loadBuiltinSpecs().map((b) => b.id));
+
+  const importedIds = new Set(parsed.map((p) => p.id));
+
+  const toCreate: ParsedSpec[] = [];
+  const toUpdate: ImportDiff['toUpdate'] = [];
+  const unchanged: string[] = [];
+
+  for (const p of parsed) {
+    const exist = existingMap.get(p.id);
+    if (!exist) {
+      toCreate.push(p);
+      continue;
+    }
+    const merged = mergeIntoSpec(exist.data, p);
+    const d = diffSpec(exist.data, merged);
+    if (d.changes.length === 0 && Object.keys(d.fieldChanges).length === 0) {
+      unchanged.push(p.id);
+    } else {
+      const intent: 'create-override' | 'update-row' =
+        exist.source === 'builtin' && builtinIds.has(p.id)
+          ? 'create-override'
+          : 'update-row';
+      toUpdate.push({ id: p.id, merged, diff: d, intent });
+    }
+  }
+
+  const missing: string[] = [];
+  for (const l of listed) {
+    if (!importedIds.has(l.data.id)) {
+      missing.push(l.data.id);
+    }
+  }
+
+  return { toCreate, toUpdate, unchanged, missing, warnings };
+}
+
+/**
+ * Aplica o resultado do diff. Recebe arrays exatos do que criar/atualizar
+ * (o caller pode filtrar antes se quiser).
+ *
+ * NÃO deleta nada — `missing` é só informacional.
+ */
+export async function applySpecsImport(
+  toCreate: ParsedSpec[],
+  toUpdate: Array<{ id: string; merged: ComponentSpec }>
+): Promise<{ created: number; updated: number; errors: string[] }> {
+  const errors: string[] = [];
+  let created = 0;
+  let updated = 0;
+
+  // CREATE — specs novos viram CUSTOM com nodeType padrão se não foi inferido.
+  for (const p of toCreate) {
+    const newSpec: ComponentSpec = {
+      id: p.id,
+      displayName: p.displayName ?? p.id,
+      icon: p.icon ?? '🧩',
+      category: (p.category as ComponentSpec['category']) ?? 'auto',
+      // nodeType é REQUIRED — se o parser não pegou, usa fallback que o
+      // usuário pode corrigir depois via UI.
+      nodeType: ((p.nodeType as ComponentSpec['nodeType']) ?? 'bubble-bot'),
+      flowControl: (p.flowControl as ComponentSpec['flowControl']) ?? 'linear',
+      description: p.description ?? '',
+      detectionCues: p.detectionCues,
+      usageRules: p.usageRules,
+      commonMistakes: p.commonMistakes,
+      aiInstructions: p.aiInstructions,
+    };
+    try {
+      await createComponentSpec(newSpec);
+      created++;
+    } catch (e) {
+      errors.push(
+        `Criar "${p.id}": ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
+  }
+
+  // UPDATE — usa o updateComponentSpec existente, que já lida com
+  // override de builtin OU update de custom transparentemente.
+  for (const u of toUpdate) {
+    try {
+      await updateComponentSpec(u.id, u.merged);
+      updated++;
+    } catch (e) {
+      errors.push(
+        `Atualizar "${u.id}": ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
+  }
+
+  revalidatePath('/dashboard');
+  revalidatePath('/dashboard/components');
+  return { created, updated, errors };
 }

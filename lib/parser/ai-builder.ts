@@ -16,7 +16,13 @@
  */
 import type { Edge } from '@xyflow/react';
 import type { FluxoNode, ProjectState, FluxoNodeType } from '@/lib/types';
-import { slugify } from '@/lib/components/nodes/helpers';
+import {
+  extractTrackingName,
+  EXCECAO_REL_X,
+  EXCECAO_REL_Y,
+  EXCECAO_GAP_X,
+  EXCECAO_APPROX_WIDTH,
+} from '@/lib/components/nodes/helpers';
 import type { AIBlock, AIFrame, AIParseResult } from './ai-schema';
 
 // =============================================================================
@@ -46,7 +52,11 @@ const FRAME_PADDING_BOTTOM = 50;
 
 // X dos blocos relativos ao frame
 const BOT_COL_X = 280; // bot bubble offset da esquerda do frame
-const USER_OFFSET_FROM_RIGHT = 300; // user fica a 300px da direita do frame
+// User fica a ESQUERDA do que ficaria sem exceção, pra que a DUPLA
+// [bubble-user][gap][exceção] termine alinhada com a borda direita do frame.
+// Reserva = EXCECAO_APPROX_WIDTH + EXCECAO_GAP_X. O `organize` recalcula com
+// largura medida depois — esse valor inicial é só pra render pré-organize.
+const USER_OFFSET_FROM_RIGHT = 300 + EXCECAO_APPROX_WIDTH + EXCECAO_GAP_X;
 const TRACKING_OFFSET_X = -256; // tracking fica à esquerda do parent (relativo)
 
 // Alturas que cada bloco ADICIONA ao cursor Y (não é a altura visual real do
@@ -118,7 +128,7 @@ function emitBot(ctx: BuildContext, text: string, connectFromLast = true): strin
     type: 'tracking',
     parentId: id,
     position: { x: TRACKING_OFFSET_X, y: 0 },
-    data: { label: `${slugify(text)}_exibicao` },
+    data: { label: `${extractTrackingName(text)} exibicao` },
   });
   if (connectFromLast && ctx.lastFlowId) {
     ctx.edges.push({
@@ -160,15 +170,15 @@ function emitUser(ctx: BuildContext, text: string): string {
       type: 'tracking',
       parentId: prev.id,
       position: { x: TRACKING_OFFSET_X, y: existingChildren.length * 52 },
-      data: { label: `${slugify(prevText)}_input` },
+      data: { label: `${extractTrackingName(prevText)} input` },
     });
   }
-  // Exceção como child do user (abaixo, não à direita)
+  // Exceção como child do user (à DIREITA, mesmo Y — dupla horizontal)
   ctx.nodes.push({
     id: uid('exc'),
     type: 'excecao',
     parentId: id,
-    position: { x: 0, y: 140 },
+    position: { x: EXCECAO_REL_X, y: EXCECAO_REL_Y },
     data: { label: 'Exceção / Fallback' },
   });
   if (ctx.lastFlowId) {
@@ -197,14 +207,14 @@ function emitMenu(
     position: { x: ctx.bx, y: ctx.y },
     data: { code: nextCode(ctx), header, options, footer },
   });
-  const slug = slugify(header);
+  const name = extractTrackingName(header);
   ['exibicao', 'selecao', 'inesperado'].forEach((kind, idx) => {
     ctx.nodes.push({
       id: uid('trk'),
       type: 'tracking',
       parentId: id,
       position: { x: TRACKING_OFFSET_X, y: idx * 52 },
-      data: { label: `${slug}_${kind}` },
+      data: { label: `${name} ${kind}` },
     });
   });
   if (ctx.lastFlowId) {
@@ -246,7 +256,7 @@ function emitButtonsRow(
         type: 'tracking',
         parentId: sourceId,
         position: { x: TRACKING_OFFSET_X, y: existing.length * 52 },
-        data: { label: `${slugify(srcText)}_selecao` },
+        data: { label: `${extractTrackingName(srcText)} selecao` },
       });
     }
   }
@@ -397,12 +407,14 @@ function emitCondicional(
   ctx: BuildContext,
   condition: string,
   trueLabel: string,
-  falseLabel: string
+  falseLabel: string,
+  options: { connectFromLast?: boolean } = {}
 ): string {
   const id = uid('cond');
   const condW = 320; // largura default do varal (resizable pelo usuário)
   const condH = 44;
-  // Condicional NÃO recebe code — é ponto de decisão lógica, não unidade.
+  // Condicional RECEBE code — é unidade endereçável (referenciada pelas
+  // mensagens-de-corte da cascata, ex: FA001/FA003/FA005/FA007).
   // Centralizado horizontalmente no frame.
   ctx.nodes.push({
     id,
@@ -412,6 +424,7 @@ function emitCondicional(
       y: ctx.y,
     },
     data: {
+      code: nextCode(ctx),
       condition,
       trueLabel,
       falseLabel,
@@ -419,7 +432,10 @@ function emitCondicional(
       height: condH,
     },
   });
-  if (ctx.lastFlowId) {
+  // Por padrão NÃO cria edge de entrada — o caller (cascata ou case do
+  // emitBlock) controla a conexão pra poder usar sourceHandle quando
+  // vier de outro condicional (saída FALSE).
+  if (options.connectFromLast && ctx.lastFlowId) {
     ctx.edges.push({
       id: uid('e'),
       source: ctx.lastFlowId,
@@ -427,8 +443,8 @@ function emitCondicional(
       animated: true,
     });
   }
-  // Condicional NÃO atualiza lastFlowId — tem 2 saídas distintas, o usuário
-  // (ou bloco subsequente) precisa decidir qual conectar
+  // Condicional NÃO atualiza lastFlowId — tem 2 saídas distintas, a cascata
+  // decide qual conectar
   ctx.y += CONDICIONAL_H;
   return id;
 }
@@ -715,6 +731,27 @@ export function buildStateFromAIResult(result: AIParseResult): ProjectState {
         continue;
       }
 
+      // Heurística cascata: ao encontrar um `condicional`, processa toda
+      // a cadeia de cond→mensagem-de-corte→cond→...→atendimento-humano
+      // criando edges com sourceHandle='true'/'false' apropriadamente.
+      if (block.kind === 'condicional') {
+        try {
+          const consumed = processCondicionalCascade(
+            ctx,
+            aiFrame.blocks,
+            i
+          );
+          i += Math.max(1, consumed); // protege contra loop infinito
+        } catch (err) {
+          console.warn(
+            `[ai-builder] Falha emitindo cascata em "${aiFrame.title}":`,
+            err
+          );
+          i++;
+        }
+        continue;
+      }
+
       try {
         emitBlock(ctx, block);
       } catch (err) {
@@ -817,53 +854,197 @@ function dedupeFramePrefixes(frames: AIFrame[]): AIFrame[] {
   });
 }
 
-function emitBlock(ctx: BuildContext, block: AIBlock): void {
+/**
+ * Processa uma sequência de condicionais formando uma CASCATA — padrão
+ * típico do frame "Falar com atendente" (FA):
+ *
+ *   cond1 (É feriado?)
+ *     TRUE  → bot "mensagem de feriado" (lateral, terminal)
+ *     FALSE → cond2 (É fim de semana?)
+ *               TRUE  → bot "mensagem de fds"
+ *               FALSE → cond3 (Fora do horário?)
+ *                         TRUE  → bot "mensagem de horário"
+ *                         FALSE → cond4 (Atendente disponível?)
+ *                                   FALSE → bot "aguarde"
+ *                                   TRUE  → atendimento-humano
+ *
+ * Heurística: cada condicional é seguido por UM bloco "mensagem-de-corte"
+ * (qualquer kind exceto `condicional`/`atendimento-humano`). Esse bloco vira
+ * a saída TRUE da cond, com `sourceHandle='true'`. A próxima cond da
+ * sequência é a saída FALSE da cond atual, com `sourceHandle='false'`.
+ *
+ * Caso especial — última cond: se o bloco seguinte for `atendimento-humano`
+ * (transbordo efetivo), ele é conectado como saída TRUE; a mensagem
+ * "aguarde" que apareceu como mensagem-de-corte representa o FALSE
+ * (= sem atendente).
+ *
+ * Retorna quantos blocos foram consumidos a partir de `startIdx`.
+ */
+function processCondicionalCascade(
+  ctx: BuildContext,
+  blocks: AIBlock[],
+  startIdx: number
+): number {
+  const entryLastFlowId = ctx.lastFlowId;
+  let i = startIdx;
+  let prevCondId: string | null = null;
+  let consumed = 0;
+
+  const isCondOrAtend = (kind: AIBlock['kind']): boolean =>
+    kind === 'condicional' || kind === 'atendimento-humano';
+
+  while (i < blocks.length && blocks[i].kind === 'condicional') {
+    const block = blocks[i];
+    const condition = block.condition?.trim();
+    if (!condition) {
+      console.warn('[ai-builder] condicional sem condition');
+      i++;
+      consumed++;
+      continue;
+    }
+
+    const condId = emitCondicional(
+      ctx,
+      condition,
+      block.true_label?.trim() || 'Verdadeiro',
+      block.false_label?.trim() || 'Falso'
+    );
+
+    // Edge de entrada na cond:
+    //   - primeira: do predecessor da cascata, sem sourceHandle especial
+    //   - subsequentes: do prevCond, com sourceHandle='false' (cadeia FALSE)
+    if (prevCondId) {
+      ctx.edges.push({
+        id: uid('e'),
+        source: prevCondId,
+        target: condId,
+        sourceHandle: 'false',
+        animated: true,
+      });
+    } else if (entryLastFlowId) {
+      ctx.edges.push({
+        id: uid('e'),
+        source: entryLastFlowId,
+        target: condId,
+        animated: true,
+      });
+    }
+
+    i++;
+    consumed++;
+
+    // Próximo bloco: se for mensagem-de-corte (= não-cond, não-atend),
+    // emite e liga à cond com sourceHandle TRUE ou FALSE conforme o
+    // contexto da cascata.
+    if (i < blocks.length && !isCondOrAtend(blocks[i].kind)) {
+      // Inversão da ÚLTIMA cond: numa cascata cuja última cond é seguida
+      // de `atendimento-humano` (ex: "Atendente disponível?"), o sentido
+      // da exceção inverte — a mensagem-de-corte aqui representa a saída
+      // FALSE (ex: "sem atendente → aguarde"), e o transbordo o TRUE.
+      // Detectamos pelo bloco que vem DEPOIS da mensagem-de-corte: se
+      // for `atendimento-humano`, esta é a última cond.
+      const afterCutoff = i + 1 < blocks.length ? blocks[i + 1] : null;
+      const isLastCond = afterCutoff?.kind === 'atendimento-humano';
+      const cutoffHandle: 'true' | 'false' = isLastCond ? 'false' : 'true';
+
+      const savedLast = ctx.lastFlowId;
+      ctx.lastFlowId = null; // desliga auto-edge do emit*
+      const cutoffId = emitBlock(ctx, blocks[i]);
+      ctx.lastFlowId = savedLast;
+      if (cutoffId) {
+        ctx.edges.push({
+          id: uid('e'),
+          source: condId,
+          target: cutoffId,
+          sourceHandle: cutoffHandle,
+          animated: true,
+        });
+      }
+      i++;
+      consumed++;
+    }
+
+    prevCondId = condId;
+  }
+
+  // Próximo bloco depois da última cond: se for atendimento-humano,
+  // representa o transbordo efetivo (TRUE da última cond). A mensagem
+  // "aguarde" que veio antes (como mensagem-de-corte da última cond) é
+  // o FALSE.
+  if (
+    prevCondId &&
+    i < blocks.length &&
+    blocks[i].kind === 'atendimento-humano'
+  ) {
+    const savedLast = ctx.lastFlowId;
+    ctx.lastFlowId = null;
+    const atendId = emitBlock(ctx, blocks[i]);
+    ctx.lastFlowId = savedLast;
+    if (atendId) {
+      ctx.edges.push({
+        id: uid('e'),
+        source: prevCondId,
+        target: atendId,
+        sourceHandle: 'true',
+        animated: true,
+      });
+      // O atendimento-humano pode ter blocos depois (raro, mas pode);
+      // se houver, conectarão a partir dele.
+      ctx.lastFlowId = atendId;
+    }
+    i++;
+    consumed++;
+  } else if (prevCondId) {
+    // Cascata termina sem transbordo: lastFlowId fica na última cond
+    // (saída FALSE em aberto pra blocos seguintes encadeados).
+    ctx.lastFlowId = prevCondId;
+  }
+
+  return consumed;
+}
+
+function emitBlock(ctx: BuildContext, block: AIBlock): string | undefined {
   switch (block.kind) {
     case 'bot': {
       const text = block.text?.trim();
       if (!text) {
         console.warn('[ai-builder] bloco bot sem text');
-        return;
+        return undefined;
       }
-      emitBot(ctx, text);
-      return;
+      return emitBot(ctx, text);
     }
     case 'user': {
       const text = block.text?.trim() || '{resposta do usuário}';
-      emitUser(ctx, text);
-      return;
+      return emitUser(ctx, text);
     }
     case 'menu': {
       const header = block.header?.trim() || 'Selecione uma opção';
       const options = (block.options ?? []).map((o) => o.trim()).filter(Boolean);
       if (options.length === 0) {
         console.warn('[ai-builder] menu sem options');
-        return;
+        return undefined;
       }
-      emitMenu(ctx, header, options, block.footer?.trim() || 'Enviar');
-      return;
+      return emitMenu(ctx, header, options, block.footer?.trim() || 'Enviar');
     }
     case 'buttons': {
       const options = (block.options ?? []).map((o) => o.trim()).filter(Boolean);
       if (options.length === 0) {
         console.warn('[ai-builder] buttons sem options');
-        return;
+        return undefined;
       }
-      // Se vier question inline, emite bot ANTES dos botões
       if (block.question?.trim()) {
         emitBot(ctx, block.question.trim());
       }
       emitButtonsRow(ctx, options, ctx.lastFlowId);
-      return;
+      return undefined; // row de botões: sem id "principal"
     }
     case 'btn-long': {
       const label = block.label?.trim();
       if (!label) {
         console.warn('[ai-builder] btn-long sem label');
-        return;
+        return undefined;
       }
-      emitBtnLong(ctx, label);
-      return;
+      return emitBtnLong(ctx, label);
     }
     case 'media': {
       const mediaKind = block.media_kind;
@@ -871,73 +1052,69 @@ function emitBlock(ctx: BuildContext, block: AIBlock): void {
       const caption = block.caption?.trim() || '';
       if (!mediaKind) {
         console.warn('[ai-builder] media sem media_kind');
-        return;
+        return undefined;
       }
-      emitMedia(ctx, mediaKind, sender, caption);
-      return;
+      return emitMedia(ctx, mediaKind, sender, caption);
     }
     case 'link': {
       const url = block.url?.trim();
       if (!url) {
         console.warn('[ai-builder] link sem url');
-        return;
+        return undefined;
       }
-      emitLink(
+      return emitLink(
         ctx,
         url,
         block.link_title?.trim() || 'Acessar link',
         block.link_description?.trim() || undefined,
         block.sender ?? 'bot'
       );
-      return;
     }
     case 'direcionamento': {
       const label = block.label?.trim();
       if (!label) {
         console.warn('[ai-builder] direcionamento sem label');
-        return;
+        return undefined;
       }
-      emitDirecionamento(ctx, label, block.target_frame_id?.trim() || undefined);
-      return;
+      return emitDirecionamento(ctx, label, block.target_frame_id?.trim() || undefined);
     }
     case 'condicional': {
       const condition = block.condition?.trim();
       if (!condition) {
         console.warn('[ai-builder] condicional sem condition');
-        return;
+        return undefined;
       }
-      emitCondicional(
+      // Cond solta (não parte de cascata) — usa connectFromLast=true pra
+      // manter a edge de entrada do predecessor.
+      return emitCondicional(
         ctx,
         condition,
         block.true_label?.trim() || 'Verdadeiro',
-        block.false_label?.trim() || 'Falso'
+        block.false_label?.trim() || 'Falso',
+        { connectFromLast: true }
       );
-      return;
     }
     case 'atendimento-humano': {
-      emitAtendimentoHumano(
+      return emitAtendimentoHumano(
         ctx,
         block.label?.trim() || 'Atendimento humano'
       );
-      return;
     }
     case 'integracao': {
       const type = block.integracao_type ?? 'api';
       const title = block.title?.trim() || 'Integração';
       const fields = block.fields ?? [];
-      emitIntegracao(ctx, type, title, fields);
-      return;
+      return emitIntegracao(ctx, type, title, fields);
     }
     case 'iag': {
       const type = block.iag_type ?? 'entrada';
       const title = block.title?.trim() || 'IA Generativa';
       const fields = block.fields ?? [];
-      emitIag(ctx, type, title, fields);
-      return;
+      return emitIag(ctx, type, title, fields);
     }
     default: {
       console.warn(`[ai-builder] kind desconhecido: ${(block as AIBlock).kind}`);
-      return;
+      return undefined;
     }
   }
 }

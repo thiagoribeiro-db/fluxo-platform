@@ -58,14 +58,22 @@ function FrameNode({ id, data, selected }: NodeProps<FluxoNode>) {
       } rounded-lg`}
       style={{ width, height, pointerEvents: 'none' }}
     >
-      {/* NodeResizer — handles re-habilitam pointer-events automaticamente */}
+      {/* NodeResizer — handles sempre visíveis em frames não-locked, pra
+       * usuário puxar a qualquer momento. Quando selecionado, ganha contorno
+       * roxo. `pointer-events: auto` forçado nos handles via CSS global
+       * (FrameNode.scoped.css) porque o wrapper tem `pointer-events: none`.
+       */}
       <NodeResizer
-        isVisible={!!selected && !locked}
+        isVisible={!locked}
         minWidth={200}
         minHeight={120}
         onResizeEnd={onResizeEnd}
-        lineClassName="!border-blip-purple"
-        handleClassName="!bg-blip-purple !border-white !w-3 !h-3"
+        lineClassName={
+          selected
+            ? '!border-blip-purple'
+            : '!border-blip-purple/0'
+        }
+        handleClassName="!bg-blip-purple !border-white !w-4 !h-4 !rounded-sm pointer-events-auto"
       />
 
       <Handle

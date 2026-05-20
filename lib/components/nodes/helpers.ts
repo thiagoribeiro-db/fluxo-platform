@@ -536,11 +536,16 @@ export const LAYOUT_BOTTOM_PADDING = 40;     // espaço inferior antes de fechar
 export const LAYOUT_COL_WIDTH = 300;         // (legado)
 
 // Distância horizontal entre os CENTROS de duas colunas adjacentes no
-// layout em diamante. Calculado pra que: a borda direita do bubble da
-// coluna esquerda + GAP + tracking_w + GAP + borda esquerda do bubble da
-// coluna direita não se sobreponham. Bubble ~380, tracking ~240,
-// gaps ~16+20 → ~660. Arredondado pra 680 com folga.
-export const DIAMOND_COLUMN_SPACING = 680;
+// layout em diamante. 420 mantém um gap visual de ~70px entre o bubble
+// da mensagem-de-corte (380px) e a cond (320px) — leitura agradável,
+// claramente associando msg ↔ cond, sem espaço sobrando.
+//
+// Trade-off: pra branches paralelos REAIS (2 mains lado a lado com tracking
+// em ambos os lados) seria preciso ~660px. Esses casos são raros — quando
+// aparecem, o tracking de um pode invadir visualmente o outro. Aceitamos
+// esse risco em troca da proximidade que melhora muito a leitura das
+// cascatas (que são o caso comum).
+export const DIAMOND_COLUMN_SPACING = 420;
 
 // =============================================================================
 // DIAMOND LAYOUT (in progress — passos 1+2 do plano)
@@ -790,8 +795,22 @@ const LATERAL_MAIN_TYPES = new Set<FluxoNodeType>([
  */
 function computeDiamondLayout(
   frameMains: FluxoNode[],
-  succ: Map<string, string[]>
+  succ: Map<string, string[]>,
+  edges: Edge[] = []
 ): Map<string, { depth: number; column: number; isLateral: boolean }> {
+  // Mapa rápido (source,target) → sourceHandle (se houver). Usado pra
+  // decidir o LADO do cutoff: edges saindo do handle "true" (saída TRUE,
+  // verde, à esquerda da cond visualmente) → cutoff à ESQUERDA da coluna
+  // central. Edges saindo de "false" (vermelho, à direita) → cutoff à
+  // DIREITA. Edges sem sourceHandle são consideradas FALSE (default).
+  const handleByEdge = new Map<string, 'true' | 'false'>();
+  for (const e of edges) {
+    if (e.sourceHandle === 'true' || e.sourceHandle === 'false') {
+      handleByEdge.set(`${e.source}->${e.target}`, e.sourceHandle);
+    }
+  }
+  const isTrueCutoff = (parentId: string, childId: string): boolean =>
+    handleByEdge.get(`${parentId}->${childId}`) === 'true';
   const mainById = new Map(frameMains.map((m) => [m.id, m]));
   const isLateralTerminal = (id: string): boolean => {
     const n = mainById.get(id);
@@ -822,6 +841,17 @@ function computeDiamondLayout(
     queue.push(r.id);
   }
 
+  // Helpers de classificação dos filhos em CASCATAS (cond→msg→cond→...):
+  //   - "continuation": tem sucessores, continua a cadeia
+  //   - "center-terminal": atendimento-humano terminal — é o destino lógico
+  //     (caso da última cond da cascata FA)
+  //   - "leaf": qualquer outro terminal — vira mensagem-de-corte lateral
+  const hasSucc = (id: string) => (succ.get(id) ?? []).length > 0;
+  const isAtendimentoTerminal = (id: string) => {
+    const n = mainById.get(id);
+    return n?.type === 'atendimento-humano' && !hasSucc(id);
+  };
+
   // BFS — pode revisitar nodes em caso de merge (atualiza depth=max)
   let guard = 0;
   while (queue.length && guard++ < 10000) {
@@ -831,20 +861,44 @@ function computeDiamondLayout(
     const children = succ.get(id) ?? [];
     if (children.length === 0) continue;
 
-    // Separa filhos em: laterais terminais vs conversacionais
-    const lateralChildren = children.filter(isLateralTerminal);
-    const mainChildren = children.filter((id) => !isLateralTerminal(id));
+    // Classifica filhos:
+    //  - continuations: continuam a cascata (têm succ)
+    //  - cascadeCutoffs: terminais que viram MENSAGEM-DE-CORTE da cascata
+    //    (à DIREITA da coluna central, mesma depth+1 mas col+1, +2…)
+    //  - condHumLeftLaterals: cond/hum terminais ÓRFÃOS (sem irmão
+    //    continuation nem center-terminal) — vão pra coluna lateral à
+    //    ESQUERDA (compat. com o comportamento anterior)
+    const continuations = children.filter(hasSucc);
+    const terminals = children.filter((id) => !hasSucc(id));
+    const centerTerminals = terminals.filter(isAtendimentoTerminal);
 
-    // Posiciona filhos conversacionais (branch normal)
-    if (mainChildren.length === 1) {
-      const child = mainChildren[0];
+    // Decide quem é "centro" e quem é "lateral direita" (mensagem-de-corte)
+    let centerChildren: string[];
+    let cutoffChildren: string[];
+    if (continuations.length > 0) {
+      // Caso comum cascata: cond pai com filho que continua + terminais laterais
+      centerChildren = continuations;
+      cutoffChildren = terminals;
+    } else if (centerTerminals.length > 0) {
+      // Última cond da cascata FA: atend-humano vira centro, outros laterais
+      centerChildren = centerTerminals;
+      cutoffChildren = terminals.filter((id) => !isAtendimentoTerminal(id));
+    } else {
+      // Sem continuação nem center-terminal — branch puro
+      centerChildren = terminals;
+      cutoffChildren = [];
+    }
+
+    // Posiciona filhos do CENTRO
+    if (centerChildren.length === 1) {
+      const child = centerChildren[0];
       const newD = d + 1;
       if (!depth.has(child) || depth.get(child)! < newD) depth.set(child, newD);
       if (!column.has(child)) column.set(child, c);
       queue.push(child);
-    } else if (mainChildren.length > 1) {
-      const N = mainChildren.length;
-      mainChildren.forEach((child, idx) => {
+    } else if (centerChildren.length > 1) {
+      const N = centerChildren.length;
+      centerChildren.forEach((child, idx) => {
         const offset = idx - (N - 1) / 2;
         const newD = d + 1;
         if (!depth.has(child) || depth.get(child)! < newD) depth.set(child, newD);
@@ -853,17 +907,40 @@ function computeDiamondLayout(
       });
     }
 
-    // Posiciona laterais terminais em coluna lateral à ESQUERDA, fora do
-    // bloco principal. Usamos colunas inteiras negativas crescentes
-    // (-2, -3, ...) que mais tarde serão remapeadas pra um offset fixo
-    // (sem espaçamento por DIAMOND_COLUMN_SPACING). A flag isLateral é
-    // o que sinaliza pro reposicionamento usar essa lógica.
-    lateralChildren.forEach((child, idx) => {
+    // Posiciona MENSAGENS-DE-CORTE — o LADO depende do sourceHandle da edge:
+    //   TRUE (saída verde, à esquerda da cond)  → coluna c-1, c-2, …
+    //   FALSE (saída vermelha, à direita)        → coluna c+1, c+2, …
+    // Esse alinhamento bate com a posição visual dos handles do
+    // ConditionalNode (handle TRUE no bottom-left, FALSE no bottom-right),
+    // evitando edges cruzadas.
+    let leftIdx = 0;
+    let rightIdx = 0;
+    for (const child of cutoffChildren) {
       const newD = d + 1;
       if (!depth.has(child) || depth.get(child)! < newD) depth.set(child, newD);
-      if (!column.has(child)) column.set(child, -2 - idx);
-      lateral.add(child);
-    });
+      if (!column.has(child)) {
+        if (isTrueCutoff(id, child)) {
+          leftIdx++;
+          column.set(child, c - leftIdx);
+        } else {
+          rightIdx++;
+          column.set(child, c + rightIdx);
+        }
+      }
+      queue.push(child);
+      // NÃO marcamos como lateral — esses ocupam espaço real do bloco
+    }
+
+    // CASO RARO compat: cond/hum terminal SEM irmão de continuação E SEM
+    // irmão center-terminal → coluna lateral à ESQUERDA, fora do bloco
+    // (não infla numCols). Mantém o comportamento "saída lateral" antigo.
+    if (continuations.length === 0 && centerTerminals.length === 0) {
+      const orphanLaterals = children.filter(isLateralTerminal);
+      orphanLaterals.forEach((child, idx) => {
+        if (!column.has(child)) column.set(child, -2 - idx);
+        lateral.add(child);
+      });
+    }
   }
 
   // Resolução de MERGES: só pra mains conversacionais
@@ -1157,7 +1234,7 @@ export function organizeLayoutByFrame(
         0
       );
       if (totalEdges > 0) {
-        diamondLayout = computeDiamondLayout(list, diamondSucc);
+        diamondLayout = computeDiamondLayout(list, diamondSucc, edges);
         diamondPred = new Map<string, string[]>();
         for (const [from, tos] of diamondSucc.entries()) {
           for (const to of tos) {
@@ -1323,14 +1400,25 @@ export function organizeLayoutByFrame(
           BTN_INTERLAYER_SLOT;
       }
 
-      // 3. Centro horizontal do frame (coluna 0 = centro)
-      const frameCenterX = fbox.x + newWidth / 2;
+      // 3. Posicionamento horizontal ancorado pela ESQUERDA do bloco
+      // principal. A coluna minCol (que pode ser negativa) fica no x mais
+      // à esquerda; cada coluna ocupa DIAMOND_COLUMN_SPACING. Cada main
+      // é centralizado horizontalmente dentro da sua coluna.
+      //
+      // Antes usávamos centerX = fbox.x + newWidth/2 e col=0 era o centro,
+      // mas isso fazia colunas negativas saírem pela ESQUERDA do frame
+      // quando havia mensagem-de-corte TRUE (à esquerda das conds).
+      const LEFT_PADDING_INSIDE = trackingMaxW + TRACKING_GAP_X + 24;
+      const blockStartX = fbox.x + LEFT_PADDING_INSIDE;
+      const minColFloor = Math.floor(diamondMinCol);
+      const colCenterX = (col: number) =>
+        blockStartX + (col - minColFloor + 0.5) * DIAMOND_COLUMN_SPACING;
 
       // 4. Posicionar mains.
-      // Laterais (cond/hum terminais) ficam à ESQUERDA, em coluna lateral
-      // fixa colada na borda do frame, sem ocupar espaço do bloco principal.
+      // Laterais cond/hum terminais SEM irmão (caso compat antigo) ficam
+      // empilhados à ESQUERDA do frame, sem ocupar espaço do bloco principal.
       const LATERAL_X_OFFSET = 16;
-      const lateralByDepth = new Map<number, number>(); // contador pra empilhar
+      const lateralByDepth = new Map<number, number>();
       for (const m of list) {
         const lay = diamondLayout.get(m.id);
         const i = idxById.get(m.id);
@@ -1340,12 +1428,11 @@ export function organizeLayoutByFrame(
 
         let x: number;
         if (lay.isLateral) {
-          // Empilha laterais lado a lado (se houver vários no mesmo depth)
           const slot = lateralByDepth.get(lay.depth) ?? 0;
           lateralByDepth.set(lay.depth, slot + 1);
           x = fbox.x + LATERAL_X_OFFSET + slot * (compBox.w + 12);
         } else {
-          x = frameCenterX + lay.column * DIAMOND_COLUMN_SPACING - compBox.w / 2;
+          x = colCenterX(lay.column) - compBox.w / 2;
         }
 
         // Preserva tratamento da exceção horizontal do bubble-user
@@ -1410,8 +1497,7 @@ export function organizeLayoutByFrame(
 
         const BTN_W = 130;
         const BTN_H = 50;
-        const childX =
-          frameCenterX + childLay.column * DIAMOND_COLUMN_SPACING;
+        const childX = colCenterX(childLay.column);
         const btnX = childX - BTN_W / 2;
         const childY = yByDepth.get(childLay.depth) ?? 0;
 

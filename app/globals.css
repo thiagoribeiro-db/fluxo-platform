@@ -7,6 +7,18 @@
    ============================================================================= */
 
 @layer components {
+  /* NodeResizer handles — força pointer-events auto pra funcionar mesmo
+   * quando o nó pai tem pointer-events: none (caso do FrameNode, que torna
+   * o body "transparente" pra cliques passarem pros children). Sem isto,
+   * os handles nos cantos não capturam o mouse e o usuário não consegue
+   * redimensionar arrastando. */
+  .react-flow__resize-control {
+    pointer-events: auto !important;
+  }
+  .react-flow__resize-control.handle {
+    z-index: 10;
+  }
+
   /* BUBBLE BOT (recebida) */
   .bubble-bot {
     @apply bg-white px-3 py-2 rounded-tr-lg rounded-bl-lg rounded-br-lg shadow-sm relative max-w-[360px];

@@ -55,6 +55,7 @@ import PropertiesPanel from './PropertiesPanel';
 import ShareDialog from './ShareDialog';
 import TemplateDialog from './TemplateDialog';
 import BlipExportDialog from './BlipExportDialog';
+import ExportVisualDialog from './ExportVisualDialog';
 import BottomToolbar from './BottomToolbar';
 import CommentsPanel from './CommentsPanel';
 import PagesSidebar from './PagesSidebar';
@@ -233,6 +234,7 @@ function FlowEditorInner({
   const [shareOpen, setShareOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [blipExportOpen, setBlipExportOpen] = useState(false);
+  const [visualExportOpen, setVisualExportOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   // Modo de seleção retangular: panOnDrag false, selectionOnDrag true
@@ -1404,6 +1406,14 @@ function FlowEditorInner({
                   >
                     📦 Exportar Blip
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setVisualExportOpen(true)}
+                    className="px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 rounded"
+                    title="Exporta o canvas como imagem (PNG / PDF / HTML)"
+                  >
+                    📷 Exportar imagem
+                  </button>
                   <div className="w-px h-4 bg-gray-200" />
                 </>
               )}
@@ -1527,6 +1537,14 @@ function FlowEditorInner({
           currentNodes={nodes as unknown as FluxoNode[]}
           currentEdges={edges as unknown as Edge[]}
           onClose={() => setBlipExportOpen(false)}
+        />
+      )}
+
+      {/* Modal "Exportar imagem" — captura o canvas como PNG/PDF/HTML */}
+      {visualExportOpen && (
+        <ExportVisualDialog
+          projectName={projectName ?? 'fluxo'}
+          onClose={() => setVisualExportOpen(false)}
         />
       )}
     </div>

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { Edge } from '@xyflow/react';
 import type { FluxoNode, FluxoNodeData } from '@/lib/types';
+import RichTextEditor from './RichTextEditor';
 
 interface PropertiesPanelProps {
   selectedNode: FluxoNode | null;
@@ -312,7 +313,18 @@ function NodeFields({
         </>
       )}
 
-      {(node.type === 'bubble-bot' || node.type === 'bubble-user') && (
+      {node.type === 'bubble-bot' && (
+        <Field label="Texto da mensagem">
+          <RichTextEditor
+            value={(data.text as string | undefined) ?? ''}
+            onChange={(text) => onUpdate({ text })}
+            placeholder="Digite a mensagem do bot…"
+            minHeight={110}
+          />
+        </Field>
+      )}
+
+      {node.type === 'bubble-user' && (
         <Field label="Texto da mensagem">
           <textarea
             value={data.text ?? ''}
@@ -340,11 +352,12 @@ function NodeFields({
       {node.type === 'menu' && (
         <>
           <Field label="Header">
-            <input
-              type="text"
-              value={data.header ?? ''}
-              onChange={(e) => onUpdate({ header: e.target.value })}
-              className={inputCls}
+            <RichTextEditor
+              value={(data.header as string | undefined) ?? ''}
+              onChange={(header) => onUpdate({ header })}
+              placeholder="Texto do cabeçalho do menu"
+              minHeight={50}
+              singleLine
             />
           </Field>
           <Field label="Opções">
@@ -1276,13 +1289,16 @@ function OptionsListEditor({
   return (
     <div className="space-y-1.5">
       {options.map((opt, idx) => (
-        <div key={idx} className="flex items-center gap-1">
-          <input
-            type="text"
-            value={opt}
-            onChange={(e) => update(idx, e.target.value)}
-            className={`${inputCls} flex-1`}
-          />
+        <div key={idx} className="flex items-start gap-1">
+          <div className="flex-1">
+            <RichTextEditor
+              value={opt}
+              onChange={(v) => update(idx, v)}
+              placeholder="Texto da opção"
+              minHeight={36}
+              singleLine
+            />
+          </div>
           <button
             type="button"
             onClick={() => move(idx, -1)}

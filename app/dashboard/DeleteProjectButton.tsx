@@ -2,6 +2,8 @@
 
 import { useTransition } from 'react';
 import { deleteProject } from '@/lib/actions/projects';
+import { confirmDialog } from '@/lib/utils/dialog';
+import { toast } from '@/lib/utils/errors';
 
 interface DeleteProjectButtonProps {
   projectId: string;
@@ -14,17 +16,24 @@ export default function DeleteProjectButton({
 }: DeleteProjectButtonProps) {
   const [isPending, startTransition] = useTransition();
 
-  function handleDelete() {
-    const ok = window.confirm(
-      `Deletar "${projectName}"?\n\nIsso é permanente — todos os nós, comentários e versões serão perdidos.`
-    );
+  async function handleDelete() {
+    const ok = await confirmDialog({
+      title: `Deletar "${projectName}"?`,
+      message:
+        'Isso é permanente — todos os nós, comentários e versões serão perdidos.',
+      confirmText: 'Deletar',
+      variant: 'danger',
+    });
     if (!ok) return;
 
     startTransition(async () => {
       try {
         await deleteProject(projectId);
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Erro ao deletar');
+        toast({
+          level: 'error',
+          message: err instanceof Error ? err.message : 'Erro ao deletar',
+        });
       }
     });
   }

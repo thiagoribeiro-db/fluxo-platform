@@ -14,6 +14,8 @@ import {
   type ImportDiff,
 } from '@/lib/actions/component-specs';
 import type { ComponentSpec } from '@/lib/component-specs/spec-schema';
+import { toast } from '@/lib/utils/errors';
+import { confirmDialog } from '@/lib/utils/dialog';
 
 interface ComponentsSectionProps {
   specs: ListedSpec[];
@@ -73,9 +75,11 @@ export default function ComponentsSection({ specs }: ComponentsSectionProps) {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert(
-        'Falha ao exportar: ' + (e instanceof Error ? e.message : String(e))
-      );
+      toast({
+        level: 'error',
+        message: 'Falha ao exportar',
+        detail: e instanceof Error ? e.message : String(e),
+      });
     }
     setExporting(false);
   }
@@ -89,10 +93,11 @@ export default function ComponentsSection({ specs }: ComponentsSectionProps) {
       const diff = await importSpecsMarkdownDiff(text);
       setImportDiff(diff);
     } catch (err) {
-      alert(
-        'Falha ao parsear: ' +
-          (err instanceof Error ? err.message : String(err))
-      );
+      toast({
+        level: 'error',
+        message: 'Falha ao parsear',
+        detail: err instanceof Error ? err.message : String(err),
+      });
     }
     setImporting(false);
     // reset pra permitir re-importar o mesmo arquivo se necessário
@@ -109,19 +114,26 @@ export default function ComponentsSection({ specs }: ComponentsSectionProps) {
       }));
       const res = await applySpecsImport(importDiff.toCreate, toUpdateMin);
       if (res.errors.length > 0) {
-        alert(
-          `Aplicado com erros:\n\n${res.errors.join('\n')}\n\nCriados: ${res.created} · Atualizados: ${res.updated}`
-        );
+        toast({
+          level: 'warn',
+          message: `Aplicado com erros — ${res.created} criados, ${res.updated} atualizados`,
+          detail: res.errors.join('\n'),
+          duration: 10000,
+        });
       } else {
-        alert(`✓ ${res.created} criados, ${res.updated} atualizados.`);
+        toast({
+          level: 'success',
+          message: `${res.created} criados, ${res.updated} atualizados.`,
+        });
       }
       setImportDiff(null);
       router.refresh();
     } catch (err) {
-      alert(
-        'Falha ao aplicar: ' +
-          (err instanceof Error ? err.message : String(err))
-      );
+      toast({
+        level: 'error',
+        message: 'Falha ao aplicar',
+        detail: err instanceof Error ? err.message : String(err),
+      });
     }
     setApplying(false);
   }
@@ -609,10 +621,18 @@ function ComponentEditor({
     });
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!spec || spec.source === 'builtin') return;
-    const verb = spec.source === 'override' ? 'reverter ao builtin' : 'deletar definitivamente';
-    if (!window.confirm(`Tem certeza que deseja ${verb}?`)) return;
+    const isRevert = spec.source === 'override';
+    const ok = await confirmDialog({
+      title: isRevert ? 'Reverter ao builtin?' : 'Deletar componente?',
+      message: isRevert
+        ? 'Isso descarta as customizações deste componente e volta pro builtin original.'
+        : 'Isso apaga definitivamente o componente customizado.',
+      confirmText: isRevert ? 'Reverter' : 'Deletar',
+      variant: 'danger',
+    });
+    if (!ok) return;
 
     startTransition(async () => {
       try {

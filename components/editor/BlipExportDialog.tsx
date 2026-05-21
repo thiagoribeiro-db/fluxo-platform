@@ -9,6 +9,7 @@ import {
   type PageState,
 } from '@/lib/export/blip-exporter';
 import { buildBlipZip, triggerDownload } from '@/lib/export/blip-zip';
+import { toast } from '@/lib/utils/errors';
 
 interface BlipExportDialogProps {
   projectId: string;
@@ -100,7 +101,10 @@ export default function BlipExportDialog({
 
   function handlePreview() {
     if (pagesToExport.length === 0) {
-      alert('Selecione pelo menos 1 page pra exportar.');
+      toast({
+        level: 'warn',
+        message: 'Selecione pelo menos 1 page pra exportar.',
+      });
       return;
     }
     startTransition(() => {
@@ -117,9 +121,11 @@ export default function BlipExportDialog({
       const safeName = projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
       triggerDownload(blob, `blip-${safeName}-${date}.zip`);
     } catch (e) {
-      alert(
-        'Falha ao gerar .zip: ' + (e instanceof Error ? e.message : String(e))
-      );
+      toast({
+        level: 'error',
+        message: 'Falha ao gerar .zip',
+        detail: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 

@@ -9,6 +9,8 @@ import {
   setActivePage,
   duplicatePage,
 } from '@/lib/actions/pages';
+import { toast } from '@/lib/utils/errors';
+import { confirmDialog, promptDialog } from '@/lib/utils/dialog';
 
 interface PagesSidebarProps {
   projectId: string;
@@ -42,11 +44,14 @@ export default function PagesSidebar({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
 
-  function handleCreate() {
-    const name = window.prompt(
-      'Nome da nova página (ex: dev, hmg, prd):',
-      'Nova página'
-    );
+  async function handleCreate() {
+    const name = await promptDialog({
+      title: 'Nova página',
+      message: 'Nome da nova página:',
+      placeholder: 'ex: dev, hmg, prd',
+      defaultValue: 'Nova página',
+      confirmText: 'Criar',
+    });
     if (!name) return;
     startTransition(async () => {
       try {
@@ -54,7 +59,10 @@ export default function PagesSidebar({
         onPagesChanged();
         onSwitchPage(newPage.id);
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Erro ao criar página');
+        toast({
+          level: 'error',
+          message: err instanceof Error ? err.message : 'Erro ao criar página',
+        });
       }
     });
   }
@@ -77,7 +85,10 @@ export default function PagesSidebar({
         await renamePage(id, name);
         onPagesChanged();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Erro ao renomear');
+        toast({
+          level: 'error',
+          message: err instanceof Error ? err.message : 'Erro ao renomear',
+        });
       }
     });
   }
@@ -89,30 +100,40 @@ export default function PagesSidebar({
         onPagesChanged();
         onSwitchPage(newPage.id);
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Erro ao duplicar');
+        toast({
+          level: 'error',
+          message: err instanceof Error ? err.message : 'Erro ao duplicar',
+        });
       }
     });
   }
 
-  function handleDelete(page: ProjectPage) {
+  async function handleDelete(page: ProjectPage) {
     if (pages.length <= 1) {
-      alert('Não é possível apagar a última página do projeto.');
+      toast({
+        level: 'warn',
+        message: 'Não é possível apagar a última página do projeto.',
+      });
       return;
     }
-    if (
-      !window.confirm(
-        `Apagar a página "${page.name}"?\n\nIsso vai deletar todos os nós e conexões dessa página. Não pode ser desfeito.`
-      )
-    ) {
-      return;
-    }
+    const ok = await confirmDialog({
+      title: `Apagar a página "${page.name}"?`,
+      message:
+        'Isso vai deletar todos os nós e conexões dessa página. Não pode ser desfeito.',
+      confirmText: 'Apagar',
+      variant: 'danger',
+    });
+    if (!ok) return;
     startTransition(async () => {
       try {
         await deletePage(page.id);
         onPagesChanged();
         // Se apagamos a ativa, o pai vai trocar pra outra (via reload da lista)
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Erro ao apagar');
+        toast({
+          level: 'error',
+          message: err instanceof Error ? err.message : 'Erro ao apagar',
+        });
       }
     });
   }
@@ -124,7 +145,10 @@ export default function PagesSidebar({
         await setActivePage(projectId, page.id);
         onSwitchPage(page.id);
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Erro ao trocar página');
+        toast({
+          level: 'error',
+          message: err instanceof Error ? err.message : 'Erro ao trocar página',
+        });
       }
     });
   }

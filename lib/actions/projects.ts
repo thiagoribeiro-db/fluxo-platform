@@ -164,7 +164,9 @@ export type TemplateName = 'varejo-exemplo';
  */
 export async function applyEscopoToProject(
   projectId: string,
-  escopoText: string
+  escopoText: string,
+  /** Página alvo. Se omitido, usa `projects.active_page_id`. */
+  pageId?: string
 ): Promise<void> {
   const supabase = createClient();
   const {
@@ -185,7 +187,7 @@ export async function applyEscopoToProject(
     );
   }
 
-  await saveStateOnActivePageOrLegacy(supabase, projectId, state);
+  await saveStateOnActivePageOrLegacy(supabase, projectId, state, pageId);
 
   revalidatePath(`/editor/${projectId}`);
 }
@@ -208,7 +210,9 @@ export async function applyEscopoToProject(
 export async function applyEscopoWithAI(
   projectId: string,
   escopoText: string,
-  fileName?: string
+  fileName?: string,
+  /** Página alvo. Se omitido, usa `projects.active_page_id`. */
+  pageId?: string
 ): Promise<{
   framesCount: number;
   blocksCount: number;
@@ -241,7 +245,7 @@ export async function applyEscopoWithAI(
     );
   }
 
-  await saveStateOnActivePageOrLegacy(supabase, projectId, state);
+  await saveStateOnActivePageOrLegacy(supabase, projectId, state, pageId);
 
   revalidatePath(`/editor/${projectId}`);
 
@@ -267,7 +271,9 @@ export async function applyEscopoWithAI(
  */
 export async function applyTemplate(
   projectId: string,
-  templateName: TemplateName
+  templateName: TemplateName,
+  /** Página alvo. Se omitido, usa `projects.active_page_id`. */
+  pageId?: string
 ): Promise<void> {
   const supabase = createClient();
   const {
@@ -287,42 +293,103 @@ export async function applyTemplate(
   }
 
   // Salva na PÁGINA ATIVA (não em projects.state — legado)
-  await saveStateOnActivePageOrLegacy(supabase, projectId, state);
+  await saveStateOnActivePageOrLegacy(supabase, projectId, state, pageId);
 
   revalidatePath(`/editor/${projectId}`);
 }
 
 /**
- * Helper: salva o state na página ativa do projeto. Se não houver página
- * ativa (improvável, mas defensive), salva em projects.state como fallback.
+ * Helper: salva o state na página alvo do projeto.
+ *
+ * Resolução do alvo (em ordem):
+ *   1. `explicitPageId` (caller diz exatamente onde aplicar)
+ *   2. `projects.active_page_id` (default — página ativa segundo o banco)
+ *   3. `projects.state` (legado — fallback final se nem 1 nem 2 existem)
+ *
+ * AUTO-BACKUP: se a página alvo tem nodes > 0, cria uma página
+ * "Backup pré-aplicação (data)" com o state antigo ANTES de sobrescrever.
+ * Recuperação fica disponível mesmo após reload (quando o history em memória
+ * do FlowEditor é perdido).
  */
 async function saveStateOnActivePageOrLegacy(
   supabase: ReturnType<typeof createClient>,
   projectId: string,
-  state: ProjectState
+  state: ProjectState,
+  explicitPageId?: string
 ): Promise<void> {
-  // Busca o active_page_id
-  const { data: proj, error: projErr } = await supabase
-    .from('projects')
-    .select('active_page_id')
-    .eq('id', projectId)
-    .single();
+  // Determina a página alvo
+  let targetPageId: string | null = explicitPageId ?? null;
 
-  if (projErr || !proj) {
-    throw new Error(`Projeto não encontrado: ${projErr?.message}`);
+  if (!targetPageId) {
+    const { data: proj, error: projErr } = await supabase
+      .from('projects')
+      .select('active_page_id')
+      .eq('id', projectId)
+      .single();
+    if (projErr || !proj) {
+      throw new Error(`Projeto não encontrado: ${projErr?.message}`);
+    }
+    targetPageId = (proj.active_page_id as string | null) ?? null;
   }
 
-  if (proj.active_page_id) {
-    // Tem página ativa — salva nela
+  if (targetPageId) {
+    // Lê o state ATUAL pra decidir se vale fazer backup
+    const { data: currentPage } = await supabase
+      .from('project_pages')
+      .select('state, name, position')
+      .eq('id', targetPageId)
+      .single();
+
+    const currentState = currentPage?.state as ProjectState | undefined;
+    const hasContent = Boolean(
+      currentState?.nodes && currentState.nodes.length > 0
+    );
+
+    if (hasContent) {
+      // Cria backup como nova página (não bloqueia o write principal —
+      // se backup falhar, ainda assim aplicamos o template, mas logamos).
+      try {
+        const ts = new Date().toLocaleString('pt-BR', {
+          day: '2-digit',
+          month: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        const backupName = `[Backup] ${currentPage!.name} (${ts})`;
+        // Próxima position no projeto
+        const { data: maxPos } = await supabase
+          .from('project_pages')
+          .select('position')
+          .eq('project_id', projectId)
+          .order('position', { ascending: false })
+          .limit(1);
+        const nextPos =
+          maxPos && maxPos.length > 0
+            ? (maxPos[0].position as number) + 1
+            : 0;
+        await supabase.from('project_pages').insert({
+          project_id: projectId,
+          name: backupName,
+          state: currentState,
+          position: nextPos,
+          is_default: false,
+        });
+      } catch (backupErr) {
+        // Loga mas não bloqueia
+        console.error('[backup pre-aplicação] falha (não-fatal):', backupErr);
+      }
+    }
+
+    // Update real
     const { error: pageErr } = await supabase
       .from('project_pages')
       .update({ state })
-      .eq('id', proj.active_page_id);
+      .eq('id', targetPageId);
     if (pageErr) {
-      throw new Error(`Falha ao salvar na página ativa: ${pageErr.message}`);
+      throw new Error(`Falha ao salvar na página: ${pageErr.message}`);
     }
   } else {
-    // Fallback: salva em projects.state (legado)
+    // Fallback: salva em projects.state (legado, sem pages)
     const { error: legErr } = await supabase
       .from('projects')
       .update({ state })

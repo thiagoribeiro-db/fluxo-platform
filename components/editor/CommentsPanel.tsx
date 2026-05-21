@@ -10,6 +10,8 @@ import {
   setCommentResolved,
 } from '@/lib/actions/comments';
 import type { FluxoNode } from '@/lib/types';
+import { toast } from '@/lib/utils/errors';
+import { confirmDialog } from '@/lib/utils/dialog';
 
 interface CommentsPanelProps {
   projectId: string;
@@ -85,7 +87,10 @@ export default function CommentsPanel({
         setNewBody('');
         await reload();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Erro ao comentar');
+        toast({
+          level: 'error',
+          message: err instanceof Error ? err.message : 'Erro ao comentar',
+        });
       }
     });
   }
@@ -252,7 +257,10 @@ function CommentThread({
         setShowReply(false);
         onChange();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Erro');
+        toast({
+          level: 'error',
+          message: err instanceof Error ? err.message : 'Erro',
+        });
       }
     });
   }
@@ -263,7 +271,10 @@ function CommentThread({
         await setCommentResolved(root.id, projectId, !root.resolved_at);
         onChange();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Erro');
+        toast({
+          level: 'error',
+          message: err instanceof Error ? err.message : 'Erro',
+        });
       }
     });
   }
@@ -384,20 +395,30 @@ function CommentBubble({
         setEditing(false);
         onChange();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Erro');
+        toast({
+          level: 'error',
+          message: err instanceof Error ? err.message : 'Erro',
+        });
       }
     });
   }
 
-  function handleDelete() {
-    const ok = window.confirm('Apagar este comentário?');
+  async function handleDelete() {
+    const ok = await confirmDialog({
+      message: 'Apagar este comentário?',
+      confirmText: 'Apagar',
+      variant: 'danger',
+    });
     if (!ok) return;
     startTransition(async () => {
       try {
         await deleteComment(comment.id, projectId);
         onChange();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Erro');
+        toast({
+          level: 'error',
+          message: err instanceof Error ? err.message : 'Erro',
+        });
       }
     });
   }

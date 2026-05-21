@@ -8,11 +8,15 @@ import {
 } from '@/lib/actions/projects';
 import { extractTextFromFile } from '@/lib/actions/extract-text';
 import { devLog, devWarn } from '@/lib/utils/logger';
+import { toast } from '@/lib/utils/errors';
+import { confirmDialog } from '@/lib/utils/dialog';
 
 interface TemplateDialogProps {
   projectId: string;
   open: boolean;
   onClose: () => void;
+  /** Página alvo onde aplicar o template/escopo. Se omitido, usa active_page_id do banco. */
+  currentPageId?: string;
 }
 
 type Tab = 'upload' | 'paste' | 'exemplo';
@@ -30,6 +34,7 @@ export default function TemplateDialog({
   projectId,
   open,
   onClose,
+  currentPageId,
 }: TemplateDialogProps) {
   const [tab, setTab] = useState<Tab>('upload');
   const [fileText, setFileText] = useState('');
@@ -94,20 +99,22 @@ export default function TemplateDialog({
     );
   }
 
-  function handleApply(textToApply: string, sourceName?: string) {
+  async function handleApply(textToApply: string, sourceName?: string) {
     if (!textToApply.trim()) {
       setError('Conteúdo vazio.');
       return;
     }
 
     const isAI = parseMode === 'ai';
-    const confirmMsg = isAI
-      ? 'A IA vai analisar o documento e gerar o fluxo.\n\n⏱️ Pode demorar 30s-2min (depende do tamanho do escopo).\n\nO conteúdo atual do projeto será SUBSTITUÍDO. Continuar?'
-      : 'Substituir o conteúdo atual do projeto pelo escopo carregado?\n\nApós o carregamento, o layout será organizado automaticamente.\n\n(Modo regex/legado — pode falhar em PDFs corridos.)';
-
-    if (!window.confirm(confirmMsg)) {
-      return;
-    }
+    const ok = await confirmDialog({
+      title: isAI ? 'Aplicar com IA?' : 'Aplicar escopo (regex)?',
+      message: isAI
+        ? 'A IA vai analisar o documento e gerar o fluxo.\n\n⏱️ Pode demorar 30s-2min (depende do tamanho do escopo).\n\nO conteúdo atual do projeto será SUBSTITUÍDO.'
+        : 'Substituir o conteúdo atual do projeto pelo escopo carregado?\n\nApós o carregamento, o layout será organizado automaticamente.\n\n(Modo regex/legado — pode falhar em PDFs corridos.)',
+      confirmText: isAI ? 'Aplicar com IA' : 'Aplicar',
+      variant: 'danger',
+    });
+    if (!ok) return;
 
     onClose(); // fecha modal imediatamente; loading vai pelo overlay
 
@@ -125,7 +132,8 @@ export default function TemplateDialog({
           const result = await applyEscopoWithAI(
             projectId,
             textToApply,
-            sourceName
+            sourceName,
+            currentPageId
           );
           // Loga meta no console pra debug
           devLog('[applyEscopoWithAI] resultado:', result);
@@ -147,36 +155,39 @@ export default function TemplateDialog({
             );
           }
         } else {
-          await applyEscopoToProject(projectId, textToApply);
+          await applyEscopoToProject(projectId, textToApply, currentPageId);
         }
         // Recarrega editor com autoOrganize ativo
         window.location.href = `/editor/${projectId}?autoOrganize=1`;
       } catch (err) {
         dispatchLoading(null);
         const msg = err instanceof Error ? err.message : 'Erro ao aplicar escopo';
-        // Pra erros longos (com várias linhas), usa alert (window.alert quebra linhas)
-        alert(`❌ ${msg}`);
+        toast({ level: 'error', message: msg, duration: 10000 });
       }
     });
   }
 
-  function handleApplyExemplo() {
-    if (
-      !window.confirm(
-        'Carregar o template "Varejo (exemplo)"?\n\n⚠️ Isso APAGA o conteúdo atual do projeto.\n\nApós o carregamento, o layout será organizado automaticamente.'
-      )
-    ) {
-      return;
-    }
+  async function handleApplyExemplo() {
+    const ok = await confirmDialog({
+      title: 'Carregar template "Varejo (exemplo)"?',
+      message:
+        '⚠️ Isso APAGA o conteúdo atual do projeto.\n\nApós o carregamento, o layout será organizado automaticamente.',
+      confirmText: 'Carregar',
+      variant: 'danger',
+    });
+    if (!ok) return;
     onClose();
     dispatchLoading('Carregando template…');
     startTransition(async () => {
       try {
-        await applyTemplate(projectId, 'varejo-exemplo');
+        await applyTemplate(projectId, 'varejo-exemplo', currentPageId);
         window.location.href = `/editor/${projectId}?autoOrganize=1`;
       } catch (err) {
         dispatchLoading(null);
-        alert(err instanceof Error ? err.message : 'Erro ao aplicar template');
+        toast({
+          level: 'error',
+          message: err instanceof Error ? err.message : 'Erro ao aplicar template',
+        });
       }
     });
   }

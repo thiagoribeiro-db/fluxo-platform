@@ -8,6 +8,7 @@ import {
   type Share,
 } from '@/lib/actions/shares';
 import type { SharePermission } from '@/lib/types';
+import { confirmDialog } from '@/lib/utils/dialog';
 
 interface ShareDialogProps {
   projectId: string;
@@ -57,10 +58,13 @@ export default function ShareDialog({ projectId, open, onClose }: ShareDialogPro
     setTimeout(() => setCopiedId(null), 2000);
   }
 
-  function handleRevoke(shareId: string) {
-    const ok = window.confirm(
-      'Revogar este link?\n\nQuem tiver o link não conseguirá mais acessar o projeto.'
-    );
+  async function handleRevoke(shareId: string) {
+    const ok = await confirmDialog({
+      title: 'Revogar este link?',
+      message: 'Quem tiver o link não conseguirá mais acessar o projeto.',
+      confirmText: 'Revogar',
+      variant: 'danger',
+    });
     if (!ok) return;
     startTransition(async () => {
       await revokeShare(shareId, projectId);

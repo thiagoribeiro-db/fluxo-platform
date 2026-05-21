@@ -48,7 +48,7 @@ import {
 } from '@/lib/components/nodes/helpers';
 import type { FluxoNode, FluxoNodeData, FluxoNodeType, ProjectState } from '@/lib/types';
 import { saveProjectState } from '@/lib/actions/projects';
-import { savePageState, listPages } from '@/lib/actions/pages';
+import { savePageState, listPages, setActivePage } from '@/lib/actions/pages';
 import type { ProjectPage } from '@/lib/types';
 import Palette from './Palette';
 import PropertiesPanel from './PropertiesPanel';
@@ -64,7 +64,8 @@ import LoadingOverlay from './LoadingOverlay';
 import AIParseSummary from './AIParseSummary';
 import HelperLines from './HelperLines';
 import { listComments, type Comment } from '@/lib/actions/comments';
-import { handleError } from '@/lib/utils/errors';
+import { handleError, toast } from '@/lib/utils/errors';
+import { confirmDialog } from '@/lib/utils/dialog';
 
 // ---------- SEED DEMO (usado quando projectId === 'demo') ----------
 const DEMO_NODES: FluxoNode[] = [
@@ -353,6 +354,20 @@ function FlowEditorInner({
         } catch {
           /* ignora — vai tentar de novo no autosave */
         }
+      }
+      // CRÍTICO: marca a nova página como ativa NO BANCO antes de qualquer
+      // operação subsequente (templates, IA, save) que dependa de
+      // `projects.active_page_id` pra saber onde escrever. Sem isto, o
+      // backend escreve na página antiga e sobrescreve trabalho do usuário.
+      try {
+        await setActivePage(projectId, newPageId);
+      } catch (err) {
+        handleError(err, {
+          context: 'set-active-page',
+          userMessage: 'Falha ao marcar a página como ativa. Tente trocar novamente antes de aplicar templates.',
+        });
+        setLoadingMsg(null);
+        return;
       }
       // Carrega a nova
       const newPage = pages.find((p) => p.id === newPageId);
@@ -811,10 +826,11 @@ function FlowEditorInner({
       return n?.data?.locked === true;
     });
     if (lockedHit) {
-      // eslint-disable-next-line no-alert
-      alert(
-        'Há frame(s) travado(s) na seleção. Destrave nas propriedades antes de apagar.'
-      );
+      toast({
+        level: 'warn',
+        message:
+          'Há frame(s) travado(s) na seleção. Destrave nas propriedades antes de apagar.',
+      });
       return;
     }
 
@@ -1130,10 +1146,14 @@ function FlowEditorInner({
     [setEdges, pushHistory]
   );
 
-  const handleReorganizeCodes = useCallback(() => {
-    const ok = window.confirm(
-      'Reorganizar IDs?\n\nIsso vai renumerar todos os blocos em sequência pela posição vertical (de cima pra baixo).\n\n⚠️ Códigos antigos serão perdidos. Use com cuidado se você já referenciou esses IDs em outros lugares.'
-    );
+  const handleReorganizeCodes = useCallback(async () => {
+    const ok = await confirmDialog({
+      title: 'Reorganizar IDs?',
+      message:
+        'Isso vai renumerar todos os blocos em sequência pela posição vertical (de cima pra baixo).\n\n⚠️ Códigos antigos serão perdidos. Use com cuidado se você já referenciou esses IDs em outros lugares.',
+      confirmText: 'Reorganizar',
+      variant: 'danger',
+    });
     if (!ok) return;
     pushHistory();
     setNodes((prev) => reorganizeCodes(prev));
@@ -1144,10 +1164,14 @@ function FlowEditorInner({
     setTemplateOpen(true);
   }, []);
 
-  const handleResetPage = useCallback(() => {
-    const ok = window.confirm(
-      'Resetar a página atual?\n\n⚠️ Apaga TODOS os nodes e edges desta página. Frames, bubbles, conexões — tudo.\n\nÚtil quando a página ficou em estado inválido. Não pode ser desfeito.'
-    );
+  const handleResetPage = useCallback(async () => {
+    const ok = await confirmDialog({
+      title: 'Resetar a página atual?',
+      message:
+        '⚠️ Apaga TODOS os nodes e edges desta página. Frames, bubbles, conexões — tudo.\n\nÚtil quando a página ficou em estado inválido. Não pode ser desfeito.',
+      confirmText: 'Resetar',
+      variant: 'danger',
+    });
     if (!ok) return;
     pushHistory();
     setNodes([]);
@@ -1156,11 +1180,14 @@ function FlowEditorInner({
   }, [setNodes, setEdges, pushHistory]);
 
   const handleOrganizeLayout = useCallback(
-    (skipConfirm = false) => {
+    async (skipConfirm = false) => {
       if (!skipConfirm) {
-        const ok = window.confirm(
-          'Organizar layout?\n\nOs componentes principais (bubbles, menus, mídias, integrações, IAG) serão alinhados em coluna vertical à direita de cada frame.\n\nOs frames serão redimensionados pra caber exatamente o conteúdo. Trackings e exceções movem junto.'
-        );
+        const ok = await confirmDialog({
+          title: 'Organizar layout?',
+          message:
+            'Os componentes principais (bubbles, menus, mídias, integrações, IAG) serão alinhados em coluna vertical à direita de cada frame.\n\nOs frames serão redimensionados pra caber exatamente o conteúdo. Trackings e exceções movem junto.',
+          confirmText: 'Organizar',
+        });
         if (!ok) return;
       }
 
@@ -1360,13 +1387,18 @@ function FlowEditorInner({
                       '@/lib/actions/debug-dump'
                     );
                     const r = await dumpProjectStateToFile(projectId);
-                    alert(
-                      `✅ Snapshot exportado!\n\nArquivo: ${r.path}\nProjeto: ${r.projectName}\nFrames: ${r.framesCount}\nNodes: ${r.totalNodes}`
-                    );
+                    toast({
+                      level: 'success',
+                      message: 'Snapshot exportado',
+                      detail: `${r.projectName} — ${r.framesCount} frames, ${r.totalNodes} nodes\n${r.path}`,
+                      duration: 8000,
+                    });
                   } catch (err) {
-                    alert(
-                      `❌ ${err instanceof Error ? err.message : 'Falha no dump'}`
-                    );
+                    toast({
+                      level: 'error',
+                      message:
+                        err instanceof Error ? err.message : 'Falha no dump',
+                    });
                   }
                 }}
                 className="px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 rounded"
@@ -1534,6 +1566,7 @@ function FlowEditorInner({
           projectId={projectId}
           open={templateOpen}
           onClose={() => setTemplateOpen(false)}
+          currentPageId={activePageId ?? undefined}
         />
       )}
 

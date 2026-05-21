@@ -181,6 +181,44 @@
   display: none !important;
 }
 
+/* =============================================================================
+   LINT BADGES — pequena bolinha no canto sup. direito de cada node
+   quando o flow-linter detecta um problema nele.
+   ============================================================================= */
+.react-flow__node.node-problem-error::before,
+.react-flow__node.node-problem-warning::before,
+.react-flow__node.node-problem-info::before {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: bold;
+  color: white;
+  font-family: system-ui, sans-serif;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+  pointer-events: none;
+}
+.react-flow__node.node-problem-error::before {
+  content: '!';
+  background: #dc2626;
+}
+.react-flow__node.node-problem-warning::before {
+  content: '!';
+  background: #f59e0b;
+}
+.react-flow__node.node-problem-info::before {
+  content: 'i';
+  background: #3b82f6;
+}
+
 html, body {
   height: 100%;
 }

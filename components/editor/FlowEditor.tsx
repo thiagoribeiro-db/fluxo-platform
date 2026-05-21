@@ -19,7 +19,6 @@ import {
   type Node,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import Link from 'next/link';
 import { nanoid } from 'nanoid';
 
 import { nodeTypes } from '@/lib/components/nodes';
@@ -38,6 +37,7 @@ import {
   organizeLayoutByFrame,
   repairMainFlowEdges,
 } from '@/lib/components/nodes/helpers';
+import { ensureEntryPointsForFrames } from '@/lib/components/nodes/ensure-entry-points';
 import {
   getPositionBelow,
   getRelativePositionLeft,
@@ -62,7 +62,11 @@ import PagesSidebar from './PagesSidebar';
 import ResizableSidebar from './ResizableSidebar';
 import LoadingOverlay from './LoadingOverlay';
 import AIParseSummary from './AIParseSummary';
+import EditorToolbar from './EditorToolbar';
 import HelperLines from './HelperLines';
+import ProblemsPanel from './ProblemsPanel';
+import SidebarHeader from './SidebarHeader';
+import { useFlowLint } from '@/lib/lint/use-flow-lint';
 import { listComments, type Comment } from '@/lib/actions/comments';
 import { handleError, toast } from '@/lib/utils/errors';
 import { confirmDialog } from '@/lib/utils/dialog';
@@ -238,6 +242,7 @@ function FlowEditorInner({
   const [blipExportOpen, setBlipExportOpen] = useState(false);
   const [visualExportOpen, setVisualExportOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [problemsOpen, setProblemsOpen] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   // Modo de seleção retangular: panOnDrag false, selectionOnDrag true
   const [selectMode, setSelectMode] = useState(false);
@@ -1185,7 +1190,7 @@ function FlowEditorInner({
         const ok = await confirmDialog({
           title: 'Organizar layout?',
           message:
-            'Os componentes principais (bubbles, menus, mídias, integrações, IAG) serão alinhados em coluna vertical à direita de cada frame.\n\nOs frames serão redimensionados pra caber exatamente o conteúdo. Trackings e exceções movem junto.',
+            'Os componentes principais (bubbles, menus, mídias, integrações, IAG) serão alinhados em coluna vertical à direita de cada frame.\n\nOs frames serão redimensionados pra caber exatamente o conteúdo. Trackings e exceções movem junto.\n\nFrames sem marcador de Início ganham um automaticamente.',
           confirmText: 'Organizar',
         });
         if (!ok) return;
@@ -1208,11 +1213,22 @@ function FlowEditorInner({
       // seu main destino e remove edges direct main→main redundantes. O
       // organize precisa ver o grafo corrigido pra calcular branches/merges.
       const cleanedEdges = repairMainFlowEdges(edges, nodes);
-      const edgesChanged =
-        cleanedEdges.length !== edges.length ||
-        cleanedEdges.some((e, i) => e.id !== edges[i]?.id);
-      if (edgesChanged) setEdges(cleanedEdges);
-      setNodes((prev) => organizeLayoutByFrame(prev, cleanedEdges, getMeasured));
+
+      // Organiza o layout
+      const organized = organizeLayoutByFrame(nodes, cleanedEdges, getMeasured);
+
+      // Auto-fix: cria entry-point pros frames que não têm
+      const entryResult = ensureEntryPointsForFrames(organized, cleanedEdges);
+
+      setNodes(entryResult.nodes);
+      setEdges(entryResult.edges);
+
+      if (entryResult.created > 0) {
+        toast({
+          level: 'success',
+          message: `${entryResult.created} marcador${entryResult.created === 1 ? '' : 'es'} de "Início" adicionado${entryResult.created === 1 ? '' : 's'} automaticamente`,
+        });
+      }
     },
     [setNodes, setEdges, edges, nodes, getInternalNode, pushHistory]
   );
@@ -1249,8 +1265,22 @@ function FlowEditorInner({
       .map((c) => c.node_id as string)
   );
 
+  // Linter — calcula problemas com debounce; usado pro badge nos nodes,
+  // count na toolbar e lista no ProblemsPanel.
+  const lint = useFlowLint(nodes, edges);
+  const problemsWorstSeverity: 'error' | 'warning' | 'info' | null =
+    lint.counts.error > 0
+      ? 'error'
+      : lint.counts.warning > 0
+        ? 'warning'
+        : lint.counts.info > 0
+          ? 'info'
+          : null;
+
   // Aplica draggable=false em nodes locked OU em modo read-only.
   // Adiciona box-shadow amarelo em nós com comentários abertos.
+  // Adiciona className `node-problem-{severity}` quando o linter detecta
+  // um problema (mostra badge via CSS em globals.css).
   const displayNodes = nodes.map((n) => {
     const out: typeof n = { ...n };
     if (isReadOnly || n.data?.locked) {
@@ -1264,6 +1294,10 @@ function FlowEditorInner({
         boxShadow: '0 0 0 3px rgba(251, 191, 36, 0.85)',
         borderRadius: 12,
       };
+    }
+    const sev = lint.severityByNodeId.get(n.id);
+    if (sev) {
+      out.className = `${n.className ?? ''} node-problem-${sev}`.trim();
     }
     return out;
   });
@@ -1279,8 +1313,8 @@ function FlowEditorInner({
     <div className="flex h-screen w-full bg-wpp-bg-chat overflow-hidden">
       {!isReadOnly && (
         <ResizableSidebar
-          defaultWidth={paletteCollapsed ? 48 : 256}
-          minWidth={paletteCollapsed ? 48 : 200}
+          defaultWidth={paletteCollapsed ? 28 : 256}
+          minWidth={paletteCollapsed ? 28 : 200}
           maxWidth={480}
           storageKey={
             paletteCollapsed
@@ -1288,6 +1322,19 @@ function FlowEditorInner({
               : 'fluxo-left-sidebar-width'
           }
         >
+          {/* Header da sidebar — link voltar + nome do projeto + status */}
+          <SidebarHeader
+            collapsed={paletteCollapsed}
+            isShared={isShared}
+            projectName={projectName}
+            statusLabel={
+              isReadOnly
+                ? 'Visualização (somente leitura)'
+                : isDemo
+                ? 'Modo demo (não salva)'
+                : 'Autosave ativo'
+            }
+          />
           {!isDemo && projectId && pages.length > 0 && !paletteCollapsed && (
             <PagesSidebar
               projectId={projectId}
@@ -1337,51 +1384,33 @@ function FlowEditorInner({
           {/* Guias de alinhamento (linhas X/Y) durante o drag de um node */}
           <HelperLines />
 
-          <Panel
-            position="top-left"
-            className="bg-white px-4 py-2 rounded-md shadow border border-gray-200 flex items-center gap-3"
-          >
-            {!isShared && (
-              <Link
-                href="/dashboard"
-                className="text-blip-purple hover:underline text-sm font-medium"
-              >
-                ←
-              </Link>
-            )}
-            <div>
-              <div className="text-sm font-semibold text-blip-purple">
-                {projectName ?? '🚀 Fluxo Platform — Editor'}
-              </div>
-              <div className="text-xs text-gray-500 mt-0.5">
-                {isReadOnly
-                  ? '👁 Visualização (somente leitura)'
-                  : isDemo
-                  ? 'Modo demo (não salva)'
-                  : 'Autosave ativo'}
-              </div>
-            </div>
-          </Panel>
-
           {/* Toolbar central com ações do projeto (oculta em read-only) */}
           {!isDemo && !isReadOnly && (
-            <Panel
-              position="top-center"
-              className="bg-white px-2 py-1.5 rounded-md shadow border border-gray-200 flex items-center gap-1"
-            >
-              <button
-                type="button"
-                onClick={() => setShareOpen(true)}
-                className="px-3 py-1 text-xs font-semibold text-white bg-blip-purple hover:bg-blip-purple-dark rounded"
-                title="Gerar link de compartilhamento"
-              >
-                🔗 Compartilhar
-              </button>
-              <div className="w-px h-4 bg-gray-200" />
-              {/* DEV: dump do estado pra análise — escrever em tmp/state-snapshot.json */}
-              <button
-                type="button"
-                onClick={async () => {
+            <Panel position="top-center">
+              <EditorToolbar
+                commentsCount={
+                  comments.filter((c) => !c.parent_id && !c.resolved_at).length
+                }
+                commentsOpen={commentsOpen}
+                autoTracking={autoTracking}
+                problemsCount={lint.counts.total}
+                problemsWorstSeverity={problemsWorstSeverity}
+                problemsOpen={problemsOpen}
+                canExport={Boolean(projectId)}
+                onShare={() => setShareOpen(true)}
+                onToggleComments={() => {
+                  setCommentsOpen((v) => !v);
+                  if (!commentsOpen) setPanelCollapsed(true);
+                }}
+                onToggleProblems={() => setProblemsOpen((v) => !v)}
+                onOrganizeLayout={() => handleOrganizeLayout(false)}
+                onReorganizeCodes={handleReorganizeCodes}
+                onExportBlip={() => setBlipExportOpen(true)}
+                onExportVisual={() => setVisualExportOpen(true)}
+                onLoadTemplate={handleOpenTemplateDialog}
+                onResetPage={handleResetPage}
+                onAutoTrackingChange={setAutoTracking}
+                onDumpJson={async () => {
                   try {
                     const { dumpProjectStateToFile } = await import(
                       '@/lib/actions/debug-dump'
@@ -1401,101 +1430,7 @@ function FlowEditorInner({
                     });
                   }
                 }}
-                className="px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 rounded"
-                title="DEV: exporta o estado atual pra tmp/state-snapshot.json (pra análise)"
-              >
-                🐛 Dump JSON
-              </button>
-              <div className="w-px h-4 bg-gray-200" />
-              <button
-                type="button"
-                onClick={() => {
-                  setCommentsOpen((v) => !v);
-                  if (!commentsOpen) setPanelCollapsed(true); // recolhe propriedades
-                }}
-                className={`px-3 py-1 text-xs font-medium rounded flex items-center gap-1 ${
-                  commentsOpen
-                    ? 'bg-yellow-100 text-yellow-900'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`}
-                title="Abrir comentários"
-              >
-                💬 Comentários
-                {comments.filter((c) => !c.parent_id && !c.resolved_at).length > 0 && (
-                  <span className="bg-yellow-400 text-yellow-900 rounded-full px-1.5 py-0 text-[10px] font-bold">
-                    {comments.filter((c) => !c.parent_id && !c.resolved_at).length}
-                  </span>
-                )}
-              </button>
-              <div className="w-px h-4 bg-gray-200" />
-              <button
-                type="button"
-                onClick={() => handleOrganizeLayout(false)}
-                className="px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 rounded"
-                title="Alinha componentes principais em coluna vertical dentro de cada frame"
-              >
-                📐 Organizar layout
-              </button>
-              <div className="w-px h-4 bg-gray-200" />
-              {!isDemo && !isReadOnly && projectId && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setBlipExportOpen(true)}
-                    className="px-3 py-1 text-xs font-medium text-blip-purple hover:bg-blip-purple/10 rounded"
-                    title="Exporta o projeto como .zip de JSONs compatível com a plataforma Blip"
-                  >
-                    📦 Exportar Blip
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setVisualExportOpen(true)}
-                    className="px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 rounded"
-                    title="Exporta o canvas como imagem (PNG / PDF / HTML)"
-                  >
-                    📷 Exportar imagem
-                  </button>
-                  <div className="w-px h-4 bg-gray-200" />
-                </>
-              )}
-              <button
-                type="button"
-                onClick={handleOpenTemplateDialog}
-                className="px-3 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 rounded"
-                title="Subir arquivo de escopo, colar texto ou usar exemplo"
-              >
-                🌱 Carregar Template
-              </button>
-              <button
-                type="button"
-                onClick={handleResetPage}
-                className="px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 rounded"
-                title="Apaga tudo desta página (canvas vazio)"
-              >
-                🧹 Resetar página
-              </button>
-              <div className="w-px h-4 bg-gray-200" />
-              <button
-                type="button"
-                onClick={handleReorganizeCodes}
-                className="px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 rounded"
-                title="Renumera todos os IDs em sequência pela posição"
-              >
-                🔢 Reorganizar IDs
-              </button>
-              <div className="w-px h-4 bg-gray-200" />
-              <label
-                className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 rounded cursor-pointer select-none"
-                title="Quando ativo, cria tracking automaticamente ao adicionar bubbles"
-              >
-                <input
-                  type="checkbox"
-                  checked={autoTracking}
-                  onChange={(e) => setAutoTracking(e.target.checked)}
-                  className="rounded border-gray-300 text-blip-purple focus:ring-blip-purple"
-                />
-                Tracking auto
-              </label>
+              />
             </Panel>
           )}
 
@@ -1509,6 +1444,15 @@ function FlowEditorInner({
           )}
 
         </ReactFlow>
+
+        {/* Painel de problems (linter) — overlay sobre o canvas, acima do BottomToolbar */}
+        {!isReadOnly && !isDemo && problemsOpen && (
+          <ProblemsPanel
+            problems={lint.problems}
+            onClose={() => setProblemsOpen(false)}
+            onJumpToNode={handleJumpToNode}
+          />
+        )}
 
         {/* Barra inferior com modos Mover/Selecionar */}
         {!isReadOnly && (

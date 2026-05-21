@@ -82,6 +82,7 @@ export interface Comment {
 
 export type FluxoNodeType =
   | 'frame'              // Container/agrupador (header roxo + body)
+  | 'entry-point'        // Marcador de "início" do fluxo dentro de um frame
   | 'block'              // Bloco completo (trackings + bubbles + right)
   | 'bubble-bot'         // BOT bubble (recebida)
   | 'bubble-user'        // USER bubble (enviada)

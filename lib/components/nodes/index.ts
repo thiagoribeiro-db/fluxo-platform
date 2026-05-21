@@ -18,10 +18,12 @@ import MediaNode from './MediaNode';
 import LinkNode from './LinkNode';
 import ConditionalNode from './ConditionalNode';
 import AtendimentoHumanoNode from './AtendimentoHumanoNode';
+import EntryPointNode from './EntryPointNode';
 
 export const nodeTypes = {
   // Estrutura
   frame: FrameNode,
+  'entry-point': EntryPointNode,
   // Mensagens
   'bubble-bot': BotBubbleNode,
   'bubble-user': UserBubbleNode,
@@ -66,4 +68,5 @@ export {
   LinkNode,
   ConditionalNode,
   AtendimentoHumanoNode,
+  EntryPointNode,
 };

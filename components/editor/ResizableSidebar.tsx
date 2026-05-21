@@ -36,7 +36,17 @@ export default function ResizableSidebar({
   const startXRef = useRef(0);
   const startWidthRef = useRef(defaultWidth);
 
-  // Carrega largura persistida ao montar (só client-side)
+  // Re-sincroniza `width` sempre que `defaultWidth` mudar externamente
+  // (caso típico: pai alterna colapsado ↔ expandido e passa width novo).
+  // Sem isso, o state interno `width` ficava preso no valor inicial e a
+  // sidebar não acompanhava o toggle.
+  useEffect(() => {
+    setWidth(defaultWidth);
+  }, [defaultWidth]);
+
+  // Carrega largura persistida ao montar (só client-side).
+  // Roda DEPOIS do effect acima, então sobrescreve com o valor salvo
+  // quando há storageKey (modo expandido).
   useEffect(() => {
     if (!storageKey || typeof window === 'undefined') return;
     const stored = window.localStorage.getItem(storageKey);

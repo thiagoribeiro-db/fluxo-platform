@@ -18,6 +18,11 @@ export const NODE_DEFAULTS: Record<FluxoNodeType, FluxoNodeData> = {
     height: 300,
   },
 
+  // Marcador de "início" — coloque um por frame, conectado ao primeiro main
+  'entry-point': {
+    label: 'Início',
+  },
+
   // ---- MENSAGENS -----------------------------------------------------------
   'bubble-bot': { text: 'Olá! Texto da mensagem BOT.', time: '9.41 AM' },
   'bubble-user': { text: 'Resposta do usuário', time: '9.41 AM' },
@@ -186,6 +191,7 @@ export const PALETTE_GROUPS: PaletteGroup[] = [
     title: 'Estrutura',
     items: [
       { type: 'frame', label: 'Frame', icon: '📦', description: 'Container nomeado (agrupa nós)' },
+      { type: 'entry-point', label: 'Início', icon: '▶', description: 'Marca o início do fluxo dentro do frame' },
     ],
   },
   {

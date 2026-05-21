@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { ChevronsRight } from 'lucide-react';
 import { PALETTE_GROUPS, type PaletteItem } from '@/lib/components/nodes/defaults';
 import type { FluxoNodeType } from '@/lib/types';
 
@@ -33,15 +34,17 @@ export default function Palette({ collapsed, onToggle, onAddNode }: PaletteProps
   }
 
   if (collapsed) {
+    // Modo colapsado: barra finíssima só com o botão de expandir.
+    // O espaço ocupado fica ao mínimo pra liberar área do canvas.
     return (
-      <aside className="w-full bg-white border-r border-gray-200 flex flex-col items-center pt-3">
+      <aside className="w-full flex-1 min-h-0 bg-white border-r border-gray-200 flex flex-col items-center pt-2">
         <button
           type="button"
           onClick={onToggle}
-          className="text-gray-400 hover:text-blip-purple text-lg"
+          className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-blip-purple hover:bg-blip-purple/10 rounded-md transition-colors"
           title="Expandir paleta"
         >
-          »
+          <ChevronsRight size={14} />
         </button>
       </aside>
     );

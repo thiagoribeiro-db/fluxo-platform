@@ -1,8 +1,9 @@
 /**
  * Export visual do canvas (React Flow) em PNG, PDF ou HTML.
  *
- * Estratégia: usa `html2canvas` pra rasterizar o DOM (já com tudo
- * renderizado), e depois empacota no formato escolhido.
+ * Estratégia: usa `html-to-image` (que internamente usa SVG foreignObject)
+ * pra rasterizar o DOM. Comparado ao html2canvas, renderiza texto/fonts
+ * com mais fidelidade e respeita melhor CSS moderno (flex, gap, etc).
  *  - PNG: dataURL direto do canvas → blob → download
  *  - PDF: insere o PNG numa página jsPDF dimensionada pra encaixar
  *  - HTML: HTML estático auto-contido com o PNG embedded em data URL
@@ -11,7 +12,7 @@
  * use `fitToBounds` antes pra ajustar o React Flow, aguarde um RAF, capture,
  * e restaure o viewport original.
  */
-import html2canvas from 'html2canvas';
+import { toCanvas } from 'html-to-image';
 import jsPDF from 'jspdf';
 import { devWarn } from '@/lib/utils/logger';
 
@@ -33,25 +34,46 @@ export interface ExportOptions extends CaptureOptions {
 const DEFAULT_BG = '#f5f5f5';
 
 /**
- * Rasteriza um elemento DOM via html2canvas.
+ * Filtra nodes que NÃO devem entrar na rasterização (UI chrome do React Flow
+ * que já escondemos por visibility mas o foreignObject pode tentar incluir).
+ */
+function filterNode(el: HTMLElement): boolean {
+  if (!(el instanceof HTMLElement)) return true;
+  const cls = el.classList;
+  if (!cls) return true;
+  // Ignora UI chrome
+  if (cls.contains('react-flow__minimap')) return false;
+  if (cls.contains('react-flow__controls')) return false;
+  if (cls.contains('react-flow__attribution')) return false;
+  if (cls.contains('react-flow__panel')) return false;
+  return true;
+}
+
+/**
+ * Rasteriza um elemento DOM via html-to-image (foreignObject).
+ *
+ * IMPORTANTE: o `width`/`height` aqui referem-se ao tamanho LÓGICO do canvas
+ * gerado (em CSS px). O `pixelRatio` multiplica pra resolução final.
  */
 export async function captureCanvas(
   element: HTMLElement,
   opts: CaptureOptions = {}
 ): Promise<HTMLCanvasElement> {
   const { scale = 2, backgroundColor = DEFAULT_BG } = opts;
-  // `windowWidth`/`windowHeight` forçam o html2canvas a usar as dimensões
-  // do elemento (não da janela inteira) — importante quando capturamos
-  // um container scrollable como o React Flow.
-  return html2canvas(element, {
-    scale,
+  // Usa scrollWidth/Height pra captura "completa" mesmo se houver overflow
+  const w = element.scrollWidth || element.clientWidth;
+  const h = element.scrollHeight || element.clientHeight;
+  return toCanvas(element, {
+    pixelRatio: scale,
     backgroundColor,
-    logging: false,
-    useCORS: true,
-    width: element.scrollWidth,
-    height: element.scrollHeight,
-    windowWidth: element.scrollWidth,
-    windowHeight: element.scrollHeight,
+    width: w,
+    height: h,
+    cacheBust: true,
+    filter: filterNode,
+    style: {
+      // Garante que o elemento renderize sem transform/clip do parent
+      transformOrigin: 'top left',
+    },
   });
 }
 
@@ -66,7 +88,6 @@ function triggerDownload(url: string, filename: string): void {
       intercept(url, filename);
       return;
     } catch (e) {
-      // eslint-disable-next-line no-console
       devWarn('[visual-exporter] dev intercept falhou, caindo no download:', e);
     }
   }
@@ -237,32 +258,10 @@ async function captureFrameCropped(
   contentNodeIds: string[],
   scale: number,
   bg: string,
-  paddingPx = 128
+  paddingPx = 64
 ): Promise<HTMLCanvasElement> {
   // 1. Esconde temporariamente nodes que NÃO pertencem a este frame.
-  // Sem isto, frames vizinhos visualmente adjacentes (quando o fitView
-  // deixa parte deles dentro da viewport) acabam aparecendo no PDF como
-  // "bubbles vazando" pelo lado da captura. Trackings/exceções desses
-  // nodes seguem o pai (renderizados em containers próprios pelo React
-  // Flow, mas children compartilham a transform — esconder o pai não
-  // esconde o tracking child em todos os casos, daí escondemos todos
-  // que não estiverem no set allowed).
   const allowed = new Set<string>([frameId, ...contentNodeIds]);
-  // Também mantemos visíveis trackings/exceções cujo parentId está no set.
-  // Esses são DOMs com data-id próprio mas posicionados relativos ao parent.
-  rfRoot
-    .querySelectorAll<HTMLElement>('.react-flow__node[data-id]')
-    .forEach((el) => {
-      const id = el.getAttribute('data-id');
-      if (!id || allowed.has(id)) return;
-      // Heurística pra reconhecer children de nodes allowed: o React Flow
-      // renderiza children dentro de containers `.react-flow__node-<type>`
-      // colocados no mesmo .react-flow__viewport — não há aninhamento DOM.
-      // Verificar parent via z-index/CSS é frágil; aceitamos esconder tudo
-      // que não está no set explícito. Pra trackings/exceções de nodes
-      // allowed, o caller deve incluí-los em contentNodeIds.
-    });
-
   const hidden: Array<{ el: HTMLElement; prev: string }> = [];
   rfRoot
     .querySelectorAll<HTMLElement>('.react-flow__node[data-id]')
@@ -275,15 +274,13 @@ async function captureFrameCropped(
 
   let fullCanvas: HTMLCanvasElement;
   try {
-    fullCanvas = await html2canvas(rfRoot, {
-      scale,
+    fullCanvas = await toCanvas(rfRoot, {
+      pixelRatio: scale,
       backgroundColor: bg,
-      logging: false,
-      useCORS: true,
       width: rfRoot.clientWidth,
       height: rfRoot.clientHeight,
-      windowWidth: rfRoot.clientWidth,
-      windowHeight: rfRoot.clientHeight,
+      cacheBust: true,
+      filter: filterNode,
     });
   } finally {
     hidden.forEach(({ el, prev }) => {
@@ -314,7 +311,6 @@ async function captureFrameCropped(
     if (r.bottom > maxY) maxY = r.bottom;
   }
   if (found === 0) {
-    // eslint-disable-next-line no-console
     devWarn(
       `[visual-exporter] nenhum DOM encontrado pro frame ${frameId} — retornando captura inteira`
     );
@@ -335,7 +331,6 @@ async function captureFrameCropped(
   const sh = Math.min(fullH - sy, Math.round(cssH * scale));
 
   if (sw <= 0 || sh <= 0) {
-    // eslint-disable-next-line no-console
     devWarn(
       `[visual-exporter] crop inválido pro frame ${frameId} (${sw}x${sh})`
     );

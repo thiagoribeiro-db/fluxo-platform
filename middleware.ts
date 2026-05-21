@@ -14,6 +14,16 @@ export async function middleware(request: NextRequest) {
     request: { headers: request.headers },
   });
 
+  // Rotas DEV-ONLY (livre de auth) usadas pra testar export PDF
+  // autonomamente. Bloqueadas em produção pelo próprio handler.
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    (request.nextUrl.pathname.startsWith('/dev-preview') ||
+      request.nextUrl.pathname.startsWith('/api/dev/'))
+  ) {
+    return response;
+  }
+
   const { url, key } = getSupabaseEnv();
 
   // Modo dev sem Supabase configurado: deixa tudo passar (apenas /editor/demo

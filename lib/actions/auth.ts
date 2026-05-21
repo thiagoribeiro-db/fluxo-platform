@@ -3,6 +3,7 @@
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { devLog, devWarn } from '@/lib/utils/logger';
 
 /**
  * Envia um magic link para o e-mail informado e redireciona para
@@ -39,7 +40,7 @@ export async function sendMagicLink(email: string, next?: string) {
     next ? `?next=${encodeURIComponent(next)}` : ''
   }`;
 
-  console.log('[sendMagicLink] redirectTo:', redirectTo);
+  devLog('[sendMagicLink] redirectTo:', redirectTo);
 
   const { error } = await supabase.auth.signInWithOtp({
     email,

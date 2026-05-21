@@ -13,6 +13,7 @@ import path from 'path';
 import { parse as parseYaml } from 'yaml';
 import type { ComponentSpec } from './spec-schema';
 import { isValidSpec } from './spec-schema';
+import { devLog, devWarn } from '@/lib/utils/logger';
 
 const BUILTINS_DIR = path.join(process.cwd(), 'lib', 'component-specs', 'builtins');
 
@@ -32,7 +33,7 @@ export function loadBuiltinSpecs(): ComponentSpec[] {
   if (_cachedBuiltins) return _cachedBuiltins;
 
   if (!fs.existsSync(BUILTINS_DIR)) {
-    console.warn(`[component-specs] Diretório builtins não existe: ${BUILTINS_DIR}`);
+    devWarn(`[component-specs] Diretório builtins não existe: ${BUILTINS_DIR}`);
     _cachedBuiltins = [];
     return _cachedBuiltins;
   }
@@ -49,7 +50,7 @@ export function loadBuiltinSpecs(): ComponentSpec[] {
       if (isValidSpec(parsed)) {
         specs.push(parsed);
       } else {
-        console.warn(`[component-specs] Spec inválido (campos required ausentes): ${file}`);
+        devWarn(`[component-specs] Spec inválido (campos required ausentes): ${file}`);
       }
     } catch (err) {
       console.error(`[component-specs] Falha ao parsear ${file}:`, err);
@@ -63,7 +64,7 @@ export function loadBuiltinSpecs(): ComponentSpec[] {
     return a.id.localeCompare(b.id);
   });
 
-  console.log(
+  devLog(
     `[component-specs] Carregados ${specs.length} specs builtins: ${specs.map((s) => s.id).join(', ')}`
   );
 

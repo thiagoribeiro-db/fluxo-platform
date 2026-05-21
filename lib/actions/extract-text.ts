@@ -1,5 +1,7 @@
 'use server';
 
+import { devLog } from '@/lib/utils/logger';
+
 /**
  * Server action que extrai texto de arquivos (PDF, DOCX, MD, TXT).
  *
@@ -32,10 +34,10 @@ export async function extractTextFromFile(
 
   if (ext === 'pdf') {
     const finalText = await extractPdfWithLayout(buffer);
-    console.log(
+    devLog(
       `[extract-text] PDF "${input.fileName}": ${finalText.length} chars, ${finalText.split('\n').length} linhas`
     );
-    console.log(
+    devLog(
       `[extract-text] Preview (300 chars):`,
       JSON.stringify(finalText.slice(0, 300))
     );

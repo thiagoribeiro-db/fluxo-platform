@@ -13,6 +13,7 @@
  */
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import { devWarn } from '@/lib/utils/logger';
 
 export type ExportFormat = 'png' | 'pdf' | 'html';
 
@@ -55,6 +56,20 @@ export async function captureCanvas(
 }
 
 function triggerDownload(url: string, filename: string): void {
+  // Hook DEV-ONLY pra interceptar o download e salvar no server
+  // (usado pelo /dev-preview pra eu validar o PDF autonomamente).
+  const w = typeof window !== 'undefined' ? window : null;
+  const intercept = (w as unknown as { __DEV_INTERCEPT_DOWNLOAD__?: (url: string, filename: string) => unknown })
+    ?.__DEV_INTERCEPT_DOWNLOAD__;
+  if (intercept) {
+    try {
+      intercept(url, filename);
+      return;
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      devWarn('[visual-exporter] dev intercept falhou, caindo no download:', e);
+    }
+  }
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
@@ -100,7 +115,12 @@ export async function exportAsPdf(
   });
   if (opts.title) pdf.setProperties({ title: opts.title });
   pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, w, h);
-  pdf.save(opts.filename ?? 'fluxo.pdf');
+  // Usa output('blob') + triggerDownload em vez de pdf.save() pra passar
+  // pelo hook de intercept DEV (__DEV_INTERCEPT_DOWNLOAD__).
+  const blob = pdf.output('blob');
+  const url = URL.createObjectURL(blob);
+  triggerDownload(url, opts.filename ?? 'fluxo.pdf');
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 export async function exportAsHtml(
@@ -217,19 +237,59 @@ async function captureFrameCropped(
   contentNodeIds: string[],
   scale: number,
   bg: string,
-  paddingPx = 24
+  paddingPx = 96
 ): Promise<HTMLCanvasElement> {
-  // 1. Captura .react-flow inteiro
-  const fullCanvas = await html2canvas(rfRoot, {
-    scale,
-    backgroundColor: bg,
-    logging: false,
-    useCORS: true,
-    width: rfRoot.clientWidth,
-    height: rfRoot.clientHeight,
-    windowWidth: rfRoot.clientWidth,
-    windowHeight: rfRoot.clientHeight,
-  });
+  // 1. Esconde temporariamente nodes que NÃO pertencem a este frame.
+  // Sem isto, frames vizinhos visualmente adjacentes (quando o fitView
+  // deixa parte deles dentro da viewport) acabam aparecendo no PDF como
+  // "bubbles vazando" pelo lado da captura. Trackings/exceções desses
+  // nodes seguem o pai (renderizados em containers próprios pelo React
+  // Flow, mas children compartilham a transform — esconder o pai não
+  // esconde o tracking child em todos os casos, daí escondemos todos
+  // que não estiverem no set allowed).
+  const allowed = new Set<string>([frameId, ...contentNodeIds]);
+  // Também mantemos visíveis trackings/exceções cujo parentId está no set.
+  // Esses são DOMs com data-id próprio mas posicionados relativos ao parent.
+  rfRoot
+    .querySelectorAll<HTMLElement>('.react-flow__node[data-id]')
+    .forEach((el) => {
+      const id = el.getAttribute('data-id');
+      if (!id || allowed.has(id)) return;
+      // Heurística pra reconhecer children de nodes allowed: o React Flow
+      // renderiza children dentro de containers `.react-flow__node-<type>`
+      // colocados no mesmo .react-flow__viewport — não há aninhamento DOM.
+      // Verificar parent via z-index/CSS é frágil; aceitamos esconder tudo
+      // que não está no set explícito. Pra trackings/exceções de nodes
+      // allowed, o caller deve incluí-los em contentNodeIds.
+    });
+
+  const hidden: Array<{ el: HTMLElement; prev: string }> = [];
+  rfRoot
+    .querySelectorAll<HTMLElement>('.react-flow__node[data-id]')
+    .forEach((el) => {
+      const id = el.getAttribute('data-id');
+      if (!id || allowed.has(id)) return;
+      hidden.push({ el, prev: el.style.visibility });
+      el.style.visibility = 'hidden';
+    });
+
+  let fullCanvas: HTMLCanvasElement;
+  try {
+    fullCanvas = await html2canvas(rfRoot, {
+      scale,
+      backgroundColor: bg,
+      logging: false,
+      useCORS: true,
+      width: rfRoot.clientWidth,
+      height: rfRoot.clientHeight,
+      windowWidth: rfRoot.clientWidth,
+      windowHeight: rfRoot.clientHeight,
+    });
+  } finally {
+    hidden.forEach(({ el, prev }) => {
+      el.style.visibility = prev;
+    });
+  }
 
   // 2. Coleta bbox UNIÃO do frame container + todos os nodes do frame.
   //    Cada bounding rect é viewport-relative; o crop é em coords do
@@ -255,7 +315,7 @@ async function captureFrameCropped(
   }
   if (found === 0) {
     // eslint-disable-next-line no-console
-    console.warn(
+    devWarn(
       `[visual-exporter] nenhum DOM encontrado pro frame ${frameId} — retornando captura inteira`
     );
     return fullCanvas;
@@ -276,7 +336,7 @@ async function captureFrameCropped(
 
   if (sw <= 0 || sh <= 0) {
     // eslint-disable-next-line no-console
-    console.warn(
+    devWarn(
       `[visual-exporter] crop inválido pro frame ${frameId} (${sw}x${sh})`
     );
     return fullCanvas;
@@ -372,7 +432,12 @@ export async function exportFramesAsPdf(
       pdf!.setTextColor(80, 80, 80);
       pdf!.text(frame.title, 16, 18, { baseline: 'top' });
     }
-    if (pdf) pdf.save(opts.filename ?? 'fluxo.pdf');
+    if (pdf) {
+      const blob = pdf.output('blob');
+      const url = URL.createObjectURL(blob);
+      triggerDownload(url, opts.filename ?? 'fluxo.pdf');
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    }
   } finally {
     restoreChrome();
     restoreViewport();

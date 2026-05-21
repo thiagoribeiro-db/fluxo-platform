@@ -7,6 +7,7 @@ import {
   applyEscopoWithAI,
 } from '@/lib/actions/projects';
 import { extractTextFromFile } from '@/lib/actions/extract-text';
+import { devLog, devWarn } from '@/lib/utils/logger';
 
 interface TemplateDialogProps {
   projectId: string;
@@ -127,7 +128,7 @@ export default function TemplateDialog({
             sourceName
           );
           // Loga meta no console pra debug
-          console.log('[applyEscopoWithAI] resultado:', result);
+          devLog('[applyEscopoWithAI] resultado:', result);
 
           // Salva resumo no sessionStorage pra mostrar pro usuário após reload
           // (sumirá após primeira leitura)

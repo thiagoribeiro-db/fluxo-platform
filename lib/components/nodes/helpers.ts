@@ -1,5 +1,6 @@
 import type { Edge } from '@xyflow/react';
 import type { FluxoNode, FluxoNodeType } from '@/lib/types';
+import { devLog, devWarn } from '@/lib/utils/logger';
 
 /**
  * Helpers compartilhados de criação/manipulação de nodes.
@@ -640,8 +641,8 @@ export function repairMainFlowEdges(
         }
         toRemove.add(direct.id);
         if (typeof window !== 'undefined') {
-          // eslint-disable-next-line no-console
-          console.log(
+
+          devLog(
             `[repair] conectando ${orphanBtns.length} btn(s) órfãos ao destino e removendo edge direta`,
             {
               source,
@@ -654,8 +655,8 @@ export function repairMainFlowEdges(
       }
       // Ambíguo: vários destinos main + btns órfãos → não dá pra mapear automaticamente
       if (typeof window !== 'undefined') {
-        // eslint-disable-next-line no-console
-        console.warn(
+
+        devWarn(
           `[repair] AMBÍGUO: source ${source} tem ${directEdges.length} edges main→main e ${orphanBtns.length} btn(s) órfãos. Não vou consertar automaticamente.`,
           {
             source,
@@ -693,8 +694,8 @@ export function repairMainFlowEdges(
   }
 
   if (toRemove.size > 0 && typeof window !== 'undefined') {
-    // eslint-disable-next-line no-console
-    console.log(
+
+    devLog(
       `[repair] removendo ${toRemove.size} edge(s) redundante(s) main→main`
     );
   }
@@ -1269,8 +1270,8 @@ export function organizeLayoutByFrame(
             (frame.data?.title as string | undefined) ??
             (frame.data?.frameName as string | undefined) ??
             resolveFramePrefix(frame);
-          // eslint-disable-next-line no-console
-          console.log(
+
+          devLog(
             `[diamond] frame="${frameTitle}" mains=${list.length} edges=${totalEdges} useDiamond=${useDiamond}`,
             report
           );
@@ -1330,7 +1331,34 @@ export function organizeLayoutByFrame(
         LAYOUT_RIGHT_MARGIN
       : 0;
 
-    const desiredWidth = Math.max(400, requiredWidth, requiredDiamondW);
+    // Width mínimo pra acomodar direcionamentos em GRID (caso típico
+    // do frame AM com 3 direcionamentos lado a lado: Voltar/Atendente/
+    // Finalizar). Se o diamond + cascata não pediu width suficiente,
+    // o grid de dirs força o frame a crescer pra evitar cortes laterais.
+    const frameDirs = nodes.filter((n) => {
+      if (n.type !== 'direcionamento' || n.parentId) return false;
+      const owner = findOwnerFrame(n, nodes);
+      return owner?.id === frame.id;
+    });
+    const requiredGridW =
+      frameDirs.length > 0
+        ? (() => {
+            const itemW = Math.min(
+              260,
+              Math.max(145, ...frameDirs.map((d) => measuredBox(d).w))
+            );
+            // Tenta encaixar em UMA row se ≤4 itens; senão deixa quebrar
+            const cols = Math.min(frameDirs.length, 4);
+            return cols * itemW + (cols - 1) * 12 + 40;
+          })()
+        : 0;
+
+    const desiredWidth = Math.max(
+      400,
+      requiredWidth,
+      requiredDiamondW,
+      requiredGridW
+    );
 
     // CAP POR VIZINHO: o frame não pode crescer além do x do vizinho à
     // direita (na mesma faixa vertical). Sem esse cap, frames com muitos

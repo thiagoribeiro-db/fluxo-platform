@@ -136,16 +136,20 @@
 
   /* Direcionamento — pílula verde apontando para outro frame */
   .direcionamento {
-    @apply inline-flex items-center gap-1.5 bg-green-50 border border-green-300 rounded-full px-3 py-1.5 shadow-sm transition-all;
+    @apply inline-flex items-center gap-1.5 bg-green-50 border border-green-300 rounded-full px-3 py-1.5 shadow-sm transition-all whitespace-nowrap;
+    min-width: max-content;
   }
   .direcionamento.clickable {
     @apply cursor-pointer hover:bg-green-100 hover:-translate-y-px hover:shadow;
   }
   .direcionamento-arrow {
     @apply text-green-700 text-xs font-bold;
+    flex-shrink: 0;
   }
   .direcionamento-label {
     @apply text-[11px] font-semibold text-green-700 leading-snug;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .direcionamento-icon {
     @apply w-[22px] h-[22px] bg-green-700 rounded-md flex-shrink-0 flex items-center justify-center text-white text-xs;

@@ -24,6 +24,7 @@ import {
   EXCECAO_APPROX_WIDTH,
 } from '@/lib/components/nodes/helpers';
 import type { AIBlock, AIFrame, AIParseResult } from './ai-schema';
+import { devLog, devWarn } from '@/lib/utils/logger';
 
 // =============================================================================
 // CONSTANTES DE LAYOUT
@@ -512,7 +513,7 @@ function emitDirecionamentoGrid(ctx: BuildContext, group: AIBlock[]): void {
 
     const label = block.label?.trim();
     if (!label) {
-      console.warn('[ai-builder] direcionamento sem label no grid');
+      devWarn('[ai-builder] direcionamento sem label no grid');
       return;
     }
 
@@ -723,7 +724,7 @@ export function buildStateFromAIResult(result: AIParseResult): ProjectState {
             emitDirecionamentoGrid(ctx, group);
           }
         } catch (err) {
-          console.warn(
+          devWarn(
             `[ai-builder] Falha emitindo grupo de direcionamentos em "${aiFrame.title}":`,
             err
           );
@@ -743,7 +744,7 @@ export function buildStateFromAIResult(result: AIParseResult): ProjectState {
           );
           i += Math.max(1, consumed); // protege contra loop infinito
         } catch (err) {
-          console.warn(
+          devWarn(
             `[ai-builder] Falha emitindo cascata em "${aiFrame.title}":`,
             err
           );
@@ -755,7 +756,7 @@ export function buildStateFromAIResult(result: AIParseResult): ProjectState {
       try {
         emitBlock(ctx, block);
       } catch (err) {
-        console.warn(
+        devWarn(
           `[ai-builder] Bloco ignorado em frame "${aiFrame.title}":`,
           block,
           err
@@ -847,7 +848,7 @@ function dedupeFramePrefixes(frames: AIFrame[]): AIFrame[] {
     }
 
     used.add(newPrefix);
-    console.log(
+    devLog(
       `[ai-builder] Colisão de prefix: "${frame.title}" tinha "${original}" (já usado) → "${newPrefix}"`
     );
     return { ...frame, prefix: newPrefix };
@@ -897,7 +898,7 @@ function processCondicionalCascade(
     const block = blocks[i];
     const condition = block.condition?.trim();
     if (!condition) {
-      console.warn('[ai-builder] condicional sem condition');
+      devWarn('[ai-builder] condicional sem condition');
       i++;
       consumed++;
       continue;
@@ -1008,7 +1009,7 @@ function emitBlock(ctx: BuildContext, block: AIBlock): string | undefined {
     case 'bot': {
       const text = block.text?.trim();
       if (!text) {
-        console.warn('[ai-builder] bloco bot sem text');
+        devWarn('[ai-builder] bloco bot sem text');
         return undefined;
       }
       return emitBot(ctx, text);
@@ -1021,7 +1022,7 @@ function emitBlock(ctx: BuildContext, block: AIBlock): string | undefined {
       const header = block.header?.trim() || 'Selecione uma opção';
       const options = (block.options ?? []).map((o) => o.trim()).filter(Boolean);
       if (options.length === 0) {
-        console.warn('[ai-builder] menu sem options');
+        devWarn('[ai-builder] menu sem options');
         return undefined;
       }
       return emitMenu(ctx, header, options, block.footer?.trim() || 'Enviar');
@@ -1029,7 +1030,7 @@ function emitBlock(ctx: BuildContext, block: AIBlock): string | undefined {
     case 'buttons': {
       const options = (block.options ?? []).map((o) => o.trim()).filter(Boolean);
       if (options.length === 0) {
-        console.warn('[ai-builder] buttons sem options');
+        devWarn('[ai-builder] buttons sem options');
         return undefined;
       }
       if (block.question?.trim()) {
@@ -1041,7 +1042,7 @@ function emitBlock(ctx: BuildContext, block: AIBlock): string | undefined {
     case 'btn-long': {
       const label = block.label?.trim();
       if (!label) {
-        console.warn('[ai-builder] btn-long sem label');
+        devWarn('[ai-builder] btn-long sem label');
         return undefined;
       }
       return emitBtnLong(ctx, label);
@@ -1051,7 +1052,7 @@ function emitBlock(ctx: BuildContext, block: AIBlock): string | undefined {
       const sender = block.sender ?? 'bot';
       const caption = block.caption?.trim() || '';
       if (!mediaKind) {
-        console.warn('[ai-builder] media sem media_kind');
+        devWarn('[ai-builder] media sem media_kind');
         return undefined;
       }
       return emitMedia(ctx, mediaKind, sender, caption);
@@ -1059,7 +1060,7 @@ function emitBlock(ctx: BuildContext, block: AIBlock): string | undefined {
     case 'link': {
       const url = block.url?.trim();
       if (!url) {
-        console.warn('[ai-builder] link sem url');
+        devWarn('[ai-builder] link sem url');
         return undefined;
       }
       return emitLink(
@@ -1073,7 +1074,7 @@ function emitBlock(ctx: BuildContext, block: AIBlock): string | undefined {
     case 'direcionamento': {
       const label = block.label?.trim();
       if (!label) {
-        console.warn('[ai-builder] direcionamento sem label');
+        devWarn('[ai-builder] direcionamento sem label');
         return undefined;
       }
       return emitDirecionamento(ctx, label, block.target_frame_id?.trim() || undefined);
@@ -1081,7 +1082,7 @@ function emitBlock(ctx: BuildContext, block: AIBlock): string | undefined {
     case 'condicional': {
       const condition = block.condition?.trim();
       if (!condition) {
-        console.warn('[ai-builder] condicional sem condition');
+        devWarn('[ai-builder] condicional sem condition');
         return undefined;
       }
       // Cond solta (não parte de cascata) — usa connectFromLast=true pra
@@ -1113,7 +1114,7 @@ function emitBlock(ctx: BuildContext, block: AIBlock): string | undefined {
       return emitIag(ctx, type, title, fields);
     }
     default: {
-      console.warn(`[ai-builder] kind desconhecido: ${(block as AIBlock).kind}`);
+      devWarn(`[ai-builder] kind desconhecido: ${(block as AIBlock).kind}`);
       return undefined;
     }
   }

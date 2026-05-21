@@ -26,6 +26,7 @@ import {
 } from '@/lib/parser/ai-schema';
 import { buildStateFromAIResult } from '@/lib/parser/ai-builder';
 import type { ProjectState } from '@/lib/types';
+import { devLog, devWarn } from '@/lib/utils/logger';
 
 const MODEL = 'claude-opus-4-7';
 const MAX_TOKENS = 32000;
@@ -90,13 +91,13 @@ export async function parseEscopoWithAI(input: ParseInput): Promise<ParseResult>
   // --- Limita tamanho (sanity) — 300k caracteres ≈ 75k tokens, dentro do limite
   let inputText = input.text;
   if (inputText.length > 300_000) {
-    console.warn(
+    devWarn(
       `[parse-with-ai] Texto muito longo (${inputText.length} chars) — truncando pra 300k.`
     );
     inputText = inputText.slice(0, 300_000) + '\n\n[... documento truncado ...]';
   }
 
-  console.log(
+  devLog(
     `[parse-with-ai] Iniciando parsing de "${input.fileName ?? 'texto'}" (${inputText.length} chars)…`
   );
 
@@ -240,11 +241,11 @@ export async function parseEscopoWithAI(input: ParseInput): Promise<ParseResult>
   const blocksCount = result.frames.reduce((acc, f) => acc + f.blocks.length, 0);
   const durationMs = Date.now() - startedAt;
 
-  console.log(
+  devLog(
     `[parse-with-ai] ✓ ${result.frames.length} frames, ${blocksCount} blocks, ${state.nodes.length} nodes, ${state.edges.length} edges (${(durationMs / 1000).toFixed(1)}s)`
   );
   if (usage) {
-    console.log(
+    devLog(
       `[parse-with-ai] Tokens: in=${usage.input_tokens ?? 0}, out=${usage.output_tokens ?? 0}, cache_read=${usage.cache_read_input_tokens ?? 0}, cache_write=${usage.cache_creation_input_tokens ?? 0}`
     );
   }
@@ -287,12 +288,12 @@ function readApiKeyFromEnvFile(): string | undefined {
     if (!match) return undefined;
 
     const value = match[1].trim();
-    console.log(
+    devLog(
       `[parse-with-ai] Lendo ANTHROPIC_API_KEY do .env.local (process.env estava vazio) — length=${value.length}`
     );
     return value;
   } catch (err) {
-    console.warn('[parse-with-ai] Falha ao ler .env.local:', err);
+    devWarn('[parse-with-ai] Falha ao ler .env.local:', err);
     return undefined;
   }
 }

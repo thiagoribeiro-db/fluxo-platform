@@ -76,14 +76,27 @@ export default function ExportVisualDialog({
           }));
 
           // Pra cada frame, mapeia os IDs dos nodes que o findOwnerFrame
-          // aponta pra ele. Bbox do crop vai abraçar todos esses elementos.
+          // aponta pra ele + trackings/exceções (children via parentId)
+          // desses nodes. Bbox do crop vai abraçar todos esses elementos
+          // E o captureFrameCropped esconde os NÃO-listados pra evitar
+          // vazamento visual de frames adjacentes.
           const contentByFrame = new Map<string, string[]>();
+          const ownerByMain = new Map<string, string>(); // mainId → frameId
           for (const f of frameNodes) contentByFrame.set(f.id, []);
           for (const n of allNodes) {
             if (n.type === 'frame') continue;
-            if (n.parentId) continue; // children (tracking/excecao) seguem o parent
+            if (n.parentId) continue;
             const owner = findOwnerFrame(n, allNodes);
-            if (owner) contentByFrame.get(owner.id)?.push(n.id);
+            if (owner) {
+              contentByFrame.get(owner.id)?.push(n.id);
+              ownerByMain.set(n.id, owner.id);
+            }
+          }
+          // Adiciona children (parentId) ao frame do parent
+          for (const n of allNodes) {
+            if (!n.parentId) continue;
+            const ownerFrame = ownerByMain.get(n.parentId);
+            if (ownerFrame) contentByFrame.get(ownerFrame)?.push(n.id);
           }
 
           const savedVp = getViewport();

@@ -15,6 +15,7 @@
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { createClient } from '@/lib/supabase/server';
+import { devLog, devWarn } from '@/lib/utils/logger';
 
 interface DumpResult {
   success: true;
@@ -91,7 +92,7 @@ export async function dumpProjectStateToFile(
 
   await writeFile(filePath, JSON.stringify(snapshot, null, 2), 'utf-8');
 
-  console.log(
+  devLog(
     `[debug-dump] Snapshot escrito em ${filePath} (${totalNodes} nodes, ${framesCount} frames)`
   );
 

@@ -187,7 +187,13 @@ export async function applyEscopoToProject(
     );
   }
 
-  await saveStateOnActivePageOrLegacy(supabase, projectId, state, pageId);
+  await saveStateOnActivePageOrLegacy(
+    supabase,
+    projectId,
+    state,
+    pageId,
+    'Antes de aplicar escopo (regex)'
+  );
 
   revalidatePath(`/editor/${projectId}`);
 }
@@ -245,7 +251,13 @@ export async function applyEscopoWithAI(
     );
   }
 
-  await saveStateOnActivePageOrLegacy(supabase, projectId, state, pageId);
+  await saveStateOnActivePageOrLegacy(
+    supabase,
+    projectId,
+    state,
+    pageId,
+    `Antes de aplicar IA${fileName ? ` (${fileName})` : ''}`
+  );
 
   revalidatePath(`/editor/${projectId}`);
 
@@ -293,7 +305,13 @@ export async function applyTemplate(
   }
 
   // Salva na PÁGINA ATIVA (não em projects.state — legado)
-  await saveStateOnActivePageOrLegacy(supabase, projectId, state, pageId);
+  await saveStateOnActivePageOrLegacy(
+    supabase,
+    projectId,
+    state,
+    pageId,
+    `Antes de aplicar template "${templateName}"`
+  );
 
   revalidatePath(`/editor/${projectId}`);
 }
@@ -306,16 +324,16 @@ export async function applyTemplate(
  *   2. `projects.active_page_id` (default — página ativa segundo o banco)
  *   3. `projects.state` (legado — fallback final se nem 1 nem 2 existem)
  *
- * AUTO-BACKUP: se a página alvo tem nodes > 0, cria uma página
- * "Backup pré-aplicação (data)" com o state antigo ANTES de sobrescrever.
- * Recuperação fica disponível mesmo após reload (quando o history em memória
- * do FlowEditor é perdido).
+ * AUTO-SNAPSHOT: se a página alvo tem nodes > 0, cria uma VERSÃO em
+ * `page_versions` com o state antigo ANTES de sobrescrever. Recuperação
+ * via painel "Versões" no editor.
  */
 async function saveStateOnActivePageOrLegacy(
   supabase: ReturnType<typeof createClient>,
   projectId: string,
   state: ProjectState,
-  explicitPageId?: string
+  explicitPageId?: string,
+  snapshotLabel?: string
 ): Promise<void> {
   // Determina a página alvo
   let targetPageId: string | null = explicitPageId ?? null;
@@ -333,10 +351,10 @@ async function saveStateOnActivePageOrLegacy(
   }
 
   if (targetPageId) {
-    // Lê o state ATUAL pra decidir se vale fazer backup
+    // Lê o state ATUAL pra decidir se vale fazer snapshot
     const { data: currentPage } = await supabase
       .from('project_pages')
-      .select('state, name, position')
+      .select('state')
       .eq('id', targetPageId)
       .single();
 
@@ -346,37 +364,20 @@ async function saveStateOnActivePageOrLegacy(
     );
 
     if (hasContent) {
-      // Cria backup como nova página (não bloqueia o write principal —
-      // se backup falhar, ainda assim aplicamos o template, mas logamos).
+      // Snapshot defensive na tabela page_versions (não bloqueia o write
+      // principal — se snapshot falhar, ainda assim aplicamos o template).
       try {
-        const ts = new Date().toLocaleString('pt-BR', {
-          day: '2-digit',
-          month: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-        });
-        const backupName = `[Backup] ${currentPage!.name} (${ts})`;
-        // Próxima position no projeto
-        const { data: maxPos } = await supabase
-          .from('project_pages')
-          .select('position')
-          .eq('project_id', projectId)
-          .order('position', { ascending: false })
-          .limit(1);
-        const nextPos =
-          maxPos && maxPos.length > 0
-            ? (maxPos[0].position as number) + 1
-            : 0;
-        await supabase.from('project_pages').insert({
-          project_id: projectId,
-          name: backupName,
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        await supabase.from('page_versions').insert({
+          page_id: targetPageId,
           state: currentState,
-          position: nextPos,
-          is_default: false,
+          label: snapshotLabel ?? 'Snapshot automático',
+          created_by: user?.id ?? null,
         });
-      } catch (backupErr) {
-        // Loga mas não bloqueia
-        console.error('[backup pre-aplicação] falha (não-fatal):', backupErr);
+      } catch (snapErr) {
+        console.error('[snapshot pré-aplicação] falha (não-fatal):', snapErr);
       }
     }
 

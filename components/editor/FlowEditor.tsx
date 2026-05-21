@@ -62,12 +62,15 @@ import PagesSidebar from './PagesSidebar';
 import ResizableSidebar from './ResizableSidebar';
 import LoadingOverlay from './LoadingOverlay';
 import AIParseSummary from './AIParseSummary';
+import CommandPalette from './CommandPalette';
 import EditorToolbar from './EditorToolbar';
 import HelperLines from './HelperLines';
 import PlaybackPanel from './PlaybackPanel';
 import ProblemsPanel from './ProblemsPanel';
 import SidebarHeader from './SidebarHeader';
+import VersionsPanel from './VersionsPanel';
 import { useFlowLint } from '@/lib/lint/use-flow-lint';
+import type { CommandContext, CommandFrame } from '@/lib/commands/registry';
 import { listComments, type Comment } from '@/lib/actions/comments';
 import { handleError, toast } from '@/lib/utils/errors';
 import { confirmDialog } from '@/lib/utils/dialog';
@@ -246,6 +249,8 @@ function FlowEditorInner({
   const [problemsOpen, setProblemsOpen] = useState(false);
   const [playbackOpen, setPlaybackOpen] = useState(false);
   const [playbackActiveNodeId, setPlaybackActiveNodeId] = useState<string | null>(null);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   // Modo de seleção retangular: panOnDrag false, selectionOnDrag true
   const [selectMode, setSelectMode] = useState(false);
@@ -1236,6 +1241,19 @@ function FlowEditorInner({
     [setNodes, setEdges, edges, nodes, getInternalNode, pushHistory]
   );
 
+  // Atalho global Cmd+K / Ctrl+K → abre Command Palette
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // Auto-organize ao carregar com ?autoOrganize=1 (após aplicar template)
   useEffect(() => {
     if (isDemo || isReadOnly || typeof window === 'undefined') return;
@@ -1315,6 +1333,40 @@ function FlowEditorInner({
     saved: '✅ Salvo',
     error: '⚠️ Erro ao salvar',
   }[saveStatus];
+
+  // Contexto do Command Palette — comandos dinâmicos por frames atuais
+  const commandContext: CommandContext = {
+    frames: nodes
+      .filter((n) => n.type === 'frame')
+      .map<CommandFrame>((f) => ({
+        id: f.id,
+        title:
+          (f.data?.title as string | undefined) ??
+          (f.data?.frameId as string | undefined) ??
+          'sem nome',
+        frameId: f.data?.frameId as string | undefined,
+      })),
+    onCreateNode: (type) => createNode(type),
+    onJumpToFrame: handleJumpToNode,
+    onOrganize: () => handleOrganizeLayout(false),
+    onReorder: handleReorganizeCodes,
+    onReset: handleResetPage,
+    onOpenShare: () => setShareOpen(true),
+    onOpenBlipExport: () => setBlipExportOpen(true),
+    onOpenVisualExport: () => setVisualExportOpen(true),
+    onOpenTemplate: handleOpenTemplateDialog,
+    onOpenComments: () => {
+      setCommentsOpen(true);
+      setPanelCollapsed(true);
+    },
+    onOpenProblems: () => setProblemsOpen(true),
+    onOpenPlayback: () => setPlaybackOpen(true),
+    onOpenVersions: () => setVersionsOpen(true),
+    onBackToDashboard: () => {
+      if (typeof window !== 'undefined') window.location.href = '/dashboard';
+    },
+    canExport: Boolean(projectId),
+  };
 
   return (
     <div className="flex h-screen w-full bg-wpp-bg-chat overflow-hidden">
@@ -1404,6 +1456,7 @@ function FlowEditorInner({
                 problemsWorstSeverity={problemsWorstSeverity}
                 problemsOpen={problemsOpen}
                 playbackOpen={playbackOpen}
+                versionsOpen={versionsOpen}
                 canExport={Boolean(projectId)}
                 onShare={() => setShareOpen(true)}
                 onToggleComments={() => {
@@ -1412,6 +1465,7 @@ function FlowEditorInner({
                 }}
                 onToggleProblems={() => setProblemsOpen((v) => !v)}
                 onTogglePlayback={() => setPlaybackOpen((v) => !v)}
+                onToggleVersions={() => setVersionsOpen((v) => !v)}
                 onOrganizeLayout={() => handleOrganizeLayout(false)}
                 onReorganizeCodes={handleReorganizeCodes}
                 onExportBlip={() => setBlipExportOpen(true)}
@@ -1473,6 +1527,38 @@ function FlowEditorInner({
               setPlaybackActiveNodeId(null);
             }}
             onActiveNode={setPlaybackActiveNodeId}
+          />
+        )}
+
+        {/* Painel de Versões — histórico de snapshots */}
+        {!isDemo && !isReadOnly && activePageId && versionsOpen && (
+          <VersionsPanel
+            pageId={activePageId}
+            onClose={() => setVersionsOpen(false)}
+            onRestored={async () => {
+              // Recarrega a page atual do banco com o novo state
+              if (!projectId) return;
+              try {
+                const fresh = await listPages(projectId);
+                setPages(fresh);
+                const newCurrent = fresh.find((p) => p.id === activePageId);
+                if (newCurrent) {
+                  setNodes((newCurrent.state.nodes ?? []) as FluxoNode[]);
+                  setEdges(newCurrent.state.edges ?? []);
+                }
+              } catch (err) {
+                handleError(err, { context: 'reload-after-restore' });
+              }
+            }}
+          />
+        )}
+
+        {/* Command Palette (Cmd+K) — overlay global */}
+        {!isReadOnly && (
+          <CommandPalette
+            open={commandPaletteOpen}
+            onOpenChange={setCommandPaletteOpen}
+            context={commandContext}
           />
         )}
 

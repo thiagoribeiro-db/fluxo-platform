@@ -19,6 +19,7 @@ import {
   Bug,
   Eraser,
   Hash,
+  History,
   Image as ImageIcon,
   LayoutGrid,
   MessageSquare,
@@ -39,10 +40,13 @@ export interface EditorToolbarProps {
   problemsOpen: boolean;
   /** Estado do Test Playground (panel aberto ou não). */
   playbackOpen: boolean;
+  /** Estado do painel Versões. */
+  versionsOpen: boolean;
   onShare: () => void;
   onToggleComments: () => void;
   onToggleProblems: () => void;
   onTogglePlayback: () => void;
+  onToggleVersions: () => void;
   onOrganizeLayout: () => void;
   onReorganizeCodes: () => void;
   onExportBlip: () => void;
@@ -64,10 +68,12 @@ export default function EditorToolbar(props: EditorToolbarProps) {
     problemsWorstSeverity,
     problemsOpen,
     playbackOpen,
+    versionsOpen,
     onShare,
     onToggleComments,
     onToggleProblems,
     onTogglePlayback,
+    onToggleVersions,
     onOrganizeLayout,
     onReorganizeCodes,
     onExportBlip,
@@ -128,6 +134,15 @@ export default function EditorToolbar(props: EditorToolbarProps) {
         tone="primary"
         onClick={onTogglePlayback}
         title="Simular uma conversa no fluxo (sem exportar pro Blip)"
+      />
+
+      {/* Versões / histórico */}
+      <IconButton
+        icon={<History size={15} />}
+        label="Versões"
+        active={versionsOpen}
+        onClick={onToggleVersions}
+        title="Histórico de snapshots da página (restaurar versões anteriores)"
       />
 
       <Divider />

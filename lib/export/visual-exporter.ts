@@ -237,7 +237,7 @@ async function captureFrameCropped(
   contentNodeIds: string[],
   scale: number,
   bg: string,
-  paddingPx = 96
+  paddingPx = 128
 ): Promise<HTMLCanvasElement> {
   // 1. Esconde temporariamente nodes que NÃO pertencem a este frame.
   // Sem isto, frames vizinhos visualmente adjacentes (quando o fitView

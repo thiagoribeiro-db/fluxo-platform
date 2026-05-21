@@ -137,7 +137,23 @@ const FRAMEWORK_FIDELITY_RULES = `# Regras CRÍTICAS de fidelidade
     }
     \`\`\`
 
-    **Sempre crie este frame FA quando o fluxo tem qualquer ponto de transbordo**, mesmo se o escopo não descrever explicitamente as 4 validações. Elas são padrão obrigatório do framework Blip/Digitalbot.`;
+    **Sempre crie este frame FA quando o fluxo tem qualquer ponto de transbordo**, mesmo se o escopo não descrever explicitamente as 4 validações. Elas são padrão obrigatório do framework Blip/Digitalbot.
+
+11. **Frame "Encerramento" como skill reutilizável**: similar ao "Algo Mais" e "Falar com atendente", o frame **Encerramento** (prefix "EN", frame_id "encerramento") é uma SKILL reutilizável que faz o fechamento educado do atendimento. Estrutura padrão:
+
+    - \`bot\`: "Obrigado pelo seu contato! Antes de encerrar, como você avalia sua experiência com o nosso atendimento?"
+    - \`menu\` com 4 opções: ["Muito satisfeito", "Satisfeito", "Pouco satisfeito", "Muito insatisfeito"]
+    - \`bot\`: "Se desejar, você também pode nos contar o que faltou ou o que poderia ter sido diferente no atendimento."
+    - \`user\`: "{feedback livre do cliente}" (input opcional)
+    - \`bot\`: mensagem final de agradecimento (ex: "Obrigado pelo feedback! Tenha um ótimo dia.")
+
+    ❌ NÃO emita esse fluxo de encerramento INLINE em outros cenários.
+
+    ✅ Cenários que terminam com "obrigado, atendimento encerrado", "agradecemos seu contato", "avaliação do atendimento" devem direcionar pra esse frame via \`direcionamento\` com \`target_frame_id: "encerramento"\`.
+
+    O frame "Algo Mais" já direciona pra Encerramento via opção "Finalizar" (ver exemplo na regra #9). Outros cenários que dão "saída final" também devem direcionar pra cá.
+
+    **Sempre crie esse frame EN quando o fluxo tem qualquer ponto de "encerrar atendimento" / "finalizar" / "avaliação"**, mesmo se o escopo só mencionar isso de forma genérica.`;
 
 const FRAMEWORK_EDGE_CASES = `# Casos extremos
 

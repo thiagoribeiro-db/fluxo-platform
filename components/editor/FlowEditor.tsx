@@ -64,6 +64,7 @@ import LoadingOverlay from './LoadingOverlay';
 import AIParseSummary from './AIParseSummary';
 import EditorToolbar from './EditorToolbar';
 import HelperLines from './HelperLines';
+import PlaybackPanel from './PlaybackPanel';
 import ProblemsPanel from './ProblemsPanel';
 import SidebarHeader from './SidebarHeader';
 import { useFlowLint } from '@/lib/lint/use-flow-lint';
@@ -243,6 +244,8 @@ function FlowEditorInner({
   const [visualExportOpen, setVisualExportOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [problemsOpen, setProblemsOpen] = useState(false);
+  const [playbackOpen, setPlaybackOpen] = useState(false);
+  const [playbackActiveNodeId, setPlaybackActiveNodeId] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   // Modo de seleção retangular: panOnDrag false, selectionOnDrag true
   const [selectMode, setSelectMode] = useState(false);
@@ -1299,6 +1302,10 @@ function FlowEditorInner({
     if (sev) {
       out.className = `${n.className ?? ''} node-problem-${sev}`.trim();
     }
+    // Highlight do node ativo do Test Playground
+    if (playbackActiveNodeId && n.id === playbackActiveNodeId) {
+      out.className = `${out.className ?? ''} node-playback-active`.trim();
+    }
     return out;
   });
 
@@ -1396,6 +1403,7 @@ function FlowEditorInner({
                 problemsCount={lint.counts.total}
                 problemsWorstSeverity={problemsWorstSeverity}
                 problemsOpen={problemsOpen}
+                playbackOpen={playbackOpen}
                 canExport={Boolean(projectId)}
                 onShare={() => setShareOpen(true)}
                 onToggleComments={() => {
@@ -1403,6 +1411,7 @@ function FlowEditorInner({
                   if (!commentsOpen) setPanelCollapsed(true);
                 }}
                 onToggleProblems={() => setProblemsOpen((v) => !v)}
+                onTogglePlayback={() => setPlaybackOpen((v) => !v)}
                 onOrganizeLayout={() => handleOrganizeLayout(false)}
                 onReorganizeCodes={handleReorganizeCodes}
                 onExportBlip={() => setBlipExportOpen(true)}
@@ -1451,6 +1460,19 @@ function FlowEditorInner({
             problems={lint.problems}
             onClose={() => setProblemsOpen(false)}
             onJumpToNode={handleJumpToNode}
+          />
+        )}
+
+        {/* Test playground — painel WhatsApp-mockup fixed à direita */}
+        {!isDemo && playbackOpen && (
+          <PlaybackPanel
+            nodes={nodes}
+            edges={edges}
+            onClose={() => {
+              setPlaybackOpen(false);
+              setPlaybackActiveNodeId(null);
+            }}
+            onActiveNode={setPlaybackActiveNodeId}
           />
         )}
 

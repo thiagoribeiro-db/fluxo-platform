@@ -34,6 +34,7 @@ export type ProblemCode =
   | 'code-collision'
   | 'frame-empty'
   | 'frame-no-entry-point'
+  | 'entry-point-no-target'
   | 'condicional-empty'
   | 'link-no-url'
   | 'unreachable-node';
@@ -283,6 +284,24 @@ function checkFrameEmpty(state: LintState, push: Pusher): void {
   }
 }
 
+function checkEntryPointNoTarget(state: LintState, push: Pusher): void {
+  // Entry-points sem edge outgoing — o flow não consegue iniciar a partir deles
+  const sourcesWithEdges = new Set<string>();
+  for (const e of state.edges) sourcesWithEdges.add(e.source);
+
+  for (const n of state.nodes) {
+    if (n.type !== 'entry-point') continue;
+    if (sourcesWithEdges.has(n.id)) continue;
+    push({
+      code: 'entry-point-no-target',
+      severity: 'error',
+      nodeId: n.id,
+      message: 'Marcador de "Início" sem destino conectado',
+      hint: 'Conecte uma seta saindo do Início pro primeiro bloco do frame.',
+    });
+  }
+}
+
 function checkFrameNoEntryPoint(state: LintState, push: Pusher): void {
   // Frames que TÊM ao menos um main mas NÃO TÊM entry-point dentro do bbox.
   const MAIN_TYPES = new Set<string>([
@@ -460,6 +479,7 @@ const ALL_CHECKS: Array<(state: LintState, push: Pusher) => void> = [
   checkCodeCollision,
   checkFrameEmpty,
   checkFrameNoEntryPoint,
+  checkEntryPointNoTarget,
   checkCondicional,
   checkLink,
   checkUnreachable, // por último — pode ler `state.reachable` se quiser cachear

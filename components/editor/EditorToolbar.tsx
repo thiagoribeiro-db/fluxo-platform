@@ -23,6 +23,7 @@ import {
   LayoutGrid,
   MessageSquare,
   Package,
+  Play,
   Share2,
   Sprout,
 } from 'lucide-react';
@@ -36,9 +37,12 @@ export interface EditorToolbarProps {
   /** Severidade da pior categoria — define cor do badge. */
   problemsWorstSeverity: 'error' | 'warning' | 'info' | null;
   problemsOpen: boolean;
+  /** Estado do Test Playground (panel aberto ou não). */
+  playbackOpen: boolean;
   onShare: () => void;
   onToggleComments: () => void;
   onToggleProblems: () => void;
+  onTogglePlayback: () => void;
   onOrganizeLayout: () => void;
   onReorganizeCodes: () => void;
   onExportBlip: () => void;
@@ -59,9 +63,11 @@ export default function EditorToolbar(props: EditorToolbarProps) {
     problemsCount,
     problemsWorstSeverity,
     problemsOpen,
+    playbackOpen,
     onShare,
     onToggleComments,
     onToggleProblems,
+    onTogglePlayback,
     onOrganizeLayout,
     onReorganizeCodes,
     onExportBlip,
@@ -112,6 +118,16 @@ export default function EditorToolbar(props: EditorToolbarProps) {
         }
         onClick={onToggleProblems}
         title="Validações automáticas do fluxo"
+      />
+
+      {/* Test playground */}
+      <IconButton
+        icon={<Play size={15} />}
+        label="Testar"
+        active={playbackOpen}
+        tone="primary"
+        onClick={onTogglePlayback}
+        title="Simular uma conversa no fluxo (sem exportar pro Blip)"
       />
 
       <Divider />

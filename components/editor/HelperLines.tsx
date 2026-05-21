@@ -67,7 +67,10 @@ function getBounds(node: FluxoNode): Bounds {
 }
 
 function selectHelperLines(state: ReactFlowState): Lines {
-  // Acha o node sendo arrastado
+  // O tipo ReactFlowState do @xyflow/react usa Node genérico (type: string |
+  // undefined). Nosso FluxoNode tem type: FluxoNodeType (union estrito).
+  // O cast é necessário porque tentar parametrizar com ReactFlowState<FluxoNode>
+  // quebra a assinatura do useStore() que aceita só ReactFlowState não-genérico.
   const nodes = state.nodes as unknown as FluxoNode[];
   const dragging = nodes.find((n) => n.dragging);
   if (!dragging) return { horizontal: null, vertical: null };

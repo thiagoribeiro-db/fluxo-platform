@@ -64,6 +64,7 @@ import LoadingOverlay from './LoadingOverlay';
 import AIParseSummary from './AIParseSummary';
 import HelperLines from './HelperLines';
 import { listComments, type Comment } from '@/lib/actions/comments';
+import { handleError } from '@/lib/utils/errors';
 
 // ---------- SEED DEMO (usado quando projectId === 'demo') ----------
 const DEMO_NODES: FluxoNode[] = [
@@ -404,9 +405,14 @@ function FlowEditorInner({
     if (isDemo || !projectId || isReadOnly) return;
     listComments(projectId)
       .then(setComments)
-      .catch(() => {
-        /* silencia erro inicial */
-      });
+      .catch((err) =>
+        handleError(err, {
+          context: 'load-comments',
+          // Erro inicial silencioso: dev vê no console, usuário não vê toast
+          // (comentários é feature secundária; falha não deve atrapalhar).
+          toast: false,
+        })
+      );
   }, [isDemo, projectId, isReadOnly]);
 
   // Refetch comentários on-demand — passado pro CommentsPanel
@@ -908,9 +914,12 @@ function FlowEditorInner({
                 );
               }, 700);
             })
-            .catch((err) => {
-              console.error('[copy] falha:', err);
-            });
+            .catch((err) =>
+              handleError(err, {
+                context: 'copy',
+                userMessage: 'Falha ao copiar pro clipboard.',
+              })
+            );
           return;
         }
       }
@@ -1534,8 +1543,8 @@ function FlowEditorInner({
           projectId={projectId}
           projectName={projectName ?? 'fluxo'}
           currentPageId={activePageId ?? undefined}
-          currentNodes={nodes as unknown as FluxoNode[]}
-          currentEdges={edges as unknown as Edge[]}
+          currentNodes={nodes}
+          currentEdges={edges}
           onClose={() => setBlipExportOpen(false)}
         />
       )}

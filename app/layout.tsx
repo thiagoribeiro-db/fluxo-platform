@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import Toast from '@/components/Toast';
 
 export const metadata: Metadata = {
   title: 'Fluxo Platform',
@@ -13,6 +14,7 @@ export default function RootLayout({
     <html lang="pt-BR">
       <body className="font-sans antialiased">
         {children}
+        <Toast />
       </body>
     </html>
   );

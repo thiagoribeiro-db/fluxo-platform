@@ -37,7 +37,8 @@ export default function ExportVisualDialog({
   const [busy, startBusy] = useTransition();
   const [err, setErr] = useState<string | null>(null);
 
-  const { fitView, getViewport, setViewport, getNodes } = useReactFlow();
+  const { fitView, getViewport, setViewport, getNodes } =
+    useReactFlow<FluxoNode>();
 
   function handleExport() {
     setErr(null);
@@ -58,7 +59,7 @@ export default function ExportVisualDialog({
 
         if (scope === 'frames') {
           // Coleta frames + mapeia conteúdo (nodes que pertencem a cada frame)
-          const allNodes = getNodes() as unknown as FluxoNode[];
+          const allNodes = getNodes();
           const frameNodes = allNodes.filter((n) => n.type === 'frame');
           if (frameNodes.length === 0) {
             throw new Error('Nenhum frame na página atual.');

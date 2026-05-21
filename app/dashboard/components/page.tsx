@@ -1,5 +1,6 @@
 import { listComponentSpecs } from '@/lib/actions/component-specs';
 import ComponentsSection from '../ComponentsSection';
+import { devWarn } from '@/lib/utils/logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,7 @@ export default async function DashboardComponentsPage() {
   } catch (err) {
     loadError =
       err instanceof Error ? err.message : 'Falha desconhecida ao carregar.';
-    console.warn('[dashboard/components] listComponentSpecs failed:', err);
+    devWarn('[dashboard/components] listComponentSpecs failed:', err);
   }
 
   if (loadError) {

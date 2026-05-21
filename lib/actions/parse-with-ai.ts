@@ -274,9 +274,7 @@ export async function parseEscopoWithAI(input: ParseInput): Promise<ParseResult>
  */
 function readApiKeyFromEnvFile(): string | undefined {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fs = require('fs') as typeof import('fs');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const path = require('path') as typeof import('path');
 
     const envPath = path.join(process.cwd(), '.env.local');

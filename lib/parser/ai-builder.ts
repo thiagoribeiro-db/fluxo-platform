@@ -58,7 +58,10 @@ const BOT_COL_X = 280; // bot bubble offset da esquerda do frame
 // Reserva = EXCECAO_APPROX_WIDTH + EXCECAO_GAP_X. O `organize` recalcula com
 // largura medida depois — esse valor inicial é só pra render pré-organize.
 const USER_OFFSET_FROM_RIGHT = 300 + EXCECAO_APPROX_WIDTH + EXCECAO_GAP_X;
-const TRACKING_OFFSET_X = -256; // tracking fica à esquerda do parent (relativo)
+// Tracking fica à esquerda do parent (relativo). Mesmo valor que
+// `OFFSET.TRACKING_REL_X` em `lib/constants/layout.ts` — mantido aqui pra
+// evitar import circular com helpers.
+const TRACKING_OFFSET_X = -256;
 
 // Alturas que cada bloco ADICIONA ao cursor Y (não é a altura visual real do
 // componente, é o quanto avança até o PRÓXIMO bloco — observado nos dados).

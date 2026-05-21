@@ -669,7 +669,7 @@ function FlowEditorInner({
       setSelectedId(createdId);
       return createdId;
     },
-    [selectedId, lastAddedId, autoTracking, setNodes, setEdges, pushHistory]
+    [selectedId, lastAddedId, autoTracking, setNodes, setEdges, setSelectedId, pushHistory]
   );
 
   // =========================================================================
@@ -800,7 +800,7 @@ function FlowEditorInner({
     ]);
     setSelectedId(newId);
     setLastAddedId(newId);
-  }, [selectedId, nodes, setNodes, pushHistory]);
+  }, [selectedId, nodes, setNodes, setSelectedId, pushHistory]);
 
   const deleteSelected = useCallback(() => {
     if (selectedIds.length === 0) return;
@@ -1007,7 +1007,7 @@ function FlowEditorInner({
       });
       setSelectedId(nodeId);
     },
-    [nodes, setCenter]
+    [nodes, setCenter, setSelectedId]
   );
 
   // Centraliza no destino do direcionamento.

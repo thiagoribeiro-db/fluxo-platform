@@ -43,6 +43,7 @@ import {
   optionMatchesLabel,
   redirectAction,
   redirectTag,
+  resolveBlipOverlaps,
   selectImmediateAction,
   sendRawMessageAction,
   textMessageAction,
@@ -113,6 +114,12 @@ class BuildContext {
   connId: () => string;
   /** Mapeamento Fluxo node id → Blip state id. Resolve referências cruzadas. */
   blipIdByNodeId: Map<string, string> = new Map();
+  /**
+   * Origin usada pelo `toBlipPosition` — começa apontando pra posição do
+   * frame, mas é REASSIGNED em `build()` pra apontar pro PRIMEIRO MAIN do
+   * frame, garantindo que o welcome caia exato em (ORIGIN_TOP, ORIGIN_LEFT)
+   * conforme os exemplos do Blip.
+   */
   frameOrigin: { x: number; y: number };
   /** bubble-bot ids absorvidos por menu — não viram state próprio. */
   private absorbedByMenu = new Set<string>();
@@ -143,6 +150,13 @@ class BuildContext {
       const skel = createSkeletonStates('fallback', this.connId);
       return { onboarding: skel.onboarding, fallback: skel.fallback, error: skel.error };
     }
+
+    // Origin do `toBlipPosition` = posição do PRIMEIRO main (welcome).
+    // Assim ele cai exato em (BLIP_LAYOUT.ORIGIN_TOP, ORIGIN_LEFT) = (240, 644),
+    // alinhado com os exemplos do Blip, e os demais mains cascateiam
+    // relativamente. Sem isso, welcome caía em (120, 644) — em cima do
+    // onboarding fixo no mesmo lugar.
+    this.frameOrigin = { x: mains[0].position.x, y: mains[0].position.y };
 
     // 1.5. Detecta pares (bubble-bot → menu) consecutivos pra ABSORVER o bot
     //      no menu (texto do bot vira o SendMessage de "Escolha uma opção…").
@@ -180,6 +194,12 @@ class BuildContext {
     if (opts.isMainFrame) {
       this.injectMainFrameSetup(opts.mainFrameAddress ?? 'saudacao', firstBlipId);
     }
+
+    // 7. Pós-processa positions pra eliminar overlap visual no canvas Blip.
+    //    Quando dois states caem na mesma coluna lógica com top muito próximo
+    //    (ex: 2 mains adjacentes no nosso editor), empurra o de baixo até
+    //    garantir MIN_V_GAP. Preserva onboarding/fallback/error (FIXED).
+    resolveBlipOverlaps(this.states);
 
     return this.states;
   }

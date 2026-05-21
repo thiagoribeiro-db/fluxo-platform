@@ -129,25 +129,58 @@ export function optionMatchesLabel(option: string, label: string): boolean {
 // =============================================================================
 
 /**
- * Coords do Fluxo Platform são números (px no canvas React Flow).
- * Blip usa string `"Xpx"`. Aplico um offset/escala suave pra ficar
- * agrupado no canvas Blip (que parece preferir top:120-1000, left:400-1300).
+ * Layout do canvas Blip. Os blocos do Blip Builder são maiores que os do
+ * nosso React Flow (~180x140 contando título + ações), então precisamos:
+ *   - escala 1:1 (não 0.5 como antes) pra preservar separação
+ *   - MIN_V_GAP/MIN_H_GAP forçados em pós-processamento (`resolveBlipOverlaps`)
  *
- * Como cada frame vira UM ARQUIVO separado, normalizamos pro origin do frame
- * (subtraindo a coord do frame node) — assim o welcome cai em ~top:240/left:644
- * igual aos exemplos.
+ * BLOCK_W/H são uma aproximação visual usada pra calcular overlap.
+ */
+export const BLIP_LAYOUT = {
+  /**
+   * Posição CANÔNICA onde o primeiro main (welcome) cai no canvas Blip,
+   * conforme os JSONs de referência do cliente. Onboarding (Início) está
+   * fixo em (120, 644) e o welcome logo abaixo em (240, 644).
+   */
+  ORIGIN_LEFT: 644,
+  ORIGIN_TOP: 240,
+  /** Tamanho aproximado de um bloco Blip Builder pra detecção de overlap */
+  BLOCK_W: 180,
+  BLOCK_H: 140,
+  /**
+   * Espaçamento mínimo entre dois blocos da MESMA coluna (top diff).
+   * Calibrado pelos exemplos do cliente: ~110-120px entre states adjacentes
+   * verticalmente.
+   */
+  MIN_V_GAP: 120,
+  /** Espaçamento mínimo entre colunas (left diff) */
+  MIN_H_GAP: 240,
+  /** Largura de uma "coluna lógica" — usada pra agrupar states em pós-processamento */
+  COLUMN_WIDTH: 233,
+} as const;
+
+/**
+ * Coords do Fluxo Platform são números (px no canvas React Flow).
+ * Blip usa string `"Xpx"`. Aqui aplicamos escala 1:1 preservando a separação
+ * visual do nosso editor; o overlap residual (quando blocos do Fluxo ficam
+ * próximos demais) é resolvido em pós-processamento (`resolveBlipOverlaps`).
+ *
+ * `origin` é a posição do PRIMEIRO MAIN do frame — assim o welcome cai
+ * exatamente em (ORIGIN_TOP, ORIGIN_LEFT) = (240, 644) igual aos exemplos
+ * do cliente, e os demais mains cascateiam relativos a ele.
  */
 export function toBlipPosition(
   nodePos: { x: number; y: number },
-  frameOrigin: { x: number; y: number }
+  origin: { x: number; y: number }
 ): BlipPosition {
-  // Normaliza pra coords RELATIVAS ao frame, depois aplica offset Blip
-  const relX = Math.max(0, nodePos.x - frameOrigin.x);
-  const relY = Math.max(0, nodePos.y - frameOrigin.y);
-  // Offset base: o welcome típico fica em (644, 240) — referência visual
-  const left = Math.round(400 + relX * 0.5);
-  const top = Math.round(120 + relY * 0.5);
-  return { top: `${top}px`, left: `${left}px` };
+  // Coords RELATIVAS ao primeiro main (welcome cai em 0,0 → ORIGIN_*)
+  const relX = nodePos.x - origin.x;
+  const relY = nodePos.y - origin.y;
+  // Escala 1:1 com offset base do Blip
+  const left = Math.round(BLIP_LAYOUT.ORIGIN_LEFT + relX);
+  const top = Math.round(BLIP_LAYOUT.ORIGIN_TOP + relY);
+  // Não permite negativos — clampa em 0 (raro: ex: condicional acima do welcome)
+  return { top: `${Math.max(0, top)}px`, left: `${Math.max(0, left)}px` };
 }
 
 /**
@@ -159,6 +192,91 @@ export const FIXED_POSITIONS = {
   fallback: { top: '120px', left: '877px' } as BlipPosition,
   error: { top: '240px', left: '877px' } as BlipPosition,
 } as const;
+
+/**
+ * Pós-processa um conjunto de states Blip pra eliminar sobreposições visuais
+ * E ALINHAR horizontalmente states da mesma coluna lógica.
+ *
+ * Estratégia (por coluna):
+ *  1. Agrupa states por COLUNA aproximada (`left ÷ COLUMN_WIDTH`).
+ *  2. SNAP LEFT: todos os states não-protegidos da coluna ganham o MESMO
+ *     left (do primeiro não-protegido — tipicamente o welcome). Sem isto,
+ *     mains do nosso editor com X ligeiramente diferentes (ex: 280, 439,
+ *     449) caem em lefts diferentes (644, 803, 813) e o flow fica em
+ *     zigue-zague no Blip mesmo estando "lógicamente" alinhados.
+ *  3. SNAP TOP: ordena por `top`, garante MIN_V_GAP entre vizinhos
+ *     consecutivos (cascata).
+ *
+ * States protegidos (`onboarding`, `fallback`, `error`) NÃO são movidos —
+ * preservam o layout canônico que o Blip Builder espera.
+ */
+export function resolveBlipOverlaps(
+  states: Record<string, { $position: BlipPosition }>,
+  protectedIds: Set<string> = new Set(['onboarding', 'fallback', 'error'])
+): void {
+  const { COLUMN_WIDTH, MIN_V_GAP } = BLIP_LAYOUT;
+
+  // 1. Agrupa por coluna lógica
+  const byColumn = new Map<number, Array<[string, { $position: BlipPosition }]>>();
+  for (const [id, state] of Object.entries(states)) {
+    const leftPx = parsePx(state.$position.left);
+    const col = Math.round(leftPx / COLUMN_WIDTH);
+    if (!byColumn.has(col)) byColumn.set(col, []);
+    byColumn.get(col)!.push([id, state]);
+  }
+
+  for (const entries of byColumn.values()) {
+    // Ordena por top (vertical first — pra cascata depois)
+    entries.sort(
+      (a, b) => parsePx(a[1].$position.top) - parsePx(b[1].$position.top)
+    );
+
+    // 2. SNAP LEFT — alinha todos os não-protegidos pro mesmo left.
+    //    Preferência: primeiro state não-protegido da coluna; fallback pro
+    //    primeiro protegido (raro — caso uma coluna só tenha protegidos).
+    const firstNonProtected = entries.find(([id]) => !protectedIds.has(id));
+    const snapLeft =
+      firstNonProtected?.[1].$position.left ?? entries[0]?.[1].$position.left;
+    if (snapLeft) {
+      for (const [id, state] of entries) {
+        if (protectedIds.has(id)) continue;
+        if (state.$position.left !== snapLeft) {
+          state.$position = { top: state.$position.top, left: snapLeft };
+        }
+      }
+    }
+
+    // 3. SNAP TOP — cascata vertical garantindo MIN_V_GAP entre vizinhos
+    for (let i = 1; i < entries.length; i++) {
+      const [prevId, prev] = entries[i - 1];
+      const [curId, cur] = entries[i];
+      const prevTop = parsePx(prev.$position.top);
+      const curTop = parsePx(cur.$position.top);
+      const minNext = prevTop + MIN_V_GAP;
+      if (curTop < minNext && !protectedIds.has(curId)) {
+        cur.$position = {
+          top: `${minNext}px`,
+          left: cur.$position.left,
+        };
+      } else if (curTop < minNext && protectedIds.has(curId)) {
+        // Move o ANTERIOR pra cima — só se ele NÃO for protegido
+        if (!protectedIds.has(prevId)) {
+          const newPrevTop = Math.max(0, curTop - MIN_V_GAP);
+          prev.$position = {
+            top: `${newPrevTop}px`,
+            left: prev.$position.left,
+          };
+        }
+        // Se ambos protegidos, ignora (caso muito raro)
+      }
+    }
+  }
+}
+
+function parsePx(s: string): number {
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) ? n : 0;
+}
 
 // =============================================================================
 // FACTORIES de actions canônicas

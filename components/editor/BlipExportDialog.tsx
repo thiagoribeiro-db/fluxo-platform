@@ -53,11 +53,16 @@ export default function BlipExportDialog({
     listPages(projectId)
       .then((list) => {
         setPages(list);
-        // Default: TODAS marcadas
-        setSelectedPageIds(new Set(list.map((p) => p.id)));
+        // Default: APENAS a página ativa marcada. Se não houver active page
+        // (caso raro), marca a primeira da lista como fallback.
+        const defaultId =
+          currentPageId && list.some((p) => p.id === currentPageId)
+            ? currentPageId
+            : list[0]?.id;
+        setSelectedPageIds(defaultId ? new Set([defaultId]) : new Set());
       })
       .finally(() => setLoading(false));
-  }, [projectId]);
+  }, [projectId, currentPageId]);
 
   function togglePage(id: string) {
     setSelectedPageIds((prev) => {

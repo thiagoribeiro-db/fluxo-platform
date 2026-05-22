@@ -4,6 +4,7 @@ import Toast from '@/components/Toast';
 import DialogHost from '@/components/DialogHost';
 import PostHogBootstrap from '@/components/PostHogBootstrap';
 import { ThemeProvider } from '@/components/ThemeProvider';
+import QueryProvider from '@/components/QueryProvider';
 
 export const metadata: Metadata = {
   title: 'Fluxo Platform',
@@ -27,10 +28,12 @@ export default function RootLayout({
       </head>
       <body className="font-sans antialiased">
         <ThemeProvider>
-          {children}
-          <Toast />
-          <DialogHost />
-          <PostHogBootstrap />
+          <QueryProvider>
+            {children}
+            <Toast />
+            <DialogHost />
+            <PostHogBootstrap />
+          </QueryProvider>
         </ThemeProvider>
       </body>
     </html>

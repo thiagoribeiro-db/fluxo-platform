@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import Toast from '@/components/Toast';
 import DialogHost from '@/components/DialogHost';
+import PostHogBootstrap from '@/components/PostHogBootstrap';
 
 export const metadata: Metadata = {
   title: 'Fluxo Platform',
@@ -17,6 +18,7 @@ export default function RootLayout({
         {children}
         <Toast />
         <DialogHost />
+        <PostHogBootstrap />
       </body>
     </html>
   );

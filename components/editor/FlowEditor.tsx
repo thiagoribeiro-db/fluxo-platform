@@ -71,6 +71,7 @@ import SidebarHeader from './SidebarHeader';
 import VersionsPanel from './VersionsPanel';
 import { useFlowLint } from '@/lib/lint/use-flow-lint';
 import type { CommandContext, CommandFrame } from '@/lib/commands/registry';
+import { track } from '@/lib/analytics/posthog';
 import { listComments, type Comment } from '@/lib/actions/comments';
 import { handleError, toast } from '@/lib/utils/errors';
 import { confirmDialog } from '@/lib/utils/dialog';
@@ -481,6 +482,7 @@ function FlowEditorInner({
       opts?: { position?: { x: number; y: number }; extraData?: Partial<FluxoNodeData> }
     ) => {
       pushHistory();
+      track(type === 'frame' ? 'frame_added' : 'node_added', { type });
       let createdId = '';
       const edgesToCreate: { id: string; source: string; target: string }[] = [];
 
@@ -1205,6 +1207,7 @@ function FlowEditorInner({
       }
 
       pushHistory();
+      track('organize_layout');
 
       // Callback: usa dimensões REAIS medidas pelo React Flow (não aproximadas)
       const getMeasured = (id: string) => {
@@ -1247,12 +1250,21 @@ function FlowEditorInner({
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setCommandPaletteOpen((v) => !v);
+        setCommandPaletteOpen((v) => {
+          if (!v) track('command_palette_used');
+          return !v;
+        });
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // Track project_opened uma vez por projectId
+  useEffect(() => {
+    if (!projectId || isDemo || isReadOnly) return;
+    track('project_opened', { projectId });
+  }, [projectId, isDemo, isReadOnly]);
 
   // Auto-organize ao carregar com ?autoOrganize=1 (após aplicar template)
   useEffect(() => {

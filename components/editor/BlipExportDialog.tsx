@@ -10,6 +10,7 @@ import {
 } from '@/lib/export/blip-exporter';
 import { buildBlipZip, triggerDownload } from '@/lib/export/blip-zip';
 import { toast } from '@/lib/utils/errors';
+import { track } from '@/lib/analytics/posthog';
 
 interface BlipExportDialogProps {
   projectId: string;
@@ -125,6 +126,11 @@ export default function BlipExportDialog({
       const date = new Date().toISOString().slice(0, 10);
       const safeName = projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
       triggerDownload(blob, `blip-${safeName}-${date}.zip`);
+      track('export_blip', {
+        frames: preview.files.length,
+        warnings: preview.warnings.length,
+        pages: pagesToExport.length,
+      });
     } catch (e) {
       toast({
         level: 'error',

@@ -27,6 +27,7 @@ import {
 } from '@/lib/actions/page-versions';
 import { confirmDialog, promptDialog } from '@/lib/utils/dialog';
 import { handleError, toast } from '@/lib/utils/errors';
+import { track } from '@/lib/analytics/posthog';
 
 interface VersionsPanelProps {
   pageId: string;
@@ -74,6 +75,7 @@ export default function VersionsPanel({
       try {
         const result = await createVersion(pageId, label || 'Manual');
         if (result) {
+          track('version_created', { manual: true });
           toast({ level: 'success', message: 'Versão criada' });
           await reload();
         } else {
@@ -99,6 +101,7 @@ export default function VersionsPanel({
       if (!ok) return;
       try {
         await restoreVersion(version.id);
+        track('version_restored', { versionId: version.id });
         toast({ level: 'success', message: 'Versão restaurada' });
         await reload();
         onRestored();

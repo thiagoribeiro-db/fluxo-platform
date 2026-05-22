@@ -32,6 +32,7 @@ import type { Edge } from '@xyflow/react';
 import type { FluxoNode } from '@/lib/types';
 import { usePlayback } from '@/lib/playback/use-playback';
 import type { RunnerEvent } from '@/lib/playback/flow-runner';
+import { track } from '@/lib/analytics/posthog';
 
 interface PlaybackPanelProps {
   nodes: FluxoNode[];
@@ -115,6 +116,17 @@ function PlaybackSession({
       onActiveNode?.(null);
     };
   }, [onActiveNode]);
+
+  // Track início e fim da sessão (uma vez por mount/finish)
+  useEffect(() => {
+    track('playback_started', { totalEvents: playback.timeline.length });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (playback.state.finished) {
+      track('playback_finished', { events: playback.timeline.length });
+    }
+  }, [playback.state.finished, playback.timeline.length]);
 
   // ---- Handlers -----------------------------------------------------------
 

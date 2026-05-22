@@ -10,6 +10,7 @@ import {
 } from '@/lib/export/visual-exporter';
 import { findOwnerFrame } from '@/lib/components/nodes/helpers';
 import type { FluxoNode } from '@/lib/types';
+import { track } from '@/lib/analytics/posthog';
 
 type Scope = 'frames' | 'page' | 'viewport';
 type Scale = 1 | 2 | 3;
@@ -42,6 +43,7 @@ export default function ExportVisualDialog({
 
   function handleExport() {
     setErr(null);
+    track('export_visual', { format });
     startBusy(async () => {
       try {
         const rfRoot = document.querySelector(

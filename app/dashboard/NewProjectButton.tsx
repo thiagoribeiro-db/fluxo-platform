@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { createProject } from '@/lib/actions/projects';
+import { track } from '@/lib/analytics/posthog';
 
 export default function NewProjectButton() {
   const [open, setOpen] = useState(false);
@@ -15,6 +16,7 @@ export default function NewProjectButton() {
     startTransition(async () => {
       try {
         await createProject(formData);
+        track('project_created');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Erro desconhecido');
       }

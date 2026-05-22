@@ -41,7 +41,8 @@ export interface HandleErrorOpts {
 }
 
 /**
- * Trata um erro: loga estruturado + (opcionalmente) emite toast.
+ * Trata um erro: loga estruturado + (opcionalmente) emite toast + reporta
+ * pro Sentry em produção.
  *
  * Sempre retorna `undefined` pra ser encadeável em `.catch(handleError)`
  * sem alterar o resultado da Promise.
@@ -57,6 +58,25 @@ export function handleError(
         ? err
         : 'Erro desconhecido';
   devError(`[${opts.context}]`, err);
+
+  // Reporta pro Sentry em produção (só se DSN configurado — capture é no-op
+  // sem init). Tag context pra facilitar busca no dashboard.
+  if (typeof window !== 'undefined') {
+    void import('@sentry/nextjs').then((Sentry) => {
+      try {
+        Sentry.withScope((scope) => {
+          scope.setTag('context', opts.context);
+          if (err instanceof Error) {
+            Sentry.captureException(err);
+          } else {
+            Sentry.captureMessage(message, 'error');
+          }
+        });
+      } catch {
+        /* Sentry pode não ter sido init — silenciar */
+      }
+    });
+  }
 
   if (opts.toast !== false && typeof window !== 'undefined') {
     const detail: ToastDetail = {

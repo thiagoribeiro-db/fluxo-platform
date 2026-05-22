@@ -9,6 +9,7 @@ import {
 } from '@/lib/actions/shares';
 import type { SharePermission } from '@/lib/types';
 import { confirmDialog } from '@/lib/utils/dialog';
+import { track } from '@/lib/analytics/posthog';
 
 interface ShareDialogProps {
   projectId: string;
@@ -49,6 +50,7 @@ export default function ShareDialog({ projectId, open, onClose }: ShareDialogPro
     startTransition(async () => {
       const newShare = await createShare(projectId, newPermission);
       setShares((prev) => [newShare, ...prev]);
+      track('shared_link_created', { permission: newPermission });
     });
   }
 

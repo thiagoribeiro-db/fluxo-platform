@@ -64,6 +64,7 @@ import LoadingOverlay from './LoadingOverlay';
 import AIParseSummary from './AIParseSummary';
 import CommandPalette from './CommandPalette';
 import EditorToolbar from './EditorToolbar';
+import FindReplaceDialog from './FindReplaceDialog';
 import HelperLines from './HelperLines';
 import PlaybackPanel from './PlaybackPanel';
 import ProblemsPanel from './ProblemsPanel';
@@ -72,6 +73,9 @@ import VersionsPanel from './VersionsPanel';
 import { useFlowLint } from '@/lib/lint/use-flow-lint';
 import type { CommandContext, CommandFrame } from '@/lib/commands/registry';
 import { track } from '@/lib/analytics/posthog';
+import { useUndoHistory } from './hooks/use-undo-history';
+import { useAutoSave } from './hooks/use-auto-save';
+import { usePages } from './hooks/use-pages';
 import { listComments, type Comment } from '@/lib/actions/comments';
 import { handleError, toast } from '@/lib/utils/errors';
 import { confirmDialog } from '@/lib/utils/dialog';
@@ -154,7 +158,7 @@ interface FlowEditorProps {
   activePageId?: string | null;
 }
 
-type SaveStatus = 'idle' | 'pending' | 'saved' | 'error';
+// (SaveStatus type vem do hook useAutoSave)
 
 function FlowEditorInner({
   projectId,
@@ -169,10 +173,6 @@ function FlowEditorInner({
   const isReadOnly = shareMode === 'view' || shareMode === 'comment';
   const isShared = !!shareMode;
   const isSharedEdit = shareMode === 'edit' && !!shareToken;
-  const [pages, setPages] = useState<ProjectPage[]>(initialPages ?? []);
-  const [activePageId, setActivePageId] = useState<string | null>(
-    initialActivePageId ?? null
-  );
   // Loading overlay: mensagem custom (null = escondido)
   const [loadingMsg, setLoadingMsg] = useState<string | null>(null);
 
@@ -239,7 +239,6 @@ function FlowEditorInner({
   }, []);
   const [lastAddedId, setLastAddedId] = useState<string | null>(null);
   const [autoTracking, setAutoTracking] = useState(true);
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [paletteCollapsed, setPaletteCollapsed] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -252,37 +251,18 @@ function FlowEditorInner({
   const [playbackActiveNodeId, setPlaybackActiveNodeId] = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [findReplaceOpen, setFindReplaceOpen] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   // Modo de seleção retangular: panOnDrag false, selectionOnDrag true
   const [selectMode, setSelectMode] = useState(false);
 
-  // Undo history — snapshots (nodes, edges) das últimas N ações
-  const historyRef = useRef<{ nodes: FluxoNode[]; edges: Edge[] }[]>([]);
-  const isUndoingRef = useRef(false);
-  const HISTORY_LIMIT = 50;
-
-  const pushHistory = useCallback(() => {
-    if (isUndoingRef.current) return; // não captura durante undo
-    historyRef.current.push({
-      nodes: JSON.parse(JSON.stringify(nodes)) as FluxoNode[],
-      edges: JSON.parse(JSON.stringify(edges)) as Edge[],
-    });
-    if (historyRef.current.length > HISTORY_LIMIT) {
-      historyRef.current.shift();
-    }
-  }, [nodes, edges]);
-
-  const handleUndo = useCallback(() => {
-    const prev = historyRef.current.pop();
-    if (!prev) return;
-    isUndoingRef.current = true;
-    setNodes(prev.nodes);
-    setEdges(prev.edges);
-    // Libera flag no próximo tick
-    setTimeout(() => {
-      isUndoingRef.current = false;
-    }, 0);
-  }, [setNodes, setEdges]);
+  // Undo history — extraído em hook (components/editor/hooks/use-undo-history.ts)
+  const { pushHistory, handleUndo } = useUndoHistory({
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+  });
 
   const {
     getViewport,
@@ -292,142 +272,43 @@ function FlowEditorInner({
   } = useReactFlow();
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
 
-  // ---- Autosave (debounced) -----------------------------------------------
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ---- Páginas (extraído em hook) -----------------------------------------
+  // Ref usada por usePages.onBeforeSwitch (deps circular: useAutoSave precisa
+  // de activePageId que vem do usePages). Ref é atualizada após useAutoSave.
+  const cancelAutoSaveRef = useRef<() => void>(() => {});
+  const {
+    pages,
+    activePageId,
+    setPages,
+    handleSwitchPage,
+    refetchPages,
+  } = usePages({
+    projectId,
+    initialPages,
+    initialActivePageId,
+    nodes,
+    edges,
+    getViewport,
+    onBeforeSwitch: () => cancelAutoSaveRef.current(),
+    setNodes,
+    setEdges,
+    setLoadingMsg,
+  });
 
-  const scheduleSave = useCallback(() => {
-    if (isDemo || isReadOnly) return;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    setSaveStatus('pending');
-    saveTimer.current = setTimeout(async () => {
-      try {
-        const stateToSave = {
-          nodes,
-          edges,
-          viewport: getViewport(),
-        };
-        // Caminho 1: usuário ANÔNIMO via share link com permission='edit'.
-        // Não tem auth.uid() → usa RPC SECURITY DEFINER (saveSharedPageState/
-        // saveSharedProjectState) que valida o token e bypassa RLS.
-        if (isSharedEdit && shareToken) {
-          const { saveSharedPageState, saveSharedProjectState } = await import(
-            '@/lib/actions/shares'
-          );
-          if (activePageId) {
-            await saveSharedPageState(shareToken, activePageId, stateToSave);
-          } else {
-            await saveSharedProjectState(shareToken, stateToSave);
-          }
-        }
-        // Caminho 2: usuário AUTENTICADO (owner ou member) — actions normais
-        // que dependem de RLS.
-        else if (activePageId) {
-          await savePageState(activePageId, stateToSave);
-        } else {
-          await saveProjectState(projectId!, stateToSave);
-        }
-        setSaveStatus('saved');
-      } catch (err) {
-        console.error('autosave failed:', err);
-        setSaveStatus('error');
-      }
-    }, 1500);
-  }, [
+  // ---- Autosave (extraído em hook) — usa activePageId do usePages ---------
+  const { saveStatus, cancelPending: cancelAutoSave } = useAutoSave({
+    nodes,
+    edges,
+    getViewport,
+    projectId,
+    activePageId,
     isDemo,
     isReadOnly,
     isSharedEdit,
     shareToken,
-    projectId,
-    activePageId,
-    nodes,
-    edges,
-    getViewport,
-  ]);
-
-  useEffect(() => {
-    scheduleSave();
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-    };
-  }, [scheduleSave]);
-
-  // ---- Páginas: trocar e recarregar ---------------------------------------
-  const handleSwitchPage = useCallback(
-    async (newPageId: string) => {
-      if (!projectId || newPageId === activePageId) return;
-      setLoadingMsg('Trocando de página…');
-      // Salva a página atual imediatamente (sem debounce)
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      if (activePageId) {
-        try {
-          await savePageState(activePageId, {
-            nodes,
-            edges,
-            viewport: getViewport(),
-          });
-        } catch {
-          /* ignora — vai tentar de novo no autosave */
-        }
-      }
-      // CRÍTICO: marca a nova página como ativa NO BANCO antes de qualquer
-      // operação subsequente (templates, IA, save) que dependa de
-      // `projects.active_page_id` pra saber onde escrever. Sem isto, o
-      // backend escreve na página antiga e sobrescreve trabalho do usuário.
-      try {
-        await setActivePage(projectId, newPageId);
-      } catch (err) {
-        handleError(err, {
-          context: 'set-active-page',
-          userMessage: 'Falha ao marcar a página como ativa. Tente trocar novamente antes de aplicar templates.',
-        });
-        setLoadingMsg(null);
-        return;
-      }
-      // Carrega a nova
-      const newPage = pages.find((p) => p.id === newPageId);
-      if (newPage) {
-        setNodes((newPage.state.nodes ?? []) as FluxoNode[]);
-        setEdges(newPage.state.edges ?? []);
-        setActivePageId(newPageId);
-      } else {
-        // página não está no cache — refetch
-        const fresh = await listPages(projectId);
-        setPages(fresh);
-        const found = fresh.find((p) => p.id === newPageId);
-        if (found) {
-          setNodes((found.state.nodes ?? []) as FluxoNode[]);
-          setEdges(found.state.edges ?? []);
-          setActivePageId(newPageId);
-        }
-      }
-      setLoadingMsg(null);
-    },
-    [
-      projectId,
-      activePageId,
-      pages,
-      nodes,
-      edges,
-      getViewport,
-      setNodes,
-      setEdges,
-    ]
-  );
-
-  const refetchPages = useCallback(async () => {
-    if (!projectId) return;
-    const fresh = await listPages(projectId);
-    setPages(fresh);
-    // Se a página ativa foi deletada, troca pra primeira
-    if (activePageId && !fresh.some((p) => p.id === activePageId)) {
-      const fallback = fresh[0];
-      if (fallback) {
-        setNodes((fallback.state.nodes ?? []) as FluxoNode[]);
-        setEdges(fallback.state.edges ?? []);
-        setActivePageId(fallback.id);
-      }
-    }
-  }, [projectId, activePageId, setNodes, setEdges]);
+  });
+  // Mantém a ref atualizada pra usePages.onBeforeSwitch usar
+  cancelAutoSaveRef.current = cancelAutoSave;
 
   // -- Carrega comentários ao montar (refetch on-demand depois das mutações) -
   useEffect(() => {
@@ -1244,16 +1125,30 @@ function FlowEditorInner({
     [setNodes, setEdges, edges, nodes, getInternalNode, pushHistory]
   );
 
-  // Atalho global Cmd+K / Ctrl+K → abre Command Palette
+  // Atalhos globais — Cmd+K (palette), Cmd+F (find), Cmd+H (replace)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta) return;
+      const k = e.key.toLowerCase();
+      if (k === 'k') {
         e.preventDefault();
         setCommandPaletteOpen((v) => {
           if (!v) track('command_palette_used');
           return !v;
         });
+      } else if (k === 'f' && !e.shiftKey) {
+        // Não interfere com Cmd+Shift+F (busca do browser)
+        // e só ativa se NÃO estiver focado em input/textarea (pra não
+        // bloquear find nativo dentro de campos de texto)
+        const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+        if (tag === 'input' || tag === 'textarea') return;
+        e.preventDefault();
+        setFindReplaceOpen(true);
+      } else if (k === 'h' && !e.shiftKey) {
+        e.preventDefault();
+        setFindReplaceOpen(true);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -1374,6 +1269,7 @@ function FlowEditorInner({
     onOpenProblems: () => setProblemsOpen(true),
     onOpenPlayback: () => setPlaybackOpen(true),
     onOpenVersions: () => setVersionsOpen(true),
+    onOpenFindReplace: () => setFindReplaceOpen(true),
     onBackToDashboard: () => {
       if (typeof window !== 'undefined') window.location.href = '/dashboard';
     },
@@ -1571,6 +1467,21 @@ function FlowEditorInner({
             open={commandPaletteOpen}
             onOpenChange={setCommandPaletteOpen}
             context={commandContext}
+          />
+        )}
+
+        {/* Find & Replace (Cmd+F/H) — overlay modal */}
+        {!isReadOnly && !isDemo && (
+          <FindReplaceDialog
+            open={findReplaceOpen}
+            onOpenChange={setFindReplaceOpen}
+            nodes={nodes}
+            edges={edges}
+            onApply={(nextNodes) => {
+              pushHistory();
+              setNodes(nextNodes);
+            }}
+            onJumpToNode={handleJumpToNode}
           />
         )}
 

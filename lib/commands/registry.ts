@@ -47,6 +47,7 @@ export interface CommandContext {
   onOpenProblems: () => void;
   onOpenPlayback: () => void;
   onOpenVersions: () => void;
+  onOpenFindReplace: () => void;
   /** Navegação. */
   onBackToDashboard: () => void;
   /** Habilita opcionalmente. */
@@ -169,6 +170,15 @@ export function buildCommands(ctx: CommandContext): Command[] {
     description: 'Snapshots da página — restaurar versões anteriores',
     keywords: ['versoes', 'versions', 'historico', 'backup', 'snapshot', 'undo'],
     perform: ctx.onOpenVersions,
+  });
+  cmds.push({
+    id: 'open-find-replace',
+    group: 'panels',
+    label: 'Buscar e substituir',
+    description: 'Find & Replace bulk em todos os blocos',
+    keywords: ['find', 'replace', 'buscar', 'substituir', 'localizar'],
+    shortcut: '⌘F',
+    perform: ctx.onOpenFindReplace,
   });
 
   // ---- ACTIONS -----------------------------------------------------------

@@ -13,6 +13,7 @@
 
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 interface SidebarHeaderProps {
   collapsed: boolean;
@@ -27,13 +28,17 @@ export default function SidebarHeader({
   projectName,
   statusLabel,
 }: SidebarHeaderProps) {
-  // Modo colapsado — só o ícone de voltar, bem compacto pra caber na barra fina
+  // Modo colapsado — só o ícone de voltar + theme toggle, bem compacto
   if (collapsed) {
     if (isShared) {
-      return null;
+      return (
+        <div className="flex flex-col items-center pt-2 gap-1 shrink-0">
+          <ThemeToggle iconSize={14} />
+        </div>
+      );
     }
     return (
-      <div className="flex items-center justify-center pt-2 shrink-0">
+      <div className="flex flex-col items-center pt-2 gap-1 shrink-0">
         <Link
           href="/dashboard"
           className="w-7 h-7 flex items-center justify-center text-blip-purple hover:bg-blip-purple/10 rounded-md transition-colors"
@@ -41,6 +46,7 @@ export default function SidebarHeader({
         >
           <ArrowLeft size={14} />
         </Link>
+        <ThemeToggle iconSize={14} />
       </div>
     );
   }
@@ -76,6 +82,19 @@ export default function SidebarHeader({
         <div className="text-[11px] text-white/70 mt-0.5 truncate">
           {statusLabel}
         </div>
+      </div>
+      {/* ThemeToggle dentro do header roxo — não navega no click */}
+      <div
+        className="shrink-0"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+      >
+        <ThemeToggle
+          iconSize={14}
+          className="text-white/80 hover:text-white hover:bg-white/10"
+        />
       </div>
     </Link>
   );

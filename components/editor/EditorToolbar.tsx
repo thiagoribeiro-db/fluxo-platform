@@ -87,7 +87,7 @@ export default function EditorToolbar(props: EditorToolbarProps) {
   } = props;
 
   return (
-    <div className="bg-white/95 backdrop-blur px-1.5 py-1 rounded-xl shadow-md ring-1 ring-gray-200/80 flex items-center gap-0.5">
+    <div className="bg-white/95 dark:bg-gray-900/95 backdrop-blur px-1.5 py-1 rounded-xl shadow-md ring-1 ring-gray-200/80 dark:ring-gray-700/80 flex items-center gap-0.5">
       {/* Compartilhar — CTA primário */}
       <PrimaryButton
         icon={<Share2 size={14} strokeWidth={2.5} />}
@@ -229,7 +229,7 @@ export default function EditorToolbar(props: EditorToolbarProps) {
 // =============================================================================
 
 function Divider() {
-  return <div className="w-px h-5 bg-gray-200 mx-0.5" aria-hidden />;
+  return <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-0.5" aria-hidden />;
 }
 
 interface PrimaryButtonProps {
@@ -267,24 +267,24 @@ interface IconButtonProps {
 
 const toneStyles: Record<ButtonTone, { idle: string; active: string }> = {
   default: {
-    idle: 'text-gray-700 hover:bg-gray-100',
-    active: 'bg-gray-100 text-gray-900',
+    idle: 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800',
+    active: 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white',
   },
   primary: {
-    idle: 'text-blip-purple hover:bg-blip-purple/10',
-    active: 'bg-blip-purple/15 text-blip-purple-dark',
+    idle: 'text-blip-purple hover:bg-blip-purple/10 dark:hover:bg-blip-purple/20',
+    active: 'bg-blip-purple/15 dark:bg-blip-purple/25 text-blip-purple-dark dark:text-blip-purple',
   },
   amber: {
-    idle: 'text-amber-700 hover:bg-amber-50',
-    active: 'bg-amber-100 text-amber-900',
+    idle: 'text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20',
+    active: 'bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200',
   },
   danger: {
-    idle: 'text-red-600 hover:bg-red-50',
-    active: 'bg-red-100 text-red-700',
+    idle: 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20',
+    active: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
   },
   subtle: {
-    idle: 'text-gray-400 hover:bg-gray-50 hover:text-gray-600',
-    active: 'bg-gray-50 text-gray-600',
+    idle: 'text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-600 dark:hover:text-gray-300',
+    active: 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300',
   },
 };
 
@@ -329,10 +329,10 @@ interface ToggleProps {
 function Toggle({ checked, onChange, icon, label, title }: ToggleProps) {
   return (
     <label
-      className="inline-flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 text-xs font-medium rounded-lg cursor-pointer select-none text-gray-700 hover:bg-gray-100 transition-colors"
+      className="inline-flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 text-xs font-medium rounded-lg cursor-pointer select-none text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
       title={title}
     >
-      <span className={`shrink-0 ${checked ? 'text-blip-purple' : 'text-gray-400'}`}>
+      <span className={`shrink-0 ${checked ? 'text-blip-purple' : 'text-gray-400 dark:text-gray-500'}`}>
         {icon}
       </span>
       <span>{label}</span>

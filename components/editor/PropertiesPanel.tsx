@@ -49,11 +49,11 @@ export default function PropertiesPanel({
 }: PropertiesPanelProps) {
   if (collapsed) {
     return (
-      <aside className="w-12 bg-white border-l border-gray-200 flex flex-col items-center pt-3">
+      <aside className="w-12 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 flex flex-col items-center pt-3">
         <button
           type="button"
           onClick={onToggle}
-          className="text-gray-400 hover:text-blip-purple text-lg"
+          className="text-gray-400 dark:text-gray-500 hover:text-blip-purple text-lg"
           title="Expandir propriedades"
         >
           «
@@ -63,20 +63,20 @@ export default function PropertiesPanel({
   }
 
   return (
-    <aside className="w-72 bg-white border-l border-gray-200 flex flex-col">
-      <header className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-        <h2 className="text-sm font-semibold text-gray-800">Propriedades</h2>
+    <aside className="w-72 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 flex flex-col">
+      <header className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+        <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Propriedades</h2>
         <button
           type="button"
           onClick={onToggle}
-          className="text-gray-400 hover:text-blip-purple text-lg"
+          className="text-gray-400 dark:text-gray-500 hover:text-blip-purple text-lg"
           title="Recolher"
         >
           »
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-4 dark:text-gray-200">
         {!selectedNode ? (
           <FramesList nodes={allNodes ?? []} onJumpToFrame={onJumpToFrame} />
         ) : (
@@ -103,11 +103,11 @@ export default function PropertiesPanel({
       </div>
 
       {selectedNode && (
-        <footer className="px-4 py-3 border-t border-gray-100 flex items-center gap-2">
+        <footer className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex items-center gap-2">
           <button
             type="button"
             onClick={onDuplicate}
-            className="flex-1 text-xs px-3 py-2 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium"
+            className="flex-1 text-xs px-3 py-2 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 font-medium"
             title="Ctrl+D"
           >
             ⎘ Duplicar
@@ -115,7 +115,7 @@ export default function PropertiesPanel({
           <button
             type="button"
             onClick={onDelete}
-            className="flex-1 text-xs px-3 py-2 rounded-md bg-red-50 text-red-700 hover:bg-red-100 font-medium"
+            className="flex-1 text-xs px-3 py-2 rounded-md bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/50 font-medium"
             title="Del"
           >
             🗑 Apagar
@@ -141,7 +141,7 @@ function FramesList({
     return (
       <div className="text-center py-8">
         <div className="text-4xl mb-3 opacity-30">👆</div>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           Clique em um componente do canvas para editar suas propriedades.
         </p>
       </div>
@@ -150,10 +150,10 @@ function FramesList({
 
   return (
     <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">
         Frames do projeto ({frames.length})
       </h3>
-      <p className="text-[11px] text-gray-400 mb-3">
+      <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-3">
         Clique para navegar até o frame
       </p>
       <ul className="space-y-1">
@@ -169,7 +169,7 @@ function FramesList({
                 type="button"
                 onClick={() => frameId && onJumpToFrame?.(frameId)}
                 disabled={!frameId}
-                className="w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-md border border-gray-200 hover:border-blip-purple hover:bg-blip-purple/5 transition group disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-md border border-gray-200 dark:border-gray-700 hover:border-blip-purple hover:bg-blip-purple/5 dark:hover:bg-blip-purple/10 transition group disabled:opacity-50 disabled:cursor-not-allowed"
                 title={frameId ? `Ir para #${frameId}` : 'Sem frameId'}
               >
                 <span
@@ -179,17 +179,17 @@ function FramesList({
                   {prefix || '—'}
                 </span>
                 <span className="flex-1 min-w-0">
-                  <span className="block text-sm font-medium text-gray-800 truncate group-hover:text-blip-purple">
+                  <span className="block text-sm font-medium text-gray-800 dark:text-gray-100 truncate group-hover:text-blip-purple">
                     {title}
                   </span>
                   {frameId && (
-                    <span className="block text-[10px] text-gray-400 font-mono truncate">
+                    <span className="block text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate">
                       {frameId}
                     </span>
                   )}
                 </span>
-                {locked && <span className="text-gray-400" title="Travado">🔒</span>}
-                <span className="text-gray-300 group-hover:text-blip-purple">→</span>
+                {locked && <span className="text-gray-400 dark:text-gray-500" title="Travado">🔒</span>}
+                <span className="text-gray-300 dark:text-gray-600 group-hover:text-blip-purple">→</span>
               </button>
             </li>
           );
@@ -229,7 +229,7 @@ function NodeFields({
           placeholder="ex: B001"
           className={`${inputCls} font-mono uppercase`}
         />
-        <p className="text-[10px] text-gray-500 mt-1">
+        <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">
           Pode renomear sem perder as conexões — referências usam o ID estável.
         </p>
       </Field>
@@ -239,8 +239,8 @@ function NodeFields({
           <label
             className={`flex items-center gap-2 text-sm cursor-pointer select-none rounded-md px-2.5 py-2 border ${
               data.locked
-                ? 'bg-gray-100 border-gray-300 text-gray-700'
-                : 'bg-blip-purple/5 border-blip-purple/20 text-gray-700'
+                ? 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200'
+                : 'bg-blip-purple/5 dark:bg-blip-purple/10 border-blip-purple/20 text-gray-700 dark:text-gray-200'
             }`}
           >
             <input
@@ -254,7 +254,7 @@ function NodeFields({
             </span>
           </label>
           {data.locked && (
-            <p className="text-[11px] text-gray-500 -mt-2">
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 -mt-2">
               Não pode mover, redimensionar ou apagar. Destrave para editar.
             </p>
           )}
@@ -278,7 +278,7 @@ function NodeFields({
               className={`${inputCls} font-mono uppercase`}
               maxLength={4}
             />
-            <p className="text-[10px] text-gray-500 mt-1">
+            <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">
               Blocos dentro deste frame ficam tipo <code>{(data.prefix || 'X')}001</code>,{' '}
               <code>{(data.prefix || 'X')}002</code>…
             </p>
@@ -407,12 +407,12 @@ function NodeFields({
               onChange={(v) => onUpdate({ targetNodeId: v })}
             />
           </Field>
-          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+          <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={!!data.clickable}
               onChange={(e) => onUpdate({ clickable: e.target.checked })}
-              className="rounded border-gray-300 text-blip-purple focus:ring-blip-purple"
+              className="rounded border-gray-300 dark:border-gray-600 text-blip-purple focus:ring-blip-purple"
             />
             <span>Clicável (anima ao passar mouse)</span>
           </label>
@@ -476,7 +476,7 @@ function NodeFields({
               className={inputCls}
             />
           </Field>
-          <p className="text-[11px] text-gray-500">
+          <p className="text-[11px] text-gray-500 dark:text-gray-400">
             🟠 Marca o ponto onde o fluxo automatizado TERMINA e um humano assume.
           </p>
         </>
@@ -514,7 +514,7 @@ function NodeFields({
               />
             </Field>
           </div>
-          <p className="text-[11px] text-gray-500">
+          <p className="text-[11px] text-gray-500 dark:text-gray-400">
             💡 Arraste das pontas verde (TRUE) e vermelha (FALSE) pra conectar os dois caminhos.
           </p>
         </>
@@ -533,7 +533,7 @@ function NodeFields({
                   className={`flex-1 text-xs py-1.5 rounded-md font-medium ${
                     (data.sender ?? 'bot') === s
                       ? 'bg-blip-purple text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'
                   }`}
                 >
                   {s === 'bot' ? '🤖 BOT' : '👤 USER'}
@@ -589,7 +589,7 @@ function NodeFields({
                   className={`flex-1 text-xs py-1.5 rounded-md font-medium ${
                     (data.sender ?? 'bot') === s
                       ? 'bg-blip-purple text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'
                   }`}
                 >
                   {s === 'bot' ? '🤖 BOT' : '👤 USER'}
@@ -675,7 +675,7 @@ function FieldsListEditor({
       {fields.map((f, idx) => (
         <div
           key={idx}
-          className="border border-gray-200 rounded-md p-2 space-y-1.5 bg-gray-50"
+          className="border border-gray-200 dark:border-gray-700 rounded-md p-2 space-y-1.5 bg-gray-50 dark:bg-gray-800/40"
         >
           <div className="flex items-center gap-1">
             <input
@@ -689,7 +689,7 @@ function FieldsListEditor({
               type="button"
               onClick={() => move(idx, -1)}
               disabled={idx === 0}
-              className="text-gray-400 hover:text-blip-purple px-1 disabled:opacity-30"
+              className="text-gray-400 dark:text-gray-500 hover:text-blip-purple px-1 disabled:opacity-30"
               title="Subir"
             >
               ↑
@@ -698,7 +698,7 @@ function FieldsListEditor({
               type="button"
               onClick={() => move(idx, 1)}
               disabled={idx === fields.length - 1}
-              className="text-gray-400 hover:text-blip-purple px-1 disabled:opacity-30"
+              className="text-gray-400 dark:text-gray-500 hover:text-blip-purple px-1 disabled:opacity-30"
               title="Descer"
             >
               ↓
@@ -706,7 +706,7 @@ function FieldsListEditor({
             <button
               type="button"
               onClick={() => remove(idx)}
-              className="text-gray-400 hover:text-red-600 px-1"
+              className="text-gray-400 dark:text-gray-500 hover:text-red-600 px-1"
               title="Remover"
             >
               ✕
@@ -724,7 +724,7 @@ function FieldsListEditor({
       <button
         type="button"
         onClick={add}
-        className="w-full px-2 py-1.5 text-xs font-medium border border-dashed border-gray-300 rounded-md text-gray-600 hover:bg-blip-purple/5 hover:text-blip-purple hover:border-blip-purple"
+        className="w-full px-2 py-1.5 text-xs font-medium border border-dashed border-gray-300 dark:border-gray-600 rounded-md text-gray-600 dark:text-gray-300 hover:bg-blip-purple/5 dark:hover:bg-blip-purple/10 hover:text-blip-purple hover:border-blip-purple"
       >
         + Adicionar campo
       </button>
@@ -744,7 +744,7 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-gray-600 mb-1">
+      <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
         {label}
       </label>
       {children}
@@ -754,14 +754,14 @@ function Field({
 
 function Badge({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-block bg-blip-purple/10 text-blip-purple text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded">
+    <span className="inline-block bg-blip-purple/10 dark:bg-blip-purple/20 text-blip-purple dark:text-blip-purple text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded">
       {children}
     </span>
   );
 }
 
 const inputCls =
-  'w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:border-blip-purple focus:outline-none focus:ring-2 focus:ring-blip-purple/20';
+  'w-full px-2.5 py-1.5 text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 rounded-md focus:border-blip-purple focus:outline-none focus:ring-2 focus:ring-blip-purple/20';
 
 // ---- Stable ID copiável ----------------------------------------------------
 function StableIdField({ nodeId }: { nodeId: string }) {
@@ -776,14 +776,14 @@ function StableIdField({ nodeId }: { nodeId: string }) {
       <input
         readOnly
         value={nodeId}
-        className="flex-1 text-[10px] font-mono text-gray-600 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5"
+        className="flex-1 text-[10px] font-mono text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-0.5"
         onClick={(e) => (e.target as HTMLInputElement).select()}
         title="ID estável (não muda em renomeação)"
       />
       <button
         type="button"
         onClick={handleCopy}
-        className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium whitespace-nowrap"
+        className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 font-medium whitespace-nowrap"
         title="Copiar ID estável"
       >
         {copied ? '✓' : '📋'}
@@ -843,7 +843,7 @@ function FrameTargetSelect({
         )}
       </select>
       {frames.length === 0 && (
-        <p className="text-[10px] text-amber-700">
+        <p className="text-[10px] text-amber-700 dark:text-amber-400">
           Nenhum frame com `frameId` definido no fluxo. Defina o frameId nos frames primeiro.
         </p>
       )}
@@ -879,7 +879,7 @@ function BlockTargetSelect({
   // Sem frame selecionado, não tem o que listar
   if (!targetFrameId) {
     return (
-      <p className="text-[11px] text-gray-400 italic px-2 py-1">
+      <p className="text-[11px] text-gray-400 dark:text-gray-500 italic px-2 py-1">
         Selecione um frame primeiro pra ver os blocos disponíveis.
       </p>
     );
@@ -892,7 +892,7 @@ function BlockTargetSelect({
 
   if (!frame) {
     return (
-      <p className="text-[11px] text-amber-700 italic px-2 py-1">
+      <p className="text-[11px] text-amber-700 dark:text-amber-400 italic px-2 py-1">
         Frame &quot;{targetFrameId}&quot; não encontrado no fluxo.
       </p>
     );
@@ -968,7 +968,7 @@ function BlockTargetSelect({
         )}
       </select>
       {blocks.length === 0 && (
-        <p className="text-[10px] text-gray-500">
+        <p className="text-[10px] text-gray-500 dark:text-gray-400">
           Nenhum bloco dentro desse frame ainda.
         </p>
       )}
@@ -1028,16 +1028,16 @@ function ConnectionsSection({
   );
 
   return (
-    <div className="mt-6 pt-4 border-t border-gray-200">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">
+    <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
         Conexões
       </h3>
 
       {/* Vem de (pais) */}
       <div className="mb-4">
-        <p className="text-[10px] uppercase text-gray-400 mb-1">Vem de (pais)</p>
+        <p className="text-[10px] uppercase text-gray-400 dark:text-gray-500 mb-1">Vem de (pais)</p>
         {incoming.length === 0 ? (
-          <p className="text-[11px] text-gray-400 italic px-2 py-1">
+          <p className="text-[11px] text-gray-400 dark:text-gray-500 italic px-2 py-1">
             Nenhuma conexão de entrada
           </p>
         ) : (
@@ -1070,11 +1070,11 @@ function ConnectionsSection({
 
       {/* Vai para (filhos) */}
       <div>
-        <p className="text-[10px] uppercase text-gray-400 mb-1">
+        <p className="text-[10px] uppercase text-gray-400 dark:text-gray-500 mb-1">
           Vai para (filhos)
         </p>
         {outgoing.length === 0 ? (
-          <p className="text-[11px] text-gray-400 italic px-2 py-1">
+          <p className="text-[11px] text-gray-400 dark:text-gray-500 italic px-2 py-1">
             Nenhuma conexão de saída
           </p>
         ) : (
@@ -1133,8 +1133,8 @@ function ConnectionItem({
 
   if (editing) {
     return (
-      <li className="flex items-center gap-1 text-xs bg-blip-purple/5 p-1 rounded">
-        <span className="text-gray-400 w-4">
+      <li className="flex items-center gap-1 text-xs bg-blip-purple/5 dark:bg-blip-purple/15 p-1 rounded">
+        <span className="text-gray-400 dark:text-gray-500 w-4">
           {direction === 'from' ? '←' : '→'}
         </span>
         <select
@@ -1148,7 +1148,7 @@ function ConnectionItem({
             setEditing(false);
           }}
           onBlur={() => setEditing(false)}
-          className="flex-1 px-1 py-0.5 text-xs border border-blip-purple rounded bg-white"
+          className="flex-1 px-1 py-0.5 text-xs border border-blip-purple rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
         >
           <option value={otherId}>{labelOf(otherId, allNodes)}</option>
           {eligibleNodes
@@ -1162,7 +1162,7 @@ function ConnectionItem({
         <button
           type="button"
           onClick={() => setEditing(false)}
-          className="text-gray-400 hover:text-gray-600 px-1"
+          className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 px-1"
           title="Cancelar"
         >
           ✕
@@ -1173,14 +1173,14 @@ function ConnectionItem({
 
   return (
     <li className="flex items-center gap-1 text-xs">
-      <span className="text-gray-400 w-4">
+      <span className="text-gray-400 dark:text-gray-500 w-4">
         {direction === 'from' ? '←' : '→'}
       </span>
       <button
         type="button"
         onClick={() => onJump?.(otherId)}
         disabled={!onJump}
-        className="flex-1 text-left px-2 py-1 rounded hover:bg-gray-100 truncate text-gray-700"
+        className="flex-1 text-left px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 truncate text-gray-700 dark:text-gray-200"
         title="Ir até este nó"
       >
         {label}
@@ -1189,7 +1189,7 @@ function ConnectionItem({
         type="button"
         onClick={() => setEditing(true)}
         disabled={!onUpdate}
-        className="text-gray-400 hover:text-blip-purple px-1"
+        className="text-gray-400 dark:text-gray-500 hover:text-blip-purple px-1"
         title="Trocar conexão"
       >
         ✎
@@ -1198,7 +1198,7 @@ function ConnectionItem({
         type="button"
         onClick={() => onRemove?.(edge.id)}
         disabled={!onRemove}
-        className="text-gray-400 hover:text-red-600 px-1"
+        className="text-gray-400 dark:text-gray-500 hover:text-red-600 px-1"
         title="Remover conexão"
       >
         ✕
@@ -1226,7 +1226,7 @@ function AddConnectionSelect({
         if (e.target.value) onSelect(e.target.value);
         e.target.value = '';
       }}
-      className="w-full text-xs text-gray-600 border border-dashed border-gray-300 rounded px-2 py-1.5 hover:border-blip-purple hover:bg-blip-purple/5 cursor-pointer"
+      className="w-full text-xs text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 hover:border-blip-purple hover:bg-blip-purple/5 dark:hover:bg-blip-purple/10 cursor-pointer"
       disabled={available.length === 0}
     >
       <option value="">
@@ -1303,7 +1303,7 @@ function OptionsListEditor({
             type="button"
             onClick={() => move(idx, -1)}
             disabled={idx === 0}
-            className="text-gray-400 hover:text-blip-purple px-1 disabled:opacity-30"
+            className="text-gray-400 dark:text-gray-500 hover:text-blip-purple px-1 disabled:opacity-30"
             title="Subir"
           >
             ↑
@@ -1312,7 +1312,7 @@ function OptionsListEditor({
             type="button"
             onClick={() => move(idx, 1)}
             disabled={idx === options.length - 1}
-            className="text-gray-400 hover:text-blip-purple px-1 disabled:opacity-30"
+            className="text-gray-400 dark:text-gray-500 hover:text-blip-purple px-1 disabled:opacity-30"
             title="Descer"
           >
             ↓
@@ -1320,7 +1320,7 @@ function OptionsListEditor({
           <button
             type="button"
             onClick={() => remove(idx)}
-            className="text-gray-400 hover:text-red-600 px-1"
+            className="text-gray-400 dark:text-gray-500 hover:text-red-600 px-1"
             title="Remover"
           >
             ✕

@@ -37,11 +37,11 @@ export default function Palette({ collapsed, onToggle, onAddNode }: PaletteProps
     // Modo colapsado: barra finíssima só com o botão de expandir.
     // O espaço ocupado fica ao mínimo pra liberar área do canvas.
     return (
-      <aside className="w-full flex-1 min-h-0 bg-white border-r border-gray-200 flex flex-col items-center pt-2">
+      <aside className="w-full flex-1 min-h-0 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col items-center pt-2">
         <button
           type="button"
           onClick={onToggle}
-          className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-blip-purple hover:bg-blip-purple/10 rounded-md transition-colors"
+          className="w-7 h-7 flex items-center justify-center text-gray-400 dark:text-gray-500 hover:text-blip-purple hover:bg-blip-purple/10 rounded-md transition-colors"
           title="Expandir paleta"
         >
           <ChevronsRight size={14} />
@@ -53,21 +53,21 @@ export default function Palette({ collapsed, onToggle, onAddNode }: PaletteProps
   return (
     <aside
       data-tour="palette"
-      className="w-full flex-1 min-h-0 bg-white border-r border-gray-200 flex flex-col"
+      className="w-full flex-1 min-h-0 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col"
     >
-      <header className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-        <h2 className="text-sm font-semibold text-gray-800">Componentes</h2>
+      <header className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+        <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Componentes</h2>
         <button
           type="button"
           onClick={onToggle}
-          className="text-gray-400 hover:text-blip-purple text-lg"
+          className="text-gray-400 dark:text-gray-500 hover:text-blip-purple text-lg"
           title="Recolher"
         >
           «
         </button>
       </header>
 
-      <p className="text-xs text-gray-500 px-4 py-2 border-b border-gray-100">
+      <p className="text-xs text-gray-500 dark:text-gray-400 px-4 py-2 border-b border-gray-100 dark:border-gray-700">
         Arraste ou clique <strong>duas vezes</strong>
       </p>
 
@@ -75,11 +75,11 @@ export default function Palette({ collapsed, onToggle, onAddNode }: PaletteProps
         {PALETTE_GROUPS.map((group) => {
           const isOpen = openGroup === group.id;
           return (
-            <div key={group.id} className="border-b border-gray-100 last:border-b-0">
+            <div key={group.id} className="border-b border-gray-100 dark:border-gray-700 last:border-b-0">
               <button
                 type="button"
                 onClick={() => toggleGroup(group.id)}
-                className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500 hover:bg-gray-50"
+                className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <span>{group.title}</span>
                 <span className="text-gray-400">{isOpen ? '▾' : '▸'}</span>
@@ -101,10 +101,10 @@ export default function Palette({ collapsed, onToggle, onAddNode }: PaletteProps
         })}
       </div>
 
-      <footer className="px-4 py-3 border-t border-gray-100 text-xs text-gray-400 space-y-1">
+      <footer className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 text-xs text-gray-400 space-y-1">
         <div>
-          💡 <kbd className="bg-gray-100 rounded px-1">Del</kbd> apaga ·{' '}
-          <kbd className="bg-gray-100 rounded px-1">Ctrl+D</kbd> duplica
+          💡 <kbd className="bg-gray-100 dark:bg-gray-800 rounded px-1">Del</kbd> apaga ·{' '}
+          <kbd className="bg-gray-100 dark:bg-gray-800 rounded px-1">Ctrl+D</kbd> duplica
         </div>
       </footer>
     </aside>
@@ -125,15 +125,15 @@ function PaletteCard({
       draggable
       onDragStart={(e) => onDragStart(e, item.type)}
       onDoubleClick={onDoubleClick}
-      className="flex items-start gap-2.5 p-2 rounded-lg border border-gray-200 hover:border-blip-purple hover:bg-blip-purple/5 cursor-grab active:cursor-grabbing transition select-none"
+      className="flex items-start gap-2.5 p-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blip-purple dark:hover:border-blip-purple hover:bg-blip-purple/5 dark:hover:bg-blip-purple/15 cursor-grab active:cursor-grabbing transition select-none"
       title="Arraste pro canvas ou clique 2x"
     >
       <span className="text-lg leading-none mt-0.5">{item.icon}</span>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-gray-800 leading-tight">
+        <div className="text-sm font-medium text-gray-800 dark:text-gray-100 leading-tight">
           {item.label}
         </div>
-        <div className="text-[11px] text-gray-500 truncate leading-tight mt-0.5">
+        <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate leading-tight mt-0.5">
           {item.description}
         </div>
       </div>

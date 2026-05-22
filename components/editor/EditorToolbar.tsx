@@ -3,29 +3,42 @@
 /**
  * Toolbar central do editor — ações de projeto/página.
  *
- * Design: minimalista e profissional, com:
- *  - Ícones SVG via lucide-react (consistente em tamanho e tracejado)
- *  - Botão CTA primário "Compartilhar" destacado
- *  - Grupos separados por linhas verticais sutis
- *  - Hover/active states suaves
- *  - Toggle moderno pro Tracking auto
+ * Layout: agrupado por categoria em dropdowns (padrão Linear/Figma/Notion):
  *
- * Mantém a UX original (mesmos handlers, mesmos tooltips).
+ *  [Compartilhar] | [✨ IA] | [Editar ▾] [Visualizar ▾] [Exportar ▾] | [Tracking auto] | [? ] [🐛]
+ *
+ * Compartilhar  → CTA primário, sempre visível
+ * IA            → atalho rápido pro Chat IA (resolve "muito escondido")
+ * Editar ▾      → Buscar/substituir, Organizar layout, Reordenar IDs, Resetar
+ * Visualizar ▾  → Comentários, Problemas, Testar, Versões (com badges/active states)
+ * Exportar ▾    → Blip, Imagem, Template
+ * Tracking auto → Toggle visível (setting, fica em destaque)
+ * ?             → Cheatsheet de atalhos
+ * 🐛            → Dump JSON (dev only)
+ *
+ * Dropdown custom (sem dependência Radix DropdownMenu — não instalado):
+ * fecha em click fora + ESC. Pré-fecha ao clicar num item pra evitar
+ * flash visual antes do handler executar.
  */
-import { type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Activity,
   AlertCircle,
   Bug,
+  ChevronDown,
   Eraser,
   Hash,
   History,
   Image as ImageIcon,
+  Keyboard,
   LayoutGrid,
   MessageSquare,
+  MoreHorizontal,
   Package,
   Play,
+  Search,
   Share2,
+  Sparkles,
   Sprout,
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
@@ -43,17 +56,22 @@ export interface EditorToolbarProps {
   playbackOpen: boolean;
   /** Estado do painel Versões. */
   versionsOpen: boolean;
+  /** Estado do Chat IA. */
+  aiChatOpen?: boolean;
   onShare: () => void;
   onToggleComments: () => void;
   onToggleProblems: () => void;
   onTogglePlayback: () => void;
   onToggleVersions: () => void;
+  onToggleAIChat?: () => void;
   onOrganizeLayout: () => void;
   onReorganizeCodes: () => void;
   onExportBlip: () => void;
   onExportVisual: () => void;
   onLoadTemplate: () => void;
   onResetPage: () => void;
+  onOpenFindReplace?: () => void;
+  onOpenCheatsheet?: () => void;
   onAutoTrackingChange: (next: boolean) => void;
   onDumpJson: () => void;
   /** Se false, esconde botões de export. */
@@ -70,21 +88,29 @@ export default function EditorToolbar(props: EditorToolbarProps) {
     problemsOpen,
     playbackOpen,
     versionsOpen,
+    aiChatOpen = false,
     onShare,
     onToggleComments,
     onToggleProblems,
     onTogglePlayback,
     onToggleVersions,
+    onToggleAIChat,
     onOrganizeLayout,
     onReorganizeCodes,
     onExportBlip,
     onExportVisual,
     onLoadTemplate,
     onResetPage,
+    onOpenFindReplace,
+    onOpenCheatsheet,
     onAutoTrackingChange,
     onDumpJson,
     canExport = true,
   } = props;
+
+  // Contagem global "tem algo aberto em Visualizar?" — pinta o dropdown ativo
+  const anyVisualOpen =
+    commentsOpen || problemsOpen || playbackOpen || versionsOpen;
 
   return (
     <div
@@ -101,126 +127,175 @@ export default function EditorToolbar(props: EditorToolbarProps) {
 
       <Divider />
 
-      {/* Comentários */}
-      <IconButton
-        icon={<MessageSquare size={15} />}
-        label="Comentários"
-        active={commentsOpen}
-        badge={commentsCount > 0 ? commentsCount : undefined}
-        onClick={onToggleComments}
-        title="Abrir painel de comentários"
-      />
-
-      {/* Problems */}
-      <IconButton
-        icon={<AlertCircle size={15} />}
-        label="Problemas"
-        active={problemsOpen}
-        badge={problemsCount > 0 ? problemsCount : undefined}
-        tone={
-          problemsWorstSeverity === 'error'
-            ? 'danger'
-            : problemsWorstSeverity === 'warning'
-              ? 'amber'
-              : problemsWorstSeverity === 'info'
-                ? 'primary'
-                : 'subtle'
-        }
-        onClick={onToggleProblems}
-        title="Validações automáticas do fluxo"
-      />
-
-      {/* Test playground */}
-      <IconButton
-        icon={<Play size={15} />}
-        label="Testar"
-        active={playbackOpen}
-        tone="primary"
-        onClick={onTogglePlayback}
-        title="Simular uma conversa no fluxo (sem exportar pro Blip)"
-      />
-
-      {/* Versões / histórico */}
-      <IconButton
-        icon={<History size={15} />}
-        label="Versões"
-        active={versionsOpen}
-        onClick={onToggleVersions}
-        title="Histórico de snapshots da página (restaurar versões anteriores)"
-      />
-
-      <Divider />
-
-      {/* Layout / IDs */}
-      <IconButton
-        icon={<LayoutGrid size={15} />}
-        label="Organizar"
-        onClick={onOrganizeLayout}
-        title="Alinha os componentes principais em coluna vertical dentro de cada frame"
-      />
-      <IconButton
-        icon={<Hash size={15} />}
-        label="Reordenar IDs"
-        onClick={onReorganizeCodes}
-        title="Renumera todos os IDs em sequência pela posição vertical"
-      />
-
-      {canExport && (
-        <>
-          <Divider />
-
-          {/* Exportações */}
-          <IconButton
-            icon={<Package size={15} />}
-            label="Exportar Blip"
-            tone="primary"
-            onClick={onExportBlip}
-            title="Exporta o projeto como .zip de JSONs compatível com a plataforma Blip"
-          />
-          <IconButton
-            icon={<ImageIcon size={15} />}
-            label="Imagem"
-            onClick={onExportVisual}
-            title="Exporta o canvas como PNG / PDF / HTML"
-          />
-        </>
+      {/* IA — botão standalone (não fica escondido em dropdown) */}
+      {onToggleAIChat && (
+        <IconButton
+          icon={<Sparkles size={15} />}
+          label="IA"
+          active={aiChatOpen}
+          tone="primary"
+          onClick={onToggleAIChat}
+          title="Chat IA — pergunte sobre o fluxo, peça sugestões"
+        />
       )}
 
       <Divider />
 
-      {/* Template / Tracking */}
-      <IconButton
-        icon={<Sprout size={15} />}
-        label="Template"
-        tone="amber"
-        onClick={onLoadTemplate}
-        title="Subir escopo, colar texto ou usar exemplo"
+      {/* Editar ▾ */}
+      <DropdownButton
+        label="Editar"
+        title="Ações de edição do fluxo"
+        items={[
+          ...(onOpenFindReplace
+            ? [
+                {
+                  key: 'find',
+                  icon: <Search size={15} />,
+                  label: 'Buscar e substituir',
+                  shortcut: 'Cmd+F',
+                  onClick: onOpenFindReplace,
+                },
+              ]
+            : []),
+          {
+            key: 'organize',
+            icon: <LayoutGrid size={15} />,
+            label: 'Organizar layout',
+            description: 'Alinha componentes em coluna vertical por frame',
+            onClick: onOrganizeLayout,
+          },
+          {
+            key: 'reorder',
+            icon: <Hash size={15} />,
+            label: 'Reordenar IDs',
+            description: 'Renumera blocos pela posição vertical',
+            onClick: onReorganizeCodes,
+          },
+          { key: '__sep1' },
+          {
+            key: 'reset',
+            icon: <Eraser size={15} />,
+            label: 'Resetar página',
+            description: 'Apaga TODOS os nodes e edges desta página',
+            tone: 'danger' as const,
+            onClick: onResetPage,
+          },
+        ]}
       />
+
+      {/* Visualizar ▾ */}
+      <DropdownButton
+        label="Visualizar"
+        title="Painéis e ferramentas de inspeção"
+        active={anyVisualOpen}
+        items={[
+          {
+            key: 'comments',
+            icon: <MessageSquare size={15} />,
+            label: 'Comentários',
+            active: commentsOpen,
+            badge: commentsCount > 0 ? commentsCount : undefined,
+            onClick: onToggleComments,
+          },
+          {
+            key: 'problems',
+            icon: <AlertCircle size={15} />,
+            label: 'Problemas',
+            active: problemsOpen,
+            badge: problemsCount > 0 ? problemsCount : undefined,
+            tone:
+              problemsWorstSeverity === 'error'
+                ? ('danger' as const)
+                : problemsWorstSeverity === 'warning'
+                  ? ('amber' as const)
+                  : problemsWorstSeverity === 'info'
+                    ? ('primary' as const)
+                    : undefined,
+            onClick: onToggleProblems,
+          },
+          {
+            key: 'playback',
+            icon: <Play size={15} />,
+            label: 'Testar fluxo',
+            description: 'Simula uma conversa (Playback)',
+            tone: 'primary' as const,
+            active: playbackOpen,
+            onClick: onTogglePlayback,
+          },
+          {
+            key: 'versions',
+            icon: <History size={15} />,
+            label: 'Versões',
+            description: 'Histórico de snapshots — restaurar versões anteriores',
+            active: versionsOpen,
+            onClick: onToggleVersions,
+          },
+        ]}
+      />
+
+      {/* Exportar ▾ */}
+      {canExport && (
+        <DropdownButton
+          label="Exportar"
+          title="Exportações e templates"
+          items={[
+            {
+              key: 'blip',
+              icon: <Package size={15} />,
+              label: 'Exportar Blip',
+              description: '.zip de JSONs compatível com Blip/Digitalbot',
+              tone: 'primary' as const,
+              onClick: onExportBlip,
+            },
+            {
+              key: 'visual',
+              icon: <ImageIcon size={15} />,
+              label: 'Imagem',
+              description: 'PNG, PDF ou HTML do canvas',
+              onClick: onExportVisual,
+            },
+            { key: '__sep2' },
+            {
+              key: 'template',
+              icon: <Sprout size={15} />,
+              label: 'Carregar template',
+              description: 'Subir escopo, colar texto ou usar exemplo',
+              tone: 'amber' as const,
+              onClick: onLoadTemplate,
+            },
+          ]}
+        />
+      )}
+
+      <Divider />
+
+      {/* Tracking auto — toggle direto (é setting, não ação) */}
       <Toggle
         checked={autoTracking}
         onChange={onAutoTrackingChange}
         icon={<Activity size={14} />}
-        label="Tracking auto"
+        label="Tracking"
         title="Quando ativo, cria tracking automaticamente ao adicionar bubbles"
       />
 
       <Divider />
 
-      {/* Destrutivos / Dev */}
-      <IconButton
-        icon={<Eraser size={15} />}
-        label="Resetar"
-        tone="danger"
-        onClick={onResetPage}
-        title="Apaga TODOS os nodes e edges desta página"
-      />
+      {/* Cheatsheet — ícone compacto à direita */}
+      {onOpenCheatsheet && (
+        <IconOnly
+          icon={<Keyboard size={15} />}
+          onClick={onOpenCheatsheet}
+          title="Ver atalhos de teclado (?)"
+        />
+      )}
+
+      {/* Dump dev */}
       {process.env.NODE_ENV !== 'production' && (
-        <IconButton
+        <IconOnly
           icon={<Bug size={15} />}
-          label="Dump"
-          tone="subtle"
           onClick={onDumpJson}
           title="DEV: exporta estado atual pra tmp/state-snapshot.json"
+          tone="subtle"
         />
       )}
     </div>
@@ -321,6 +396,31 @@ function IconButton({
   );
 }
 
+interface IconOnlyProps {
+  icon: ReactNode;
+  onClick: () => void;
+  title?: string;
+  tone?: ButtonTone;
+  active?: boolean;
+}
+
+/** Botão só com ícone (sem label) — pra cheatsheet e dump no canto direito. */
+function IconOnly({ icon, onClick, title, tone = 'default', active = false }: IconOnlyProps) {
+  const styles = toneStyles[tone];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blip-purple/30 ${
+        active ? styles.active : styles.idle
+      }`}
+    >
+      {icon}
+    </button>
+  );
+}
+
 interface ToggleProps {
   checked: boolean;
   onChange: (next: boolean) => void;
@@ -343,3 +443,136 @@ function Toggle({ checked, onChange, icon, label, title }: ToggleProps) {
     </label>
   );
 }
+
+// =============================================================================
+// DROPDOWN
+// =============================================================================
+
+interface DropdownItem {
+  key: string;
+  /** Se a key começar com `__sep`, vira um separador. */
+  icon?: ReactNode;
+  label?: string;
+  description?: string;
+  shortcut?: string;
+  badge?: number;
+  tone?: ButtonTone;
+  active?: boolean;
+  onClick?: () => void;
+}
+
+interface DropdownButtonProps {
+  label: string;
+  title?: string;
+  /** Se true, o trigger fica com estilo de "tem painel aberto". */
+  active?: boolean;
+  items: DropdownItem[];
+}
+
+function DropdownButton({ label, title, active = false, items }: DropdownButtonProps) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  // Fecha em click fora + ESC. Não precisa de focus trap — é menu rápido.
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as Node | null;
+      if (t && wrapRef.current && !wrapRef.current.contains(t)) {
+        setOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const triggerStyles = active ? toneStyles.default.active : toneStyles.default.idle;
+
+  return (
+    <div ref={wrapRef} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title={title}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blip-purple/30 ${triggerStyles}`}
+      >
+        <span>{label}</span>
+        <ChevronDown
+          size={13}
+          className={`transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute left-0 top-full mt-1.5 min-w-[260px] bg-white dark:bg-gray-900 rounded-lg shadow-xl ring-1 ring-gray-200 dark:ring-gray-700 py-1 z-50 animate-in fade-in-0 zoom-in-95"
+        >
+          {items.map((it) => {
+            if (it.key.startsWith('__sep')) {
+              return (
+                <div
+                  key={it.key}
+                  className="my-1 h-px bg-gray-100 dark:bg-gray-800"
+                  aria-hidden
+                />
+              );
+            }
+            const styles = toneStyles[it.tone ?? 'default'];
+            return (
+              <button
+                key={it.key}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  it.onClick?.();
+                }}
+                className={`w-full text-left flex items-start gap-2.5 px-3 py-2 transition-colors ${
+                  it.active ? styles.active : styles.idle
+                }`}
+              >
+                {it.icon && (
+                  <span className="shrink-0 mt-0.5">{it.icon}</span>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium truncate">{it.label}</span>
+                    {typeof it.badge === 'number' && (
+                      <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-blip-purple text-white">
+                        {it.badge > 99 ? '99+' : it.badge}
+                      </span>
+                    )}
+                  </div>
+                  {it.description && (
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 leading-tight">
+                      {it.description}
+                    </div>
+                  )}
+                </div>
+                {it.shortcut && (
+                  <kbd className="shrink-0 ml-2 mt-0.5 text-[10px] font-mono text-gray-400 dark:text-gray-500">
+                    {it.shortcut}
+                  </kbd>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Mantém export do IconButton/MoreHorizontal só pra não quebrar imports antigos
+// se alguém estiver usando — não há referências fora deste arquivo no momento.
+export { IconButton, MoreHorizontal };

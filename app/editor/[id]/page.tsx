@@ -47,6 +47,13 @@ export default async function EditorPage({ params }: EditorPageProps) {
   const activePage =
     pages.find((p) => p.id === activePageId) ?? pages[0] ?? null;
 
+  // Busca display_name do profile pra avatar de presence (cai pro email)
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('display_name')
+    .eq('id', user.id)
+    .single();
+
   return (
     <FlowEditor
       projectId={project.id}
@@ -54,6 +61,11 @@ export default async function EditorPage({ params }: EditorPageProps) {
       initialState={activePage?.state ?? project.state}
       pages={pages}
       activePageId={activePage?.id ?? null}
+      currentUser={{
+        id: user.id,
+        email: user.email,
+        name: profile?.display_name ?? user.email?.split('@')[0],
+      }}
     />
   );
 }

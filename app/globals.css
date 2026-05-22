@@ -258,8 +258,12 @@ html, body {
   height: 100%;
 }
 
-/* Dark mode body — Tailwind darkMode: 'class' */
-html.dark body {
-  background-color: #0f0f12;
-  color: #e5e7eb;
-}
+/* Dark mode — apenas barras laterais e superior recebem variants `dark:` em
+ * cada componente. O canvas (área de trabalho) fica SEMPRE claro porque
+ * os nodes/edges foram desenhados pro fundo WhatsApp (verde claro) e
+ * inverter as cores quebra a leitura das bubbles/menus. Decisão de UX
+ * intencional, validada pelo user.
+ *
+ * Se quiser ativar dark canvas no futuro: adicione overrides em
+ * `.react-flow__background`, `.react-flow__edge-path`, `.react-flow__controls`,
+ * `.react-flow__minimap` e revise contraste de todos os custom nodes. */

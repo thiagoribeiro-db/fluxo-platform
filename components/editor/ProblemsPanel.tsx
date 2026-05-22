@@ -92,9 +92,9 @@ export default function ProblemsPanel({
   }, [visible]);
 
   return (
-    <div className="absolute bottom-12 left-0 right-0 h-60 bg-white border-t border-gray-200 shadow-lg flex flex-col z-20">
+    <div className="absolute bottom-12 left-0 right-0 h-60 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg flex flex-col z-20">
       {/* Header */}
-      <header className="flex items-center justify-between px-3 py-2 border-b border-gray-200 bg-gray-50">
+      <header className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
         <div className="flex items-center gap-2">
           <h2 className="text-xs font-semibold text-gray-800 uppercase tracking-wide">
             Problemas

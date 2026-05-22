@@ -16,7 +16,7 @@
  *  - Botão "Criar snapshot agora" no header
  */
 
-import { useCallback, useEffect, useState, useTransition } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Clock, FileText, History, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import {
   createVersion,
@@ -28,22 +28,38 @@ import {
 import { confirmDialog, promptDialog } from '@/lib/utils/dialog';
 import { handleError, toast } from '@/lib/utils/errors';
 import { track } from '@/lib/analytics/posthog';
+import type { ProjectState } from '@/lib/types';
 
 interface VersionsPanelProps {
   pageId: string;
   onClose: () => void;
   /** Chamado após restore bem-sucedido — pai recarrega state da page. */
   onRestored: () => void;
+  /**
+   * Callback que retorna o ESTADO ATUAL do canvas (nodes/edges/viewport).
+   * Passado pro `createVersion` como `explicitState` — garante que o
+   * snapshot reflita exatamente o que o usuário vê, independente do
+   * autosave ter rodado ou não. Sem isso, a action lê do banco e pode
+   * pegar versão desatualizada (ou vazia, se a página é nova).
+   */
+  getCurrentState: () => ProjectState;
 }
 
 export default function VersionsPanel({
   pageId,
   onClose,
   onRestored,
+  getCurrentState,
 }: VersionsPanelProps) {
   const [versions, setVersions] = useState<PageVersion[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isPending, startTransition] = useTransition();
+  // Substituímos useTransition pelo busy state direto. Motivo: as actions
+  // server (createVersion/restoreVersion/deleteVersion) são async; o
+  // `startTransition(async () => ...)` do React 18 trata APENAS a parte
+  // síncrona como transition — o await fica fora, e erros/Promise pending
+  // podem ser "engolidos" silenciosamente. Com useState normal e try/catch
+  // direto, o erro sempre chega no handleError e o usuário vê o toast.
+  const [busy, setBusy] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -62,88 +78,129 @@ export default function VersionsPanel({
     reload();
   }, [reload]);
 
-  function handleCreateSnapshot() {
-    startTransition(async () => {
-      const label = await promptDialog({
-        title: 'Criar snapshot agora',
-        message: 'Descreva esta versão (opcional):',
-        placeholder: 'ex: antes de mexer no menu',
-        required: false,
-      });
-      // ESC ou cancel → label === null → ainda criamos com label automático
-      if (label === null) return;
-      try {
-        const result = await createVersion(pageId, label || 'Manual');
-        if (result) {
-          track('version_created', { manual: true });
-          toast({ level: 'success', message: 'Versão criada' });
-          await reload();
-        } else {
-          toast({
-            level: 'warn',
-            message: 'Nada pra salvar — página vazia',
-          });
-        }
-      } catch (err) {
-        handleError(err, { context: 'create-version' });
-      }
+  async function handleCreateSnapshot() {
+    if (busy) return;
+    const label = await promptDialog({
+      title: 'Criar snapshot agora',
+      message: 'Descreva esta versão (opcional):',
+      placeholder: 'ex: antes de mexer no menu',
+      required: false,
     });
+    if (label === null) return;
+
+    // Pega o state ATUAL do canvas (client) — não confia no autosave
+    const currentState = getCurrentState();
+    // Debug — útil se algo der errado o user pode mandar o log
+    // eslint-disable-next-line no-console
+    console.log('[VersionsPanel] createSnapshot', {
+      pageId,
+      nodesCount: currentState.nodes?.length ?? 0,
+      edgesCount: currentState.edges?.length ?? 0,
+      label: label || 'Manual',
+    });
+
+    if (!currentState.nodes || currentState.nodes.length === 0) {
+      toast({
+        level: 'warn',
+        message: 'Página vazia',
+        detail:
+          'Adicione ao menos um nó (frame, bubble, etc.) antes de criar um snapshot.',
+      });
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const result = await createVersion(
+        pageId,
+        label || 'Manual',
+        currentState
+      );
+      if (result) {
+        track('version_created', { manual: true });
+        toast({ level: 'success', message: 'Versão criada' });
+        await reload();
+      } else {
+        // Não deve cair aqui — guarda só por segurança
+        toast({
+          level: 'warn',
+          message: 'Nada pra salvar',
+          detail: `Servidor rejeitou: ${currentState.nodes.length} nós no client, mas a action retornou null.`,
+        });
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[VersionsPanel] createVersion error', err);
+      handleError(err, { context: 'create-version' });
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function handleRestore(version: PageVersion) {
-    startTransition(async () => {
-      const ok = await confirmDialog({
-        title: 'Restaurar esta versão?',
-        message: `Vai sobrescrever o conteúdo atual da página. Um snapshot do estado atual será criado automaticamente antes — você pode desfazer pelo mesmo painel.\n\nVersão: ${version.label ?? 'sem label'}\nCriada: ${formatDate(version.created_at)}`,
-        confirmText: 'Restaurar',
-        variant: 'danger',
-      });
-      if (!ok) return;
-      try {
-        await restoreVersion(version.id);
-        track('version_restored', { versionId: version.id });
-        toast({ level: 'success', message: 'Versão restaurada' });
-        await reload();
-        onRestored();
-      } catch (err) {
-        handleError(err, { context: 'restore-version' });
-      }
+  async function handleRestore(version: PageVersion) {
+    if (busy) return;
+    const ok = await confirmDialog({
+      title: 'Restaurar esta versão?',
+      message: `Vai sobrescrever o conteúdo atual da página. Um snapshot do estado atual será criado automaticamente antes — você pode desfazer pelo mesmo painel.\n\nVersão: ${version.label ?? 'sem label'}\nCriada: ${formatDate(version.created_at)}`,
+      confirmText: 'Restaurar',
+      variant: 'danger',
     });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await restoreVersion(version.id);
+      track('version_restored', { versionId: version.id });
+      toast({ level: 'success', message: 'Versão restaurada' });
+      await reload();
+      onRestored();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[VersionsPanel] restoreVersion error', err);
+      handleError(err, { context: 'restore-version' });
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function handleDelete(version: PageVersion) {
-    startTransition(async () => {
-      const ok = await confirmDialog({
-        title: 'Apagar esta versão?',
-        message: 'A versão será removida permanentemente. Esta ação não afeta o estado atual da página.',
-        confirmText: 'Apagar',
-        variant: 'danger',
-      });
-      if (!ok) return;
-      try {
-        await deleteVersion(version.id);
-        await reload();
-      } catch (err) {
-        handleError(err, { context: 'delete-version' });
-      }
+  async function handleDelete(version: PageVersion) {
+    if (busy) return;
+    const ok = await confirmDialog({
+      title: 'Apagar esta versão?',
+      message:
+        'A versão será removida permanentemente. Esta ação não afeta o estado atual da página.',
+      confirmText: 'Apagar',
+      variant: 'danger',
     });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await deleteVersion(version.id);
+      toast({ level: 'success', message: 'Versão apagada' });
+      await reload();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[VersionsPanel] deleteVersion error', err);
+      handleError(err, { context: 'delete-version' });
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <aside className="fixed top-0 right-0 h-full w-[340px] bg-white border-l border-gray-300 shadow-2xl flex flex-col z-30">
+    <aside className="fixed top-0 right-0 h-full w-[340px] bg-white dark:bg-gray-900 border-l border-gray-300 dark:border-gray-700 shadow-2xl flex flex-col z-30">
       {/* Header */}
-      <header className="border-b border-gray-200 px-4 py-3 flex items-center gap-2 shrink-0">
+      <header className="border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center gap-2 shrink-0">
         <History size={18} className="text-blip-purple shrink-0" />
         <div className="flex-1 min-w-0">
-          <h2 className="font-semibold text-sm text-gray-900">Versões</h2>
-          <p className="text-[11px] text-gray-500 truncate">
+          <h2 className="font-semibold text-sm text-gray-900 dark:text-white">Versões</h2>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
             {versions.length} snapshot{versions.length === 1 ? '' : 's'}
           </p>
         </div>
         <button
           type="button"
           onClick={handleCreateSnapshot}
-          disabled={isPending}
+          disabled={busy}
           className="text-xs font-medium text-blip-purple hover:bg-blip-purple/10 px-2 py-1.5 rounded flex items-center gap-1 disabled:opacity-50"
           title="Criar snapshot do estado atual"
         >
@@ -179,7 +236,7 @@ export default function VersionsPanel({
                 }
                 onRestore={() => handleRestore(v)}
                 onDelete={() => handleDelete(v)}
-                busy={isPending}
+                busy={busy}
               />
             ))}
           </ul>

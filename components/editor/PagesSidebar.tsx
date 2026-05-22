@@ -154,9 +154,9 @@ export default function PagesSidebar({
   }
 
   return (
-    <aside className="w-full bg-white border-r border-gray-200 border-b flex flex-col shrink-0">
-      <header className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-        <h2 className="text-sm font-semibold text-gray-800">Páginas</h2>
+    <aside className="w-full bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 border-b flex flex-col shrink-0">
+      <header className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+        <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Páginas</h2>
         <button
           type="button"
           onClick={handleCreate}
@@ -197,8 +197,8 @@ export default function PagesSidebar({
               <div
                 className={`group flex items-center gap-1 px-2 py-1.5 mx-1 rounded cursor-pointer ${
                   isActive
-                    ? 'bg-blip-purple/10 text-blip-purple'
-                    : 'hover:bg-gray-100 text-gray-700'
+                    ? 'bg-blip-purple/10 dark:bg-blip-purple/20 text-blip-purple'
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200'
                 }`}
                 onClick={() => handleSwitch(page)}
                 title={page.name}

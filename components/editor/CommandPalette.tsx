@@ -126,7 +126,7 @@ export default function CommandPalette({
     >
       <Command
         label="Comandos"
-        className="w-full max-w-xl bg-white rounded-xl shadow-2xl ring-1 ring-gray-200 overflow-hidden flex flex-col"
+        className="w-full max-w-xl bg-white dark:bg-gray-900 rounded-xl shadow-2xl ring-1 ring-gray-200 dark:ring-gray-700 overflow-hidden flex flex-col"
         // Permite ESC fechar
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
@@ -135,16 +135,16 @@ export default function CommandPalette({
           }
         }}
       >
-        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-200">
+        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-200 dark:border-gray-700">
           <Sparkles size={16} className="text-blip-purple shrink-0" />
           <Command.Input
             value={search}
             onValueChange={setSearch}
             autoFocus
             placeholder="O que você quer fazer? (criar, ir até, exportar…)"
-            className="flex-1 bg-transparent text-sm placeholder:text-gray-400 focus:outline-none"
+            className="flex-1 bg-transparent text-sm placeholder:text-gray-400 dark:text-white focus:outline-none"
           />
-          <kbd className="text-[10px] font-mono bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200 text-gray-500">
+          <kbd className="text-[10px] font-mono bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400">
             ESC
           </kbd>
         </div>

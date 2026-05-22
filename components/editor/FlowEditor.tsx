@@ -1283,7 +1283,44 @@ function FlowEditorInner({
           'sem nome',
         frameId: f.data?.frameId as string | undefined,
       })),
-    onCreateNode: (type) => createNode(type),
+    onCreateNode: (type) => {
+      // Cmd+K cria em ESPAÇO EM BRANCO no viewport visível, não abaixo
+      // do selecionado/último. Isso evita sobreposição e dá destaque ao nó
+      // novo (que é o que o user quer ver ao executar via palette).
+      //
+      // Algoritmo: pega o centro visível em flow coords, procura spot
+      // livre numa espiral expandindo; se não achar, manda pra direita
+      // do node mais à direita do canvas.
+      const wrap = reactFlowWrapper.current;
+      const rect = wrap?.getBoundingClientRect();
+      let position: { x: number; y: number } | undefined;
+      if (rect) {
+        const screenCenter = {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        };
+        const flowCenter = screenToFlowPosition(screenCenter);
+        position = findEmptySpotNear(flowCenter, nodes, type);
+      }
+
+      const createdId = createNode(type, position ? { position } : undefined);
+
+      // Centraliza no nó recém-criado. Como o React Flow precisa medir o
+      // node primeiro pra ter `internalNode.measured`, esperamos 200ms e
+      // usamos `getInternalNode` (ref ao banco do RF, não depende do
+      // `nodes` closure que ainda está stale aqui).
+      if (createdId) {
+        setTimeout(() => {
+          const internal = getInternalNode(createdId);
+          if (!internal) return;
+          const pos = internal.internals.positionAbsolute ?? internal.position;
+          const w = internal.measured?.width ?? 240;
+          const h = internal.measured?.height ?? 100;
+          setCenter(pos.x + w / 2, pos.y + h / 2, { duration: 600, zoom: 1.2 });
+          setSelectedId(createdId);
+        }, 200);
+      }
+    },
     onJumpToFrame: handleJumpToNode,
     onOrganize: () => handleOrganizeLayout(false),
     onReorder: handleReorganizeCodes,
@@ -1401,6 +1438,7 @@ function FlowEditorInner({
                 problemsOpen={problemsOpen}
                 playbackOpen={playbackOpen}
                 versionsOpen={versionsOpen}
+                aiChatOpen={aiChatOpen}
                 canExport={Boolean(projectId)}
                 onShare={() => setShareOpen(true)}
                 onToggleComments={() => {
@@ -1410,6 +1448,9 @@ function FlowEditorInner({
                 onToggleProblems={() => setProblemsOpen((v) => !v)}
                 onTogglePlayback={() => setPlaybackOpen((v) => !v)}
                 onToggleVersions={() => setVersionsOpen((v) => !v)}
+                onToggleAIChat={() => setAiChatOpen((v) => !v)}
+                onOpenFindReplace={() => setFindReplaceOpen(true)}
+                onOpenCheatsheet={() => setCheatsheetOpen(true)}
                 onOrganizeLayout={() => handleOrganizeLayout(false)}
                 onReorganizeCodes={handleReorganizeCodes}
                 onExportBlip={() => setBlipExportOpen(true)}
@@ -1492,6 +1533,11 @@ function FlowEditorInner({
           <VersionsPanel
             pageId={activePageId}
             onClose={() => setVersionsOpen(false)}
+            getCurrentState={() => ({
+              nodes,
+              edges,
+              viewport: getViewport(),
+            })}
             onRestored={async () => {
               // Recarrega a page atual do banco com o novo state
               if (!projectId) return;
@@ -1650,4 +1696,109 @@ export default function FlowEditor(props: FlowEditorProps) {
       <FlowEditorInner {...props} />
     </ReactFlowProvider>
   );
+}
+
+// =============================================================================
+// HELPERS LOCAIS
+// =============================================================================
+
+/**
+ * Encontra um spot LIVRE perto de `hint` pra colocar um novo node.
+ *
+ * Estratégia: testa o próprio hint, depois 8 candidatos em raio R = ~280px
+ * (espaçamento de ~1 node + padding), e expande até R*3. Se nada cabe (canvas
+ * super cheio), faz fallback pro "abaixo do node mais baixo visível em X+0".
+ *
+ * Considera APENAS top-level nodes (parentId === undefined) pra colisão —
+ * tracking/exceção (children visuais) não bloqueiam, pois ficam ao redor do
+ * pai e seriam falsos positivos.
+ *
+ * Padding de 60px ao redor de cada node existente: garante que o novo nó
+ * não fique "colado" no anterior — pelo menos uma "respiração" visual.
+ */
+function findEmptySpotNear(
+  hint: { x: number; y: number },
+  nodes: FluxoNode[],
+  newType: FluxoNodeType
+): { x: number; y: number } {
+  const PADDING = 60;
+  const newW = APPROX_WIDTH_BY_TYPE[newType] ?? 240;
+  const newH = APPROX_HEIGHT_BY_TYPE[newType] ?? 100;
+
+  const topLevel = nodes.filter((n) => !n.parentId);
+
+  // Bounds dos nodes existentes (com padding)
+  const obstacles = topLevel.map((n) => {
+    const w =
+      n.measured?.width ??
+      (n.data?.width as number | undefined) ??
+      APPROX_WIDTH_BY_TYPE[n.type as FluxoNodeType] ??
+      240;
+    const h =
+      n.measured?.height ??
+      (n.data?.height as number | undefined) ??
+      APPROX_HEIGHT_BY_TYPE[n.type as FluxoNodeType] ??
+      100;
+    return {
+      x1: n.position.x - PADDING,
+      y1: n.position.y - PADDING,
+      x2: n.position.x + w + PADDING,
+      y2: n.position.y + h + PADDING,
+    };
+  });
+
+  // Testa se um candidate (topo-esquerda) cabe sem sobrepor obstáculos
+  function fits(cx: number, cy: number): boolean {
+    const cx2 = cx + newW;
+    const cy2 = cy + newH;
+    for (const o of obstacles) {
+      // AABB overlap test (inverso)
+      if (cx < o.x2 && cx2 > o.x1 && cy < o.y2 && cy2 > o.y1) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Centraliza o hint na topo-esquerda do nó (hint = centro visual desejado)
+  const base = { x: hint.x - newW / 2, y: hint.y - newH / 2 };
+
+  // 1) Tenta o spot exato primeiro
+  if (fits(base.x, base.y)) return base;
+
+  // 2) Espiral de candidatos — 3 anéis em volta do hint
+  const STEP = 300; // ~ largura típica + gap
+  for (let r = 1; r <= 3; r++) {
+    const dist = r * STEP;
+    // 8 direções (clockwise from right)
+    const offsets = [
+      [dist, 0],
+      [dist, dist],
+      [0, dist],
+      [-dist, dist],
+      [-dist, 0],
+      [-dist, -dist],
+      [0, -dist],
+      [dist, -dist],
+    ];
+    for (const [dx, dy] of offsets) {
+      if (fits(base.x + dx, base.y + dy)) {
+        return { x: base.x + dx, y: base.y + dy };
+      }
+    }
+  }
+
+  // 3) Fallback: à direita do node mais à direita (canvas muito cheio)
+  if (topLevel.length === 0) return base;
+  const maxX = Math.max(
+    ...topLevel.map((n) => {
+      const w =
+        n.measured?.width ??
+        (n.data?.width as number | undefined) ??
+        APPROX_WIDTH_BY_TYPE[n.type as FluxoNodeType] ??
+        240;
+      return n.position.x + w;
+    })
+  );
+  return { x: maxX + 100, y: base.y };
 }

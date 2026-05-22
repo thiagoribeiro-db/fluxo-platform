@@ -339,70 +339,36 @@ export const SUBMIT_FLOW_TOOL_SCHEMA = {
 } as const;
 
 // =============================================================================
-// TYPE GUARD/PARSE — valida o output do tool antes de usar no builder
+// VALIDAÇÃO — valida o output do tool antes de usar no builder
 // =============================================================================
 
+import { AIParseResultSchema } from '@/lib/schemas/ai-output';
+
 /**
- * Valida (defensivamente) o input retornado pelo tool da IA. Se o output
- * estiver malformado (campo faltando, tipos errados), lança um erro descritivo.
+ * Valida (defensivamente) o input retornado pelo tool da IA via Zod.
+ * Se o output estiver malformado (campo faltando, tipos errados, kind
+ * inválido), lança um erro descritivo com TODOS os problemas concatenados.
  *
- * Isso é uma camada de defesa caso o modelo emita algo fora do schema. Em
+ * Isso é camada de defesa caso o modelo emita algo fora do schema. Em
  * teoria não deve acontecer (tool com strict schema), mas LLMs ocasionalmente
- * pulam campos required.
+ * pulam campos required ou inventam valores fora do enum.
  */
 export function validateAIParseResult(input: unknown): AIParseResult {
-  if (typeof input !== 'object' || input === null) {
-    throw new Error('Output da IA não é um objeto');
+  const result = AIParseResultSchema.safeParse(input);
+  if (!result.success) {
+    const issues = result.error.issues
+      .slice(0, 5)
+      .map((iss) => `${iss.path.join('.') || '(root)'}: ${iss.message}`)
+      .join('; ');
+    const extra =
+      result.error.issues.length > 5
+        ? ` (e mais ${result.error.issues.length - 5} problemas)`
+        : '';
+    throw new Error(`Output da IA inválido — ${issues}${extra}`);
   }
-  const obj = input as Record<string, unknown>;
-
-  if (!Array.isArray(obj.frames)) {
-    throw new Error('Output da IA: campo "frames" ausente ou não é array');
-  }
-
-  const frames: AIFrame[] = obj.frames.map((rawFrame, idx) => {
-    if (typeof rawFrame !== 'object' || rawFrame === null) {
-      throw new Error(`Output da IA: frames[${idx}] não é objeto`);
-    }
-    const f = rawFrame as Record<string, unknown>;
-    if (typeof f.title !== 'string') {
-      throw new Error(`Output da IA: frames[${idx}].title ausente`);
-    }
-    if (typeof f.prefix !== 'string') {
-      throw new Error(`Output da IA: frames[${idx}].prefix ausente`);
-    }
-    if (typeof f.frame_id !== 'string') {
-      throw new Error(`Output da IA: frames[${idx}].frame_id ausente`);
-    }
-    if (!Array.isArray(f.blocks)) {
-      throw new Error(`Output da IA: frames[${idx}].blocks ausente ou não é array`);
-    }
-
-    const blocks: AIBlock[] = f.blocks.map((rawBlock, bidx) => {
-      if (typeof rawBlock !== 'object' || rawBlock === null) {
-        throw new Error(`Output da IA: frames[${idx}].blocks[${bidx}] não é objeto`);
-      }
-      const b = rawBlock as Record<string, unknown>;
-      if (typeof b.kind !== 'string') {
-        throw new Error(`Output da IA: frames[${idx}].blocks[${bidx}].kind ausente`);
-      }
-      // Pass-through dos campos opcionais (sem validar tipo deep — confia no schema do tool)
-      return b as unknown as AIBlock;
-    });
-
-    return {
-      title: f.title,
-      prefix: f.prefix,
-      frame_id: f.frame_id,
-      blocks,
-    };
-  });
-
-  const notes = Array.isArray(obj.notes)
-    ? obj.notes.filter((n): n is string => typeof n === 'string')
-    : [];
-
-  return { frames, notes };
+  // O schema retorna o objeto validado — cast simples pra manter os types
+  // legacy (AIBlock/AIFrame têm campos extras no TS que o schema permite via passthrough)
+  return result.data as AIParseResult;
 }
 
 // Re-export pra centralizar uso

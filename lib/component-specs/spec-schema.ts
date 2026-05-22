@@ -187,17 +187,11 @@ export interface ComponentExample {
 // =============================================================================
 // HELPER: validador defensivo (caso YAML venha quebrado)
 // =============================================================================
+// Delega pro schema Zod em `@/lib/schemas/component-spec` — mais robusto
+// e mantém compat de assinatura type-guard.
+
+import { ComponentSpecSchema } from '@/lib/schemas/component-spec';
 
 export function isValidSpec(spec: unknown): spec is ComponentSpec {
-  if (typeof spec !== 'object' || spec === null) return false;
-  const s = spec as Record<string, unknown>;
-  return (
-    typeof s.id === 'string' &&
-    typeof s.displayName === 'string' &&
-    typeof s.icon === 'string' &&
-    typeof s.description === 'string' &&
-    typeof s.category === 'string' &&
-    (typeof s.nodeType === 'string' || Array.isArray(s.nodeType)) &&
-    typeof s.flowControl === 'string'
-  );
+  return ComponentSpecSchema.safeParse(spec).success;
 }

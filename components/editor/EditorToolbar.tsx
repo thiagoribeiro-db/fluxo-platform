@@ -28,6 +28,7 @@ import {
   Share2,
   Sprout,
 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 
 export interface EditorToolbarProps {
   commentsCount: number;
@@ -335,24 +336,7 @@ function Toggle({ checked, onChange, icon, label, title }: ToggleProps) {
         {icon}
       </span>
       <span>{label}</span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        onClick={(e) => {
-          e.preventDefault();
-          onChange(!checked);
-        }}
-        className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blip-purple/30 ${
-          checked ? 'bg-blip-purple' : 'bg-gray-300'
-        }`}
-      >
-        <span
-          className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-sm transition-transform mt-0.5 ${
-            checked ? 'translate-x-3.5' : 'translate-x-0.5'
-          }`}
-        />
-      </button>
+      <Switch checked={checked} onCheckedChange={onChange} />
     </label>
   );
 }

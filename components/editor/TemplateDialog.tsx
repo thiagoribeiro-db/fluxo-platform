@@ -10,6 +10,8 @@ import { extractTextFromFile } from '@/lib/actions/extract-text';
 import { devLog, devWarn } from '@/lib/utils/logger';
 import { toast } from '@/lib/utils/errors';
 import { confirmDialog } from '@/lib/utils/dialog';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { track } from '@/lib/analytics/posthog';
 
 interface TemplateDialogProps {
   projectId: string;
@@ -126,6 +128,8 @@ export default function TemplateDialog({
       dispatchLoading('Aplicando escopo ao projeto…');
     }
 
+    track('ai_parse_used', { mode: isAI ? 'ai' : 'regex', source: sourceName });
+
     startTransition(async () => {
       try {
         if (isAI) {
@@ -176,6 +180,7 @@ export default function TemplateDialog({
       variant: 'danger',
     });
     if (!ok) return;
+    track('template_applied', { template: 'varejo-exemplo' });
     onClose();
     dispatchLoading('Carregando template…');
     startTransition(async () => {
@@ -217,32 +222,21 @@ export default function TemplateDialog({
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-gray-200 mb-4">
-          {(
-            [
-              { id: 'upload', label: '📄 Upload de arquivo' },
-              { id: 'paste', label: '📝 Colar texto' },
-              { id: 'exemplo', label: '🌱 Usar exemplo' },
-            ] as const
-          ).map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => {
-                setTab(t.id);
-                setError(null);
-              }}
-              className={`px-4 py-2 text-sm font-medium border-b-2 ${
-                tab === t.id
-                  ? 'border-blip-purple text-blip-purple'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {/* Tabs (Radix — keyboard nav, focus management, aria-selected) */}
+        <Tabs
+          value={tab}
+          onValueChange={(v) => {
+            setTab(v as Tab);
+            setError(null);
+          }}
+          className="mb-4"
+        >
+          <TabsList className="w-full justify-start">
+            <TabsTrigger value="upload">📄 Upload de arquivo</TabsTrigger>
+            <TabsTrigger value="paste">📝 Colar texto</TabsTrigger>
+            <TabsTrigger value="exemplo">🌱 Usar exemplo</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         {/* Toggle de modo: IA vs Regex — só aparece nas tabs upload/paste */}
         {(tab === 'upload' || tab === 'paste') && (

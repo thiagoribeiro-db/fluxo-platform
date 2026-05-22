@@ -4,20 +4,29 @@
  * Host global de dialogs internos (confirm/prompt).
  *
  * Substitui `window.confirm` / `window.prompt` (que viram dialogs nativos
- * do browser, ruins esteticamente e indisponíveis em ambientes empacotados
+ * do browser — ruins esteticamente e indisponíveis em ambientes empacotados
  * como Electron/Tauri).
  *
+ * Implementação: usa Radix Dialog (via `components/ui/dialog.tsx`) que dá
+ * focus trap, ESC, ARIA, backdrop click — tudo de graça.
+ *
  * Escuta o evento `fluxo:dialog` (disparado por `confirmDialog`/`promptDialog`
- * de `lib/utils/dialog.ts`) e renderiza o modal. Resolve a Promise via outro
- * evento `fluxo:dialog-resolve` quando o usuário confirma/cancela.
+ * de `lib/utils/dialog.ts`) e renderiza o modal. Resolve a Promise via
+ * `fluxo:dialog-resolve` quando o usuário confirma/cancela.
  *
  * Mantém UMA fila — apenas um dialog visível por vez. Se outro for disparado
  * enquanto este está aberto, fica na fila e abre quando o atual fechar.
- *
- * Inclua UMA instância no `<RootLayout>` (app/layout.tsx).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   FLUXO_DIALOG_EVENT,
   FLUXO_DIALOG_RESOLVE_EVENT,
@@ -40,18 +49,18 @@ function isConfirmOpts(
 }
 
 const variantBtnClass: Record<NonNullable<ConfirmDialogOpts['variant']>, string> = {
-  default: 'bg-blip-purple text-white hover:bg-blip-purple-dark',
-  danger: 'bg-red-600 text-white hover:bg-red-700',
-  success: 'bg-green-600 text-white hover:bg-green-700',
+  default: 'bg-blip-purple text-white hover:bg-blip-purple-dark focus:ring-blip-purple/40',
+  danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500/40',
+  success: 'bg-green-600 text-white hover:bg-green-700 focus:ring-green-500/40',
 };
 
 export default function DialogHost() {
   const [queue, setQueue] = useState<DialogRequest[]>([]);
   const [inputValue, setInputValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  const okBtnRef = useRef<HTMLButtonElement>(null);
 
   const current = queue[0];
+  const isOpen = Boolean(current);
 
   const resolve = useCallback(
     (id: number, result: boolean | string | null) => {
@@ -74,7 +83,7 @@ export default function DialogHost() {
     return () => window.removeEventListener(FLUXO_DIALOG_EVENT, onEvt);
   }, []);
 
-  // Reset do input value + autofocus quando um novo prompt vira o topo da fila
+  // Reset input value quando um novo prompt vira o topo da fila
   useEffect(() => {
     if (!current) {
       setInputValue('');
@@ -82,31 +91,8 @@ export default function DialogHost() {
     }
     if (isPromptOpts(current)) {
       setInputValue(current.opts.defaultValue ?? '');
-      // Focus + select no próximo tick (depois do render)
-      setTimeout(() => {
-        const el = inputRef.current;
-        if (el) {
-          el.focus();
-          el.select();
-        }
-      }, 10);
-    } else {
-      setTimeout(() => okBtnRef.current?.focus(), 10);
     }
   }, [current]);
-
-  // ESC pra cancelar
-  useEffect(() => {
-    if (!current) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        resolve(current.id, isPromptOpts(current) ? null : false);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [current, resolve]);
 
   if (!current) return null;
 
@@ -138,36 +124,25 @@ export default function DialogHost() {
     : 'default';
 
   return (
-    <div
-      className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/40 p-4"
-      onClick={(e) => {
-        // Click no backdrop = cancelar
-        if (e.target === e.currentTarget) handleCancel();
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        // Radix chama com false em ESC, click no backdrop ou click no X
+        if (!open) handleCancel();
       }}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={title ? 'fluxo-dialog-title' : undefined}
-        className="bg-white rounded-lg shadow-2xl w-full max-w-md mx-auto overflow-hidden"
-      >
-        <div className="px-5 py-4">
-          {title && (
-            <h2
-              id="fluxo-dialog-title"
-              className="text-base font-semibold text-gray-900 mb-2"
-            >
-              {title}
-            </h2>
-          )}
-          <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">
+      <DialogContent hideClose>
+        <DialogHeader>
+          {title && <DialogTitle>{title}</DialogTitle>}
+          <DialogDescription className={title ? 'mt-2' : ''}>
             {message}
-          </p>
+          </DialogDescription>
 
           {isPromptOpts(current) && (
             <input
               ref={inputRef}
               type="text"
+              autoFocus
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               placeholder={current.opts.placeholder}
@@ -180,9 +155,9 @@ export default function DialogHost() {
               className="mt-3 w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blip-purple/40 focus:border-blip-purple"
             />
           )}
-        </div>
+        </DialogHeader>
 
-        <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 flex justify-end gap-2">
+        <DialogFooter>
           <button
             type="button"
             onClick={handleCancel}
@@ -191,18 +166,18 @@ export default function DialogHost() {
             {cancelText}
           </button>
           <button
-            ref={okBtnRef}
             type="button"
             onClick={handleConfirm}
+            autoFocus={!isPromptOpts(current)}
             className={
-              'px-4 py-2 text-sm font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-offset-1 ' +
+              'px-4 py-2 text-sm font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-offset-1 transition-colors ' +
               variantBtnClass[variant]
             }
           >
             {confirmText}
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

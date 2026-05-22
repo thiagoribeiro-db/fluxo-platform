@@ -65,6 +65,12 @@ import AIParseSummary from './AIParseSummary';
 import CommandPalette from './CommandPalette';
 import EditorToolbar from './EditorToolbar';
 import FindReplaceDialog from './FindReplaceDialog';
+import ShortcutsCheatsheet from './ShortcutsCheatsheet';
+import WelcomeTour, { startTour } from './WelcomeTour';
+import AIChatPanel from './AIChatPanel';
+import PresenceAvatars from './PresenceAvatars';
+import PresenceCursors from './PresenceCursors';
+import { useRealtimePresence } from '@/lib/realtime/use-realtime-presence';
 import HelperLines from './HelperLines';
 import PlaybackPanel from './PlaybackPanel';
 import ProblemsPanel from './ProblemsPanel';
@@ -156,6 +162,8 @@ interface FlowEditorProps {
   /** Páginas/versões do projeto (dev, hmg, prd, etc.). */
   pages?: ProjectPage[];
   activePageId?: string | null;
+  /** User logado — passado pelo Server Component pai. Habilita realtime presence. */
+  currentUser?: { id: string; email?: string; name?: string };
 }
 
 // (SaveStatus type vem do hook useAutoSave)
@@ -168,6 +176,7 @@ function FlowEditorInner({
   shareToken,
   pages: initialPages,
   activePageId: initialActivePageId,
+  currentUser,
 }: FlowEditorProps) {
   const isDemo = !projectId || projectId === 'demo';
   const isReadOnly = shareMode === 'view' || shareMode === 'comment';
@@ -252,6 +261,15 @@ function FlowEditorInner({
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [findReplaceOpen, setFindReplaceOpen] = useState(false);
+  const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
+  const [aiChatOpen, setAiChatOpen] = useState(false);
+
+  // Realtime presence — só ativa se projetoId + user logado + não-demo
+  const { peers, cursors, sendCursor } = useRealtimePresence({
+    projectId,
+    user: currentUser ?? null,
+    enabled: !isDemo && !isReadOnly && !!projectId && !!currentUser,
+  });
   const [comments, setComments] = useState<Comment[]>([]);
   // Modo de seleção retangular: panOnDrag false, selectionOnDrag true
   const [selectMode, setSelectMode] = useState(false);
@@ -1151,8 +1169,20 @@ function FlowEditorInner({
         setFindReplaceOpen(true);
       }
     };
+    // `?` (sem modifier) abre cheatsheet — ignora se foco em input
+    const onQuestion = (e: KeyboardEvent) => {
+      if (e.key !== '?') return;
+      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      e.preventDefault();
+      setCheatsheetOpen(true);
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onQuestion);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onQuestion);
+    };
   }, []);
 
   // Track project_opened uma vez por projectId
@@ -1270,6 +1300,8 @@ function FlowEditorInner({
     onOpenPlayback: () => setPlaybackOpen(true),
     onOpenVersions: () => setVersionsOpen(true),
     onOpenFindReplace: () => setFindReplaceOpen(true),
+    onOpenCheatsheet: () => setCheatsheetOpen(true),
+    onOpenAIChat: () => setAiChatOpen(true),
     onBackToDashboard: () => {
       if (typeof window !== 'undefined') window.location.href = '/dashboard';
     },
@@ -1324,6 +1356,10 @@ function FlowEditorInner({
         className="flex-1 relative"
         onDragOver={isReadOnly ? undefined : onDragOver}
         onDrop={isReadOnly ? undefined : onDrop}
+        onMouseMove={(e) => {
+          // Broadcast cursor pra peers em tempo real (throttled no hook)
+          sendCursor(e.clientX, e.clientY);
+        }}
       >
         <ReactFlow
           nodes={displayNodes}
@@ -1414,7 +1450,20 @@ function FlowEditorInner({
             </Panel>
           )}
 
+          {/* Realtime presence — avatares de quem tá online */}
+          {peers.length > 0 && (
+            <Panel
+              position="top-right"
+              className="!top-12 bg-white dark:bg-gray-900 px-2 py-1.5 rounded-md shadow border border-gray-200 dark:border-gray-700"
+            >
+              <PresenceAvatars peers={peers} />
+            </Panel>
+          )}
+
         </ReactFlow>
+
+        {/* Cursores dos peers (fixed overlay, fora do React Flow pra não receber transform) */}
+        <PresenceCursors cursors={cursors} peers={peers} />
 
         {/* Painel de problems (linter) — overlay sobre o canvas, acima do BottomToolbar */}
         {!isReadOnly && !isDemo && problemsOpen && (
@@ -1484,6 +1533,33 @@ function FlowEditorInner({
             onJumpToNode={handleJumpToNode}
           />
         )}
+
+        {/* Cheatsheet (? key) — overlay modal global */}
+        <ShortcutsCheatsheet
+          open={cheatsheetOpen}
+          onOpenChange={setCheatsheetOpen}
+        />
+
+        {/* Welcome tour — só roda 1x por user (localStorage). Skip se canvas vazio. */}
+        {!isReadOnly && !isDemo && (
+          <WelcomeTour hasContent={nodes.length > 0} />
+        )}
+
+        {/* Chat IA contextual — pergunta sobre o fluxo, sugere blocos */}
+        {!isReadOnly && !isDemo && aiChatOpen && (() => {
+          const selectedFrame = selectedId
+            ? nodes.find((n) => n.id === selectedId && n.type === 'frame')
+            : undefined;
+          return (
+            <AIChatPanel
+              nodes={nodes}
+              edges={edges}
+              selectedFrameId={selectedFrame?.data?.frameId as string | undefined}
+              selectedFrameTitle={selectedFrame?.data?.title as string | undefined}
+              onClose={() => setAiChatOpen(false)}
+            />
+          );
+        })()}
 
         {/* Barra inferior com modos Mover/Selecionar */}
         {!isReadOnly && (

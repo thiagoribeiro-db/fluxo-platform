@@ -48,6 +48,8 @@ export interface CommandContext {
   onOpenPlayback: () => void;
   onOpenVersions: () => void;
   onOpenFindReplace: () => void;
+  onOpenCheatsheet: () => void;
+  onOpenAIChat: () => void;
   /** Navegação. */
   onBackToDashboard: () => void;
   /** Habilita opcionalmente. */
@@ -179,6 +181,34 @@ export function buildCommands(ctx: CommandContext): Command[] {
     keywords: ['find', 'replace', 'buscar', 'substituir', 'localizar'],
     shortcut: '⌘F',
     perform: ctx.onOpenFindReplace,
+  });
+  cmds.push({
+    id: 'open-cheatsheet',
+    group: 'general',
+    label: 'Atalhos do teclado',
+    description: 'Cheatsheet com todos os shortcuts disponíveis',
+    keywords: ['shortcuts', 'atalhos', 'keyboard', 'teclado', 'ajuda'],
+    shortcut: '?',
+    perform: ctx.onOpenCheatsheet,
+  });
+  cmds.push({
+    id: 'restart-tour',
+    group: 'general',
+    label: 'Rever tour de boas-vindas',
+    description: 'Tour guiado pelos principais recursos do editor',
+    keywords: ['tour', 'onboarding', 'tutorial', 'ajuda', 'iniciar'],
+    perform: () => {
+      // Import dinâmico pra não carregar driver.js no bundle inicial
+      import('@/components/editor/WelcomeTour').then((m) => m.startTour());
+    },
+  });
+  cmds.push({
+    id: 'open-ai-chat',
+    group: 'panels',
+    label: 'Chat com IA',
+    description: 'Pergunte sobre o fluxo, peça explicações ou sugestões',
+    keywords: ['ai', 'ia', 'chat', 'assistente', 'explicar', 'sugestao'],
+    perform: ctx.onOpenAIChat,
   });
 
   // ---- ACTIONS -----------------------------------------------------------

@@ -87,7 +87,10 @@ export default function EditorToolbar(props: EditorToolbarProps) {
   } = props;
 
   return (
-    <div className="bg-white/95 dark:bg-gray-900/95 backdrop-blur px-1.5 py-1 rounded-xl shadow-md ring-1 ring-gray-200/80 dark:ring-gray-700/80 flex items-center gap-0.5">
+    <div
+      data-tour="toolbar"
+      className="bg-white/95 dark:bg-gray-900/95 backdrop-blur px-1.5 py-1 rounded-xl shadow-md ring-1 ring-gray-200/80 dark:ring-gray-700/80 flex items-center gap-0.5"
+    >
       {/* Compartilhar — CTA primário */}
       <PrimaryButton
         icon={<Share2 size={14} strokeWidth={2.5} />}

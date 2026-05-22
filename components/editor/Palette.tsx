@@ -51,7 +51,10 @@ export default function Palette({ collapsed, onToggle, onAddNode }: PaletteProps
   }
 
   return (
-    <aside className="w-full flex-1 min-h-0 bg-white border-r border-gray-200 flex flex-col">
+    <aside
+      data-tour="palette"
+      className="w-full flex-1 min-h-0 bg-white border-r border-gray-200 flex flex-col"
+    >
       <header className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
         <h2 className="text-sm font-semibold text-gray-800">Componentes</h2>
         <button

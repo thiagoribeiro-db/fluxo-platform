@@ -31,6 +31,15 @@ export interface PageVersion {
 /**
  * Lista as versões de uma página, mais recentes primeiro.
  * Limite default: 50 (mesmo do auto-cleanup do banco).
+ *
+ * IMPORTANTE: a query é SPLIT em 2 etapas (versões + profiles) em vez de
+ * usar JOIN embed do PostgREST. Motivo: a RLS de `profiles` é
+ * `id = auth.uid()` (só vê o próprio), então quando o JOIN tenta puxar o
+ * author de uma versão criada por OUTRO user no mesmo org (ou se a row
+ * em profiles ainda não foi criada pelo trigger), o embed retornava
+ * vazio E silenciosamente colapsava a versão inteira em alguns casos.
+ * Fazendo em 2 queries, mesmo que o lookup do profile falhe, a versão
+ * continua aparecendo (só sem o nome do autor — fallback pra email).
  */
 export async function listVersions(
   pageId: string,
@@ -39,17 +48,7 @@ export async function listVersions(
   const supabase = createClient();
   const { data, error } = await supabase
     .from('page_versions')
-    .select(
-      `
-      id,
-      page_id,
-      state,
-      label,
-      created_by,
-      created_at,
-      author:profiles!created_by(display_name, email)
-    `
-    )
+    .select('id, page_id, state, label, created_by, created_at')
     .eq('page_id', pageId)
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -59,13 +58,35 @@ export async function listVersions(
     return [];
   }
 
-  return (data ?? []).map((v) => {
-    const author = (v as { author?: { display_name?: string; email?: string } | { display_name?: string; email?: string }[] }).author;
-    const a = Array.isArray(author) ? author[0] : author;
+  const rows = data ?? [];
+  if (rows.length === 0) return [];
+
+  // Tenta enriquecer com profile do autor (best-effort — se falhar, retorna
+  // sem author_name/email; RLS da profiles só vê o próprio user)
+  const authorIds = Array.from(
+    new Set(rows.map((r) => r.created_by).filter((id): id is string => !!id))
+  );
+  const authorById = new Map<string, { display_name?: string; email?: string }>();
+  if (authorIds.length > 0) {
+    const { data: profiles, error: pErr } = await supabase
+      .from('profiles')
+      .select('id, display_name, email')
+      .in('id', authorIds);
+    if (pErr) {
+      console.warn('listVersions: profile lookup failed', pErr);
+    } else {
+      for (const p of profiles ?? []) {
+        authorById.set(p.id, { display_name: p.display_name, email: p.email });
+      }
+    }
+  }
+
+  return rows.map((v) => {
+    const a = v.created_by ? authorById.get(v.created_by) : undefined;
     return {
       id: v.id,
       page_id: v.page_id,
-      state: v.state,
+      state: v.state as ProjectState,
       label: v.label,
       created_by: v.created_by,
       created_at: v.created_at,

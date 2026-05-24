@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { HelpCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { signOut } from '@/lib/actions/auth';
 import DashboardTabs from './DashboardTabs';
@@ -26,7 +27,15 @@ export default async function DashboardLayout({
           <Link href="/dashboard" className="text-xl font-bold text-blip-purple">
             🚀 Fluxo Platform
           </Link>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/help"
+              className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-blip-purple hover:bg-blip-purple/5 px-2 py-1 rounded-md transition-colors"
+              title="Documentação das funcionalidades"
+            >
+              <HelpCircle size={16} />
+              <span className="hidden sm:inline">Ajuda</span>
+            </Link>
             <span className="text-sm text-gray-600">{user?.email}</span>
             <form action={signOut}>
               <button

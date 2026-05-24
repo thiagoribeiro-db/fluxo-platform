@@ -68,6 +68,7 @@ export default function SidebarHeader({
   return (
     <Link
       href="/dashboard"
+      data-tour="sidebar-header"
       className="group bg-blip-purple hover:bg-blip-purple-dark active:bg-blip-purple-dark text-white px-3 py-2.5 flex items-start gap-2 shrink-0 transition-colors"
       title="Voltar pro dashboard"
     >

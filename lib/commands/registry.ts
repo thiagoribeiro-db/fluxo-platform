@@ -50,6 +50,14 @@ export interface CommandContext {
   onOpenFindReplace: () => void;
   onOpenCheatsheet: () => void;
   onOpenAIChat: () => void;
+  /** Abrir dialog de inserir Skill (sub-fluxo reutilizável). */
+  onOpenSkills: () => void;
+  /** Abrir painel Outline (lista hierárquica navegável). */
+  onOpenOutline: () => void;
+  /** Abrir tabela de conteúdo (modo planilha pra editar textos em massa). */
+  onOpenContentTable: () => void;
+  /** Abrir Voice & Tone (análise IA de consistência do tom). */
+  onOpenVoiceTone: () => void;
   /** Navegação. */
   onBackToDashboard: () => void;
   /** Habilita opcionalmente. */
@@ -209,6 +217,38 @@ export function buildCommands(ctx: CommandContext): Command[] {
     description: 'Pergunte sobre o fluxo, peça explicações ou sugestões',
     keywords: ['ai', 'ia', 'chat', 'assistente', 'explicar', 'sugestao'],
     perform: ctx.onOpenAIChat,
+  });
+  cmds.push({
+    id: 'open-skills',
+    group: 'create',
+    label: 'Inserir Skill',
+    description: 'Sub-fluxos prontos: Falar com atendente, Validar CPF, LGPD…',
+    keywords: ['skill', 'componente', 'pattern', 'snippet', 'reusar', 'biblioteca'],
+    perform: ctx.onOpenSkills,
+  });
+  cmds.push({
+    id: 'open-outline',
+    group: 'panels',
+    label: 'Outline',
+    description: 'Lista hierárquica de frames e blocos — navegue por nome',
+    keywords: ['outline', 'lista', 'hierarquia', 'navegar', 'arvore', 'sumario', 'tree'],
+    perform: ctx.onOpenOutline,
+  });
+  cmds.push({
+    id: 'open-content-table',
+    group: 'panels',
+    label: 'Tabela de conteúdo',
+    description: 'Edita todos os textos do fluxo em formato planilha',
+    keywords: ['conteudo', 'textos', 'planilha', 'tabela', 'copy', 'editar massa', 'spreadsheet'],
+    perform: ctx.onOpenContentTable,
+  });
+  cmds.push({
+    id: 'open-voice-tone',
+    group: 'actions',
+    label: 'Voice & Tone (IA)',
+    description: 'IA identifica mensagens que destoam do tom e sugere reescrita',
+    keywords: ['voice', 'tone', 'tom', 'voz', 'revisar', 'consistencia', 'copy', 'ia'],
+    perform: ctx.onOpenVoiceTone,
   });
 
   // ---- ACTIONS -----------------------------------------------------------

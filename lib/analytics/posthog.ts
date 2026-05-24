@@ -54,7 +54,11 @@ export type FluxoEvent =
   | 'version_restored'
   | 'command_palette_used'
   | 'organize_layout'
-  | 'shared_link_created';
+  | 'shared_link_created'
+  | 'skill_inserted'
+  | 'voice_tone_analyzed'
+  | 'voice_tone_accepted'
+  | 'voice_tone_rejected';
 
 /**
  * Track um evento. No-op se PostHog não inicializado.

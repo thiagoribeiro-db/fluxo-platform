@@ -367,17 +367,57 @@ function EventBubble({
           </div>
         </div>
       );
-    case 'bot-integration':
+    case 'bot-integration': {
+      // Pra integracao-api COM mock configurado, mostra o request resumido
+      // + status do mock + JSON da resposta. Pra outros tipos (planilha, iag),
+      // só o título.
+      const isApi = event.subtype === 'integracao-api';
+      const hasMock = isApi && !!event.apiMockResponse;
+      const status = event.apiMockStatus ?? 200;
+      const statusColor =
+        status >= 200 && status < 300
+          ? 'text-green-700 bg-green-100'
+          : status >= 400
+            ? 'text-red-700 bg-red-100'
+            : 'text-amber-700 bg-amber-100';
+
       return (
         <div className="flex justify-start">
-          <div className="bubble-bot text-sm max-w-[80%]">
+          <div className="bubble-bot text-sm max-w-[85%]">
             <div className="flex items-center gap-1.5 text-blip-purple font-semibold">
               <Zap size={14} /> {event.title}
             </div>
             <div className="text-[10px] text-gray-500 mt-0.5">{event.subtype}</div>
+            {isApi && event.apiUrl && (
+              <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono">
+                <span className="font-bold text-gray-700">{event.apiMethod ?? 'GET'}</span>
+                <span className="text-gray-500 truncate">{event.apiUrl}</span>
+              </div>
+            )}
+            {hasMock && (
+              <div className="mt-1.5">
+                <div className="flex items-center gap-1.5 text-[10px] mb-0.5">
+                  <span className={`font-mono font-bold px-1 py-0 rounded ${statusColor}`}>
+                    {status}
+                  </span>
+                  <span className="text-gray-500 uppercase tracking-wide">
+                    Mock response
+                  </span>
+                </div>
+                <pre className="text-[10px] font-mono bg-gray-50 border border-gray-200 rounded px-1.5 py-1 max-h-[160px] overflow-auto whitespace-pre-wrap break-words text-gray-700">
+                  {event.apiMockResponse}
+                </pre>
+              </div>
+            )}
+            {isApi && !hasMock && event.apiUrl && (
+              <div className="mt-1.5 text-[10px] text-amber-700 italic">
+                Sem mock — defina o Response Mock nas propriedades pra simular.
+              </div>
+            )}
           </div>
         </div>
       );
+    }
     case 'user-input':
       return (
         <div className="flex justify-end">

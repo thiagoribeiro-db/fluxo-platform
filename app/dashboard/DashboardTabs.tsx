@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 const TABS = [
   { href: '/dashboard', label: 'Projetos', icon: '📋' },
   { href: '/dashboard/components', label: 'Componentes', icon: '🧩' },
+  { href: '/dashboard/settings', label: 'Configurações', icon: '⚙️' },
 ] as const;
 
 /**

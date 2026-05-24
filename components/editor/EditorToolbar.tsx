@@ -34,12 +34,15 @@ import {
   LayoutGrid,
   MessageSquare,
   MoreHorizontal,
+  ListTree,
   Package,
   Play,
+  Puzzle,
   Search,
   Share2,
   Sparkles,
   Sprout,
+  Table2,
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 
@@ -58,6 +61,10 @@ export interface EditorToolbarProps {
   versionsOpen: boolean;
   /** Estado do Chat IA. */
   aiChatOpen?: boolean;
+  /** Estado do Outline (painel à esquerda). */
+  outlineOpen?: boolean;
+  /** Toggle do Outline. */
+  onToggleOutline?: () => void;
   onShare: () => void;
   onToggleComments: () => void;
   onToggleProblems: () => void;
@@ -72,6 +79,12 @@ export interface EditorToolbarProps {
   onResetPage: () => void;
   onOpenFindReplace?: () => void;
   onOpenCheatsheet?: () => void;
+  /** Abre dialog de Skills (sub-fluxos reutilizáveis). */
+  onOpenSkills?: () => void;
+  /** Abre tabela de conteúdo (modo planilha). */
+  onOpenContentTable?: () => void;
+  /** Abre Voice & Tone (análise IA de consistência do tom). */
+  onOpenVoiceTone?: () => void;
   onAutoTrackingChange: (next: boolean) => void;
   onDumpJson: () => void;
   /** Se false, esconde botões de export. */
@@ -89,6 +102,8 @@ export default function EditorToolbar(props: EditorToolbarProps) {
     playbackOpen,
     versionsOpen,
     aiChatOpen = false,
+    outlineOpen = false,
+    onToggleOutline,
     onShare,
     onToggleComments,
     onToggleProblems,
@@ -103,6 +118,9 @@ export default function EditorToolbar(props: EditorToolbarProps) {
     onResetPage,
     onOpenFindReplace,
     onOpenCheatsheet,
+    onOpenSkills,
+    onOpenContentTable,
+    onOpenVoiceTone,
     onAutoTrackingChange,
     onDumpJson,
     canExport = true,
@@ -110,7 +128,7 @@ export default function EditorToolbar(props: EditorToolbarProps) {
 
   // Contagem global "tem algo aberto em Visualizar?" — pinta o dropdown ativo
   const anyVisualOpen =
-    commentsOpen || problemsOpen || playbackOpen || versionsOpen;
+    commentsOpen || problemsOpen || playbackOpen || versionsOpen || outlineOpen;
 
   return (
     <div
@@ -146,6 +164,30 @@ export default function EditorToolbar(props: EditorToolbarProps) {
         label="Editar"
         title="Ações de edição do fluxo"
         items={[
+          ...(onOpenSkills
+            ? [
+                {
+                  key: 'skills',
+                  icon: <Puzzle size={15} />,
+                  label: 'Inserir Skill',
+                  description: 'Sub-fluxos prontos (Falar com atendente, Validar CPF, LGPD…)',
+                  tone: 'primary' as const,
+                  onClick: onOpenSkills,
+                },
+              ]
+            : []),
+          ...(onOpenVoiceTone
+            ? [
+                {
+                  key: 'voice-tone',
+                  icon: <Sparkles size={15} />,
+                  label: 'Voice & Tone (IA)',
+                  description: 'IA revisa consistência do tom e sugere reescritas',
+                  tone: 'primary' as const,
+                  onClick: onOpenVoiceTone,
+                },
+              ]
+            : []),
           ...(onOpenFindReplace
             ? [
                 {
@@ -189,6 +231,29 @@ export default function EditorToolbar(props: EditorToolbarProps) {
         title="Painéis e ferramentas de inspeção"
         active={anyVisualOpen}
         items={[
+          ...(onToggleOutline
+            ? [
+                {
+                  key: 'outline',
+                  icon: <ListTree size={15} />,
+                  label: 'Outline',
+                  description: 'Lista hierárquica de frames e blocos',
+                  active: outlineOpen,
+                  onClick: onToggleOutline,
+                },
+              ]
+            : []),
+          ...(onOpenContentTable
+            ? [
+                {
+                  key: 'content-table',
+                  icon: <Table2 size={15} />,
+                  label: 'Tabela de conteúdo',
+                  description: 'Edita textos em massa (modo planilha)',
+                  onClick: onOpenContentTable,
+                },
+              ]
+            : []),
           {
             key: 'comments',
             icon: <MessageSquare size={15} />,

@@ -17,7 +17,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Clock, FileText, History, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { Clock, Diff, FileText, History, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import {
   createVersion,
   deleteVersion,
@@ -29,6 +29,7 @@ import { confirmDialog, promptDialog } from '@/lib/utils/dialog';
 import { handleError, toast } from '@/lib/utils/errors';
 import { track } from '@/lib/analytics/posthog';
 import type { ProjectState } from '@/lib/types';
+import VersionDiffDialog from './VersionDiffDialog';
 
 interface VersionsPanelProps {
   pageId: string;
@@ -43,6 +44,8 @@ interface VersionsPanelProps {
    * pegar versão desatualizada (ou vazia, se a página é nova).
    */
   getCurrentState: () => ProjectState;
+  /** Click numa linha do diff → centraliza câmera no nó. Opcional. */
+  onJumpToNode?: (nodeId: string) => void;
 }
 
 export default function VersionsPanel({
@@ -50,6 +53,7 @@ export default function VersionsPanel({
   onClose,
   onRestored,
   getCurrentState,
+  onJumpToNode,
 }: VersionsPanelProps) {
   const [versions, setVersions] = useState<PageVersion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,6 +65,8 @@ export default function VersionsPanel({
   // direto, o erro sempre chega no handleError e o usuário vê o toast.
   const [busy, setBusy] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  /** Versão sendo comparada (diff dialog aberto). null = fechado. */
+  const [diffVersion, setDiffVersion] = useState<PageVersion | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -236,6 +242,7 @@ export default function VersionsPanel({
                 }
                 onRestore={() => handleRestore(v)}
                 onDelete={() => handleDelete(v)}
+                onCompare={() => setDiffVersion(v)}
                 busy={busy}
               />
             ))}
@@ -244,9 +251,20 @@ export default function VersionsPanel({
       </div>
 
       {/* Footer */}
-      <footer className="px-4 py-2 border-t border-gray-100 text-[10px] text-gray-400 shrink-0">
+      <footer className="px-4 py-2 border-t border-gray-100 dark:border-gray-800 text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
         Snapshots automáticos antes de templates/IA · Máx 50 por página
       </footer>
+
+      {/* Diff dialog — aberto via botão "Comparar" em cada versão */}
+      <VersionDiffDialog
+        open={diffVersion !== null}
+        onOpenChange={(open) => {
+          if (!open) setDiffVersion(null);
+        }}
+        version={diffVersion}
+        currentState={getCurrentState()}
+        onJumpToNode={onJumpToNode}
+      />
     </aside>
   );
 }
@@ -262,6 +280,7 @@ interface VersionRowProps {
   onToggle: () => void;
   onRestore: () => void;
   onDelete: () => void;
+  onCompare: () => void;
 }
 
 function VersionRow({
@@ -271,6 +290,7 @@ function VersionRow({
   onToggle,
   onRestore,
   onDelete,
+  onCompare,
 }: VersionRowProps) {
   const nodes = version.state.nodes?.length ?? 0;
   const edges = version.state.edges?.length ?? 0;
@@ -305,6 +325,15 @@ function VersionRow({
         <div className="mt-2 flex items-center gap-1.5 ml-1">
           <button
             type="button"
+            onClick={onCompare}
+            disabled={busy}
+            className="inline-flex items-center justify-center gap-1 px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 rounded disabled:opacity-50"
+            title="Mostra o que mudou entre esta versão e o estado atual"
+          >
+            <Diff size={12} /> Comparar
+          </button>
+          <button
+            type="button"
             onClick={onRestore}
             disabled={busy}
             className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 text-xs font-medium text-white bg-blip-purple hover:bg-blip-purple-dark rounded disabled:opacity-50"
@@ -315,7 +344,7 @@ function VersionRow({
             type="button"
             onClick={onDelete}
             disabled={busy}
-            className="inline-flex items-center justify-center gap-1 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-1 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded disabled:opacity-50"
             title="Apagar versão"
           >
             <Trash2 size={12} />

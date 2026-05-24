@@ -33,7 +33,17 @@ export type RunnerEvent =
   | { kind: 'bot-link'; nodeId: string; url: string; title?: string; description?: string }
   | { kind: 'bot-menu'; nodeId: string; header: string; options: string[] }
   | { kind: 'bot-conditional'; nodeId: string; condition: string; trueLabel: string; falseLabel: string }
-  | { kind: 'bot-integration'; nodeId: string; title: string; subtype: FluxoNodeType }
+  | {
+      kind: 'bot-integration';
+      nodeId: string;
+      title: string;
+      subtype: FluxoNodeType;
+      /** Pra `integracao-api` com mock configurado — exibe no Playback. */
+      apiMethod?: string;
+      apiUrl?: string;
+      apiMockStatus?: number;
+      apiMockResponse?: string;
+    }
   | { kind: 'user-input'; nodeId: string; placeholder?: string }
   | { kind: 'user-buttons'; nodeId: string; buttons: Array<{ label: string; btnNodeId: string }> }
   | { kind: 'system'; text: string }
@@ -690,11 +700,23 @@ function advance(
       case 'iag-reentrada':
       case 'iag-saida': {
         const title = (node.data?.title as string | undefined) ?? 'Integração';
+        // Pra integracao-api, propaga os campos do mock pro evento — o
+        // PlaybackPanel exibe method/URL/response no UI sem precisar
+        // refazer query no node.
+        const isApi = type === 'integracao-api';
         events.push({
           kind: 'bot-integration',
           nodeId: node.id,
           title,
           subtype: type,
+          ...(isApi
+            ? {
+                apiMethod: node.data?.apiMethod as string | undefined,
+                apiUrl: node.data?.apiUrl as string | undefined,
+                apiMockStatus: node.data?.apiMockStatus as number | undefined,
+                apiMockResponse: node.data?.apiMockResponse as string | undefined,
+              }
+            : {}),
         });
         currentId = findEdgeTarget(edges, node.id);
         break;

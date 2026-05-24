@@ -154,7 +154,10 @@ export default function PagesSidebar({
   }
 
   return (
-    <aside className="w-full bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 border-b flex flex-col shrink-0">
+    <aside
+      data-tour="pages-sidebar"
+      className="w-full bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 border-b flex flex-col shrink-0"
+    >
       <header className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Páginas</h2>
         <button

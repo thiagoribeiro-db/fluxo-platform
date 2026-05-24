@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { Edge } from '@xyflow/react';
 import type { FluxoNode, FluxoNodeData } from '@/lib/types';
+import ApiMockEditor from './ApiMockEditor';
 import RichTextEditor from './RichTextEditor';
 
 interface PropertiesPanelProps {
@@ -63,7 +64,10 @@ export default function PropertiesPanel({
   }
 
   return (
-    <aside className="w-72 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 flex flex-col">
+    <aside
+      data-tour="properties-panel"
+      className="w-72 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 flex flex-col"
+    >
       <header className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Propriedades</h2>
         <button
@@ -461,6 +465,11 @@ function NodeFields({
               onChange={(next) => onUpdate({ fields: next })}
             />
           </Field>
+
+          {/* Editor de Request/Response Mock — só pra integracao-api */}
+          {node.type === 'integracao-api' && (
+            <ApiMockEditor data={data} onUpdate={onUpdate} />
+          )}
         </>
       )}
 

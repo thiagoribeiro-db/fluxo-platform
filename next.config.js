@@ -3,10 +3,26 @@ const nextConfig = {
   reactStrictMode: true,
   experimental: {
     serverActions: { bodySizeLimit: '5mb' },
-    // Libs Node-only (PDF/DOCX parsing) NÃO devem ser bundladas pelo webpack
-    // — o bundler quebra com "Object.defineProperty called on non-object"
-    // porque essas libs usam tricks de runtime que não sobrevivem ao tree-shaking.
-    serverComponentsExternalPackages: ['unpdf', 'mammoth'],
+    // Libs Node-only que NÃO devem ser bundladas pelo webpack server-side:
+    //  - unpdf, mammoth: PDF/DOCX parsing — bundler quebra com
+    //    "Object.defineProperty called on non-object" por tricks de runtime
+    //    que não sobrevivem ao tree-shaking.
+    //  - @anthropic-ai/sdk: SDK pesado usado SÓ em server actions
+    //    (ai-chat, voice-tone, parse-with-ai). Bundlear ele inflava o chunk
+    //    server-side e às vezes o dev hot-reload perdia o chunk
+    //    `vendor-chunks/@anthropic-ai.js`, quebrando a página com
+    //    "Cannot find module". External = resolve do node_modules direto,
+    //    sem ir pro bundle do webpack.
+    serverComponentsExternalPackages: ['unpdf', 'mammoth', '@anthropic-ai/sdk'],
+    // Otimização de imports — converte `import { X } from 'lucide-react'`
+    // em barrel optimization, importando só o ícone usado (não o pacote
+    // inteiro de 1000+ icons). Ganho real no bundle inicial.
+    optimizePackageImports: [
+      'lucide-react',
+      '@radix-ui/react-dialog',
+      '@radix-ui/react-switch',
+      '@radix-ui/react-tabs',
+    ],
   },
 };
 

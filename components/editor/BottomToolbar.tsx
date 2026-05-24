@@ -17,7 +17,10 @@ export default function BottomToolbar({
   onChangeMode,
 }: BottomToolbarProps) {
   return (
-    <div className="absolute left-1/2 -translate-x-1/2 bottom-4 z-30 bg-white border border-gray-200 rounded-full shadow-lg flex items-center p-1 gap-1">
+    <div
+      data-tour="bottom-toolbar"
+      className="absolute left-1/2 -translate-x-1/2 bottom-4 z-30 bg-white border border-gray-200 rounded-full shadow-lg flex items-center p-1 gap-1"
+    >
       <button
         type="button"
         onClick={() => onChangeMode(false)}

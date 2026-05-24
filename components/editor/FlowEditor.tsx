@@ -50,32 +50,48 @@ import type { FluxoNode, FluxoNodeData, FluxoNodeType, ProjectState } from '@/li
 import { saveProjectState } from '@/lib/actions/projects';
 import { savePageState, listPages, setActivePage } from '@/lib/actions/pages';
 import type { ProjectPage } from '@/lib/types';
+import dynamic from 'next/dynamic';
 import Palette from './Palette';
 import PropertiesPanel from './PropertiesPanel';
-import ShareDialog from './ShareDialog';
-import TemplateDialog from './TemplateDialog';
-import BlipExportDialog from './BlipExportDialog';
-import ExportVisualDialog from './ExportVisualDialog';
 import BottomToolbar from './BottomToolbar';
-import CommentsPanel from './CommentsPanel';
 import PagesSidebar from './PagesSidebar';
 import ResizableSidebar from './ResizableSidebar';
 import LoadingOverlay from './LoadingOverlay';
 import AIParseSummary from './AIParseSummary';
-import CommandPalette from './CommandPalette';
 import EditorToolbar from './EditorToolbar';
-import FindReplaceDialog from './FindReplaceDialog';
-import ShortcutsCheatsheet from './ShortcutsCheatsheet';
 import WelcomeTour, { startTour } from './WelcomeTour';
-import AIChatPanel from './AIChatPanel';
+import type { Skill } from '@/lib/skills';
 import PresenceAvatars from './PresenceAvatars';
 import PresenceCursors from './PresenceCursors';
 import { useRealtimePresence } from '@/lib/realtime/use-realtime-presence';
 import HelperLines from './HelperLines';
-import PlaybackPanel from './PlaybackPanel';
-import ProblemsPanel from './ProblemsPanel';
 import SidebarHeader from './SidebarHeader';
-import VersionsPanel from './VersionsPanel';
+
+// ─── Dialogs/painéis com lazy load ───────────────────────────────────────
+// Componentes que só renderizam quando o user abre (clica num botão, atalho,
+// etc.) — não precisam estar no bundle inicial. Reduz drasticamente o JS
+// baixado na primeira carga, melhorando FCP e Time-to-Interactive.
+//
+// `ssr: false` porque todos são client-only (dependem de window, localStorage,
+// Anthropic SDK no client, etc.). `loading: () => null` evita flash de
+// fallback — esses componentes ficam fechados por padrão, então o "loading"
+// seria invisível mesmo.
+const ShareDialog = dynamic(() => import('./ShareDialog'), { ssr: false, loading: () => null });
+const TemplateDialog = dynamic(() => import('./TemplateDialog'), { ssr: false, loading: () => null });
+const BlipExportDialog = dynamic(() => import('./BlipExportDialog'), { ssr: false, loading: () => null });
+const ExportVisualDialog = dynamic(() => import('./ExportVisualDialog'), { ssr: false, loading: () => null });
+const CommentsPanel = dynamic(() => import('./CommentsPanel'), { ssr: false, loading: () => null });
+const CommandPalette = dynamic(() => import('./CommandPalette'), { ssr: false, loading: () => null });
+const FindReplaceDialog = dynamic(() => import('./FindReplaceDialog'), { ssr: false, loading: () => null });
+const ShortcutsCheatsheet = dynamic(() => import('./ShortcutsCheatsheet'), { ssr: false, loading: () => null });
+const SkillsDialog = dynamic(() => import('./SkillsDialog'), { ssr: false, loading: () => null });
+const AIChatPanel = dynamic(() => import('./AIChatPanel'), { ssr: false, loading: () => null });
+const ContentTableDialog = dynamic(() => import('./ContentTableDialog'), { ssr: false, loading: () => null });
+const OutlinePanel = dynamic(() => import('./OutlinePanel'), { ssr: false, loading: () => null });
+const VoiceTonePanel = dynamic(() => import('./VoiceTonePanel'), { ssr: false, loading: () => null });
+const PlaybackPanel = dynamic(() => import('./PlaybackPanel'), { ssr: false, loading: () => null });
+const ProblemsPanel = dynamic(() => import('./ProblemsPanel'), { ssr: false, loading: () => null });
+const VersionsPanel = dynamic(() => import('./VersionsPanel'), { ssr: false, loading: () => null });
 import { useFlowLint } from '@/lib/lint/use-flow-lint';
 import type { CommandContext, CommandFrame } from '@/lib/commands/registry';
 import { track } from '@/lib/analytics/posthog';
@@ -263,6 +279,10 @@ function FlowEditorInner({
   const [findReplaceOpen, setFindReplaceOpen] = useState(false);
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
   const [aiChatOpen, setAiChatOpen] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const [contentTableOpen, setContentTableOpen] = useState(false);
+  const [voiceToneOpen, setVoiceToneOpen] = useState(false);
 
   // Realtime presence — só ativa se projetoId + user logado + não-demo
   const { peers, cursors, sendCursor } = useRealtimePresence({
@@ -1078,6 +1098,109 @@ function FlowEditorInner({
     setTemplateOpen(true);
   }, []);
 
+  // =========================================================================
+  // Inserir Skill (sub-fluxo reutilizável)
+  // =========================================================================
+  // Fluxo:
+  //  1. ORGANIZA o canvas atual (pure, sem setState intermediário) pra que
+  //     o "node mais à direita" seja calculado num layout limpo, evitando
+  //     sobreposição com nós fora de lugar.
+  //  2. Posiciona a skill À DIREITA do conteúdo organizado (+gap).
+  //  3. Aplica tudo numa única transição (organize + skill insert) → atomic
+  //     operation, sem flicker nem race condition.
+  //  4. Centraliza câmera no entry da skill.
+  const handleInsertSkill = useCallback(
+    (skill: Skill) => {
+      pushHistory();
+      track('skill_inserted', { skillId: skill.id });
+
+      // 1. Organiza o canvas atual (versão pura — não dispara setState)
+      const getMeasured = (id: string) => {
+        const internal = getInternalNode(id);
+        const w = internal?.measured?.width;
+        const h = internal?.measured?.height;
+        if (typeof w === 'number' && typeof h === 'number' && w > 0 && h > 0) {
+          return { w, h };
+        }
+        return undefined;
+      };
+      const cleanedEdges = repairMainFlowEdges(edges, nodes);
+      const organized = organizeLayoutByFrame(nodes, cleanedEdges, getMeasured);
+      const entryResult = ensureEntryPointsForFrames(organized, cleanedEdges);
+      const organizedNodes = entryResult.nodes;
+      const organizedEdges = entryResult.edges;
+
+      // 2. Calcula origem da skill: à direita do node mais à direita do
+      //    layout organizado, com gap. Se canvas estava vazio, usa centro
+      //    visível.
+      let origin = { x: 60, y: 40 };
+      const topLevel = organizedNodes.filter((n) => !n.parentId);
+      if (topLevel.length > 0) {
+        const maxX = Math.max(
+          ...topLevel.map((n) => {
+            const w =
+              n.measured?.width ??
+              (n.data?.width as number | undefined) ??
+              APPROX_WIDTH_BY_TYPE[n.type as FluxoNodeType] ??
+              240;
+            return n.position.x + w;
+          })
+        );
+        // Y do frame mais alto (alinha visualmente no topo do canvas)
+        const minY = Math.min(...topLevel.map((n) => n.position.y));
+        origin = { x: maxX + 200, y: minY };
+      } else {
+        const wrap = reactFlowWrapper.current;
+        const rect = wrap?.getBoundingClientRect();
+        if (rect) {
+          const screenCenter = {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          };
+          const flowCenter = screenToFlowPosition(screenCenter);
+          origin = { x: flowCenter.x - 270, y: flowCenter.y - 100 };
+        }
+      }
+
+      // 3. Build da skill com origem calculada
+      const result = skill.build({ origin });
+
+      // 4. Aplica tudo: layout organizado + nós da skill (atomic)
+      setNodes([...organizedNodes, ...result.nodes]);
+      setEdges([...organizedEdges, ...result.edges]);
+
+      // 5. Centraliza câmera no entry da skill após render
+      setTimeout(() => {
+        const internal = getInternalNode(result.entryNodeId);
+        if (!internal) return;
+        const pos = internal.internals.positionAbsolute ?? internal.position;
+        const w = internal.measured?.width ?? 240;
+        const h = internal.measured?.height ?? 100;
+        setCenter(pos.x + w / 2, pos.y + h / 2, { duration: 700, zoom: 0.8 });
+        setSelectedId(result.entryNodeId);
+      }, 300);
+
+      const organizedMsg =
+        topLevel.length > 0 ? ' · layout organizado antes' : '';
+      toast({
+        level: 'success',
+        message: `Skill "${skill.title}" inserida`,
+        detail: `${result.nodes.length} nós, ${result.edges.length} conexões${organizedMsg}`,
+      });
+    },
+    [
+      nodes,
+      edges,
+      setNodes,
+      setEdges,
+      setCenter,
+      screenToFlowPosition,
+      getInternalNode,
+      setSelectedId,
+      pushHistory,
+    ]
+  );
+
   const handleResetPage = useCallback(async () => {
     const ok = await confirmDialog({
       title: 'Resetar a página atual?',
@@ -1339,6 +1462,10 @@ function FlowEditorInner({
     onOpenFindReplace: () => setFindReplaceOpen(true),
     onOpenCheatsheet: () => setCheatsheetOpen(true),
     onOpenAIChat: () => setAiChatOpen(true),
+    onOpenSkills: () => setSkillsOpen(true),
+    onOpenOutline: () => setOutlineOpen(true),
+    onOpenContentTable: () => setContentTableOpen(true),
+    onOpenVoiceTone: () => setVoiceToneOpen(true),
     onBackToDashboard: () => {
       if (typeof window !== 'undefined') window.location.href = '/dashboard';
     },
@@ -1439,6 +1566,10 @@ function FlowEditorInner({
                 playbackOpen={playbackOpen}
                 versionsOpen={versionsOpen}
                 aiChatOpen={aiChatOpen}
+                outlineOpen={outlineOpen}
+                onToggleOutline={() => setOutlineOpen((v) => !v)}
+                onOpenContentTable={() => setContentTableOpen(true)}
+                onOpenVoiceTone={() => setVoiceToneOpen(true)}
                 canExport={Boolean(projectId)}
                 onShare={() => setShareOpen(true)}
                 onToggleComments={() => {
@@ -1451,6 +1582,7 @@ function FlowEditorInner({
                 onToggleAIChat={() => setAiChatOpen((v) => !v)}
                 onOpenFindReplace={() => setFindReplaceOpen(true)}
                 onOpenCheatsheet={() => setCheatsheetOpen(true)}
+                onOpenSkills={() => setSkillsOpen(true)}
                 onOrganizeLayout={() => handleOrganizeLayout(false)}
                 onReorganizeCodes={handleReorganizeCodes}
                 onExportBlip={() => setBlipExportOpen(true)}
@@ -1515,6 +1647,15 @@ function FlowEditorInner({
           />
         )}
 
+        {/* Outline — lista hierárquica navegável */}
+        {!isReadOnly && outlineOpen && (
+          <OutlinePanel
+            nodes={nodes}
+            onClose={() => setOutlineOpen(false)}
+            onJumpToNode={handleJumpToNode}
+          />
+        )}
+
         {/* Test playground — painel WhatsApp-mockup fixed à direita */}
         {!isDemo && playbackOpen && (
           <PlaybackPanel
@@ -1538,6 +1679,7 @@ function FlowEditorInner({
               edges,
               viewport: getViewport(),
             })}
+            onJumpToNode={handleJumpToNode}
             onRestored={async () => {
               // Recarrega a page atual do banco com o novo state
               if (!projectId) return;
@@ -1585,6 +1727,51 @@ function FlowEditorInner({
           open={cheatsheetOpen}
           onOpenChange={setCheatsheetOpen}
         />
+
+        {/* Skills dialog — biblioteca de sub-fluxos reutilizáveis */}
+        {!isReadOnly && !isDemo && (
+          <SkillsDialog
+            open={skillsOpen}
+            onOpenChange={setSkillsOpen}
+            onInsert={handleInsertSkill}
+          />
+        )}
+
+        {/* Content Table — modo planilha pra editar textos em massa */}
+        {!isReadOnly && (
+          <ContentTableDialog
+            open={contentTableOpen}
+            onOpenChange={setContentTableOpen}
+            nodes={nodes}
+            onUpdate={(nodeId, patch) => {
+              pushHistory();
+              setNodes((prev) =>
+                prev.map((n) =>
+                  n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n
+                )
+              );
+            }}
+            onJumpToNode={handleJumpToNode}
+          />
+        )}
+
+        {/* Voice & Tone — análise IA de consistência do tom */}
+        {!isReadOnly && !isDemo && projectId && (
+          <VoiceTonePanel
+            open={voiceToneOpen}
+            onOpenChange={setVoiceToneOpen}
+            projectId={projectId}
+            nodes={nodes}
+            onUpdate={(nodeId, patch) => {
+              pushHistory();
+              setNodes((prev) =>
+                prev.map((n) =>
+                  n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n
+                )
+              );
+            }}
+          />
+        )}
 
         {/* Welcome tour — só roda 1x por user (localStorage). Skip se canvas vazio. */}
         {!isReadOnly && !isDemo && (

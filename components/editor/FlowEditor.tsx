@@ -48,7 +48,7 @@ import {
   EXCECAO_REL_X,
   EXCECAO_REL_Y,
 } from '@/lib/components/nodes/helpers';
-import type { FluxoNode, FluxoNodeData, FluxoNodeType, ProjectState } from '@/lib/types';
+import type { FluxoNode, FluxoNodeData, FluxoNodeType, ProjectState, ProjectStatus } from '@/lib/types';
 import { saveProjectState } from '@/lib/actions/projects';
 import { savePageState, listPages, setActivePage } from '@/lib/actions/pages';
 import type { ProjectPage } from '@/lib/types';
@@ -69,6 +69,7 @@ import { CanvasContextMenu, type ContextMenuAction } from './CanvasContextMenu';
 import { useRealtimePresence } from '@/lib/realtime/use-realtime-presence';
 import HelperLines from './HelperLines';
 import SidebarHeader from './SidebarHeader';
+import ProjectStatusBadge from './ProjectStatusBadge';
 
 // ─── Dialogs/painéis com lazy load ───────────────────────────────────────
 // Componentes que só renderizam quando o user abre (clica num botão, atalho,
@@ -170,6 +171,8 @@ const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 };
 interface FlowEditorProps {
   projectId?: string;
   projectName?: string;
+  /** Status atual do projeto (draft/review/approved/archived). */
+  initialStatus?: ProjectStatus;
   initialState?: ProjectState;
   /**
    * Se setado, o editor entra em modo público/compartilhado:
@@ -192,6 +195,7 @@ interface FlowEditorProps {
 function FlowEditorInner({
   projectId,
   projectName,
+  initialStatus,
   initialState,
   shareMode,
   shareToken,
@@ -1807,6 +1811,17 @@ function FlowEditorInner({
                 : 'Autosave ativo'
             }
           />
+          {/* Status do projeto (draft/review/approved/archived) — clicável
+              pra membros internos; somente-leitura em modo share. */}
+          {!isDemo && projectId && !paletteCollapsed && (
+            <div className="px-3 pt-2 pb-1 shrink-0">
+              <ProjectStatusBadge
+                projectId={projectId}
+                initialStatus={initialStatus ?? 'draft'}
+                readOnly={isReadOnly}
+              />
+            </div>
+          )}
           {!isDemo && projectId && pages.length > 0 && !paletteCollapsed && (
             <PagesSidebar
               projectId={projectId}

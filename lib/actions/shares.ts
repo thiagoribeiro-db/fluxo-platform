@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { nanoid } from 'nanoid';
 import { createClient } from '@/lib/supabase/server';
 import type { ProjectState, SharePermission } from '@/lib/types';
+import { logAuditEvent } from './audit';
 
 export interface Share {
   id: string;
@@ -80,6 +81,12 @@ export async function createShare(
     throw new Error(`Falha ao criar share: ${error?.message}`);
   }
 
+  await logAuditEvent(projectId, 'share.created', {
+    shareId: data.id,
+    permission,
+    expiresAt,
+  });
+
   revalidatePath(`/editor/${projectId}`);
   return data as Share;
 }
@@ -91,6 +98,7 @@ export async function revokeShare(shareId: string, projectId: string) {
   const supabase = createClient();
   const { error } = await supabase.from('shares').delete().eq('id', shareId);
   if (error) throw new Error(`Falha ao revogar: ${error.message}`);
+  await logAuditEvent(projectId, 'share.revoked', { shareId });
   revalidatePath(`/editor/${projectId}`);
 }
 

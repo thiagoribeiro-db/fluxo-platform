@@ -263,6 +263,58 @@ export default async function HelpPage() {
           </Subsection>
         </Section>
 
+        {/* ────────── Governança ────────── */}
+        <Section id="governanca" emoji="📊" title="Governança e observabilidade">
+          <p>
+            Recursos pra acompanhar o ciclo de vida e o custo de cada projeto.
+          </p>
+
+          <Subsection title="Status do projeto 🆕">
+            <p>
+              No card do dashboard e na sidebar do editor, um pill colorido indica o status:
+            </p>
+            <ul>
+              <li>✏️ <strong>Rascunho</strong> — em construção</li>
+              <li>👀 <strong>Em revisão</strong> — enviado pro cliente revisar</li>
+              <li>✓ <strong>Aprovado</strong> — pronto pra deploy</li>
+              <li>📦 <strong>Arquivado</strong> — concluído ou parado</li>
+            </ul>
+            <p>
+              Click no pill troca o status (com optimistic update). No dashboard, pills no topo filtram por status com contadores.
+            </p>
+          </Subsection>
+
+          <Subsection title="Tempo estimado 🆕">
+            <p>
+              Em cada card do dashboard, um campo <code>⏱ Xh</code> registra as horas orçadas pro projeto. Click pra editar inline (Enter salva, Esc cancela). Útil pra base de cobrança e relatórios futuros de orçado vs realizado.
+            </p>
+          </Subsection>
+
+          <Subsection title="Histórico de ações (audit log) 🆕">
+            <p>
+              Link <code>📜 Histórico</code> no card abre a página de auditoria do projeto. Registra ações de governança:
+            </p>
+            <ul>
+              <li>Template aplicado / página criada / renomeada</li>
+              <li>Status alterado</li>
+              <li>Link compartilhável criado ou revogado</li>
+              <li>Versão restaurada</li>
+            </ul>
+            <p>
+              Cada evento mostra quem fez, quando, e detalhes em JSON expandido.
+            </p>
+          </Subsection>
+
+          <Subsection title="Uso da IA (tokens + custo) 🆕">
+            <p>
+              Link <code>🤖 Uso IA</code> abre painel com heatmap de custo diário e ranking por feature (importação de escopo, Voice &amp; Tone, Chat IA). Mostra tokens entrada/saída, número de chamadas e custo total em USD por janela (7d/30d/90d).
+            </p>
+            <p className="text-[11px] text-gray-500">
+              Tabela de preços hardcoded em <code>lib/actions/ia-usage.ts</code> — atualizar se Anthropic mudar valores.
+            </p>
+          </Subsection>
+        </Section>
+
         {/* ────────── Problems Panel (linter) ────────── */}
         <Section id="problems" emoji="🩹" title="Problems Panel (linter)">
           <p>

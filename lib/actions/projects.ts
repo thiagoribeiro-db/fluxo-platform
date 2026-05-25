@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import type { Project, ProjectState, ProjectVisibility } from '@/lib/types';
+import type { Project, ProjectState, ProjectStatus, ProjectVisibility } from '@/lib/types';
+import { logAuditEvent } from './audit';
 
 const EMPTY_STATE: ProjectState = {
   nodes: [],
@@ -243,6 +244,7 @@ export async function applyEscopoWithAI(
   const { state, meta } = await parseEscopoWithAI({
     text: escopoText,
     fileName,
+    projectId,
   });
 
   if (state.nodes.length === 0) {
@@ -317,6 +319,11 @@ export async function applyTemplate(
     pageId,
     `Antes de aplicar template "${templateName}"`
   );
+
+  await logAuditEvent(projectId, 'template.applied', {
+    templateName,
+    pageId: pageId ?? null,
+  });
 
   revalidatePath(`/editor/${projectId}`);
 }
@@ -427,12 +434,23 @@ export async function saveProjectState(id: string, state: ProjectState) {
  */
 export async function updateProject(
   id: string,
-  patch: { name?: string; description?: string | null; visibility?: ProjectVisibility }
+  patch: {
+    name?: string;
+    description?: string | null;
+    visibility?: ProjectVisibility;
+    status?: ProjectStatus;
+    estimated_hours?: number | null;
+  }
 ) {
   const supabase = createClient();
 
   const { error } = await supabase.from('projects').update(patch).eq('id', id);
   if (error) throw new Error(`Falha ao atualizar: ${error.message}`);
+
+  // Audit log: registra mudança de status (alta sensibilidade pra governança)
+  if (patch.status) {
+    await logAuditEvent(id, 'project.status_changed', { status: patch.status });
+  }
 
   revalidatePath('/dashboard');
   revalidatePath(`/editor/${id}`);
@@ -444,8 +462,22 @@ export async function updateProject(
 export async function deleteProject(id: string) {
   const supabase = createClient();
 
+  // Buscamos nome ANTES de deletar pra registrar no audit (project_id some no cascade)
+  const { data: row } = await supabase
+    .from('projects')
+    .select('name')
+    .eq('id', id)
+    .maybeSingle();
+
   const { error } = await supabase.from('projects').delete().eq('id', id);
   if (error) throw new Error(`Falha ao deletar: ${error.message}`);
+
+  // Nota: o cascade já apagou os audit_events deste projeto também.
+  // O log do delete em si fica perdido com o projeto — aceitamos isso por
+  // simplicidade (alternativa: tabela `org_audit` separada).
+  if (row?.name) {
+    // Sem effect — projeto não existe mais. Mantemos só telemetria PostHog.
+  }
 
   revalidatePath('/dashboard');
 }

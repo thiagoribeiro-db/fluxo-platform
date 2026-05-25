@@ -58,6 +58,7 @@ export default async function EditorPage({ params }: EditorPageProps) {
     <FlowEditor
       projectId={project.id}
       projectName={project.name}
+      initialStatus={project.status ?? 'draft'}
       initialState={activePage?.state ?? project.state}
       pages={pages}
       activePageId={activePage?.id ?? null}

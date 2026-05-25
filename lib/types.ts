@@ -10,6 +10,15 @@ export type MemberRole = 'admin' | 'editor' | 'viewer';
 export type ProjectVisibility = 'private' | 'org' | 'public';
 export type SharePermission = 'view' | 'comment' | 'edit';
 
+/**
+ * Ciclo de vida do projeto:
+ *  - draft: em construção (default)
+ *  - review: enviado pro cliente revisar
+ *  - approved: cliente aprovou, pronto pra deploy
+ *  - archived: concluído ou parado
+ */
+export type ProjectStatus = 'draft' | 'review' | 'approved' | 'archived';
+
 export interface Organization {
   id: string;
   name: string;
@@ -42,6 +51,9 @@ export interface Project {
   state: ProjectState;
   thumbnail_url: string | null;
   active_page_id: string | null;
+  status: ProjectStatus;
+  /** Horas estimadas pra entregar o projeto. NULL = não orçado. */
+  estimated_hours: number | null;
   created_at: string;
   updated_at: string;
 }

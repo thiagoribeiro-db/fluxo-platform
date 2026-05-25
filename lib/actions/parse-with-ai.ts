@@ -37,6 +37,8 @@ interface ParseInput {
   text: string;
   /** Nome do arquivo original (pra logging/contexto) */
   fileName?: string;
+  /** ID do projeto alvo — usado pra registrar uso na tabela `ia_usage`. */
+  projectId?: string;
 }
 
 interface ParseResult {
@@ -248,6 +250,26 @@ export async function parseEscopoWithAI(input: ParseInput): Promise<ParseResult>
     devLog(
       `[parse-with-ai] Tokens: in=${usage.input_tokens ?? 0}, out=${usage.output_tokens ?? 0}, cache_read=${usage.cache_read_input_tokens ?? 0}, cache_write=${usage.cache_creation_input_tokens ?? 0}`
     );
+  }
+
+  // Registra na tabela ia_usage (só se temos projectId — chamada interna em
+  // context com projeto). Best-effort, não falha o caller.
+  if (input.projectId) {
+    const { logIaUsage } = await import('@/lib/actions/ia-usage');
+    await logIaUsage({
+      projectId: input.projectId,
+      feature: 'parse-flow',
+      model: MODEL,
+      usage: usage
+        ? {
+            input_tokens: usage.input_tokens ?? 0,
+            output_tokens: usage.output_tokens ?? 0,
+            cache_creation_input_tokens: usage.cache_creation_input_tokens ?? 0,
+            cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
+          }
+        : null,
+      latencyMs: durationMs,
+    });
   }
 
   return {

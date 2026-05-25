@@ -11,6 +11,7 @@
  * Quando a sidebar está colapsada (48px), mostra apenas o ícone seta.
  */
 
+import { memo } from 'react';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -22,7 +23,11 @@ interface SidebarHeaderProps {
   statusLabel: string;
 }
 
-export default function SidebarHeader({
+/**
+ * Memoizado — props são primitivos simples (booleans + strings curtas).
+ * Não precisa re-renderizar a cada mudança do canvas.
+ */
+function SidebarHeaderImpl({
   collapsed,
   isShared,
   projectName,
@@ -100,3 +105,6 @@ export default function SidebarHeader({
     </Link>
   );
 }
+
+const SidebarHeader = memo(SidebarHeaderImpl);
+export default SidebarHeader;

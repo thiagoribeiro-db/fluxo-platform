@@ -1,5 +1,7 @@
 'use client';
 
+import { memo } from 'react';
+
 interface BottomToolbarProps {
   selectMode: boolean;
   onChangeMode: (selectMode: boolean) => void;
@@ -11,8 +13,11 @@ interface BottomToolbarProps {
  *  - ⬚ Selecionar (V): drag faz seleção retangular
  *
  * Atalhos: tecla `H` ativa mão, `V` ativa seleção (registrados no FlowEditor).
+ *
+ * Wrapped em React.memo — props são simples (boolean + callback) e não mudam
+ * a cada render do canvas. Evita re-render quando user move nó/digita texto.
  */
-export default function BottomToolbar({
+function BottomToolbarImpl({
   selectMode,
   onChangeMode,
 }: BottomToolbarProps) {
@@ -65,3 +70,6 @@ export default function BottomToolbar({
     </div>
   );
 }
+
+const BottomToolbar = memo(BottomToolbarImpl);
+export default BottomToolbar;

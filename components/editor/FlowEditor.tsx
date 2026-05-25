@@ -95,6 +95,7 @@ const VersionsPanel = dynamic(() => import('./VersionsPanel'), { ssr: false, loa
 import { useFlowLint } from '@/lib/lint/use-flow-lint';
 import type { CommandContext, CommandFrame } from '@/lib/commands/registry';
 import { track } from '@/lib/analytics/posthog';
+import { useDialogStates } from './hooks/use-dialog-states';
 import { useUndoHistory } from './hooks/use-undo-history';
 import { useAutoSave } from './hooks/use-auto-save';
 import { usePages } from './hooks/use-pages';
@@ -265,24 +266,17 @@ function FlowEditorInner({
   const [lastAddedId, setLastAddedId] = useState<string | null>(null);
   const [autoTracking, setAutoTracking] = useState(true);
   const [paletteCollapsed, setPaletteCollapsed] = useState(false);
+  // Estabilizado pro `memo` do Palette pular re-renders quando state do
+  // canvas muda (nodes/edges) mas o toggle continua sendo o mesmo callback.
+  const togglePaletteCollapsed = useCallback(
+    () => setPaletteCollapsed((v) => !v),
+    []
+  );
   const [panelCollapsed, setPanelCollapsed] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
-  const [templateOpen, setTemplateOpen] = useState(false);
-  const [blipExportOpen, setBlipExportOpen] = useState(false);
-  const [visualExportOpen, setVisualExportOpen] = useState(false);
-  const [commentsOpen, setCommentsOpen] = useState(false);
-  const [problemsOpen, setProblemsOpen] = useState(false);
-  const [playbackOpen, setPlaybackOpen] = useState(false);
+  // 16 dialogs/painéis centralizados num único hook (substitui 16 useState).
+  // Acesso: `dialogs.share.opened`, `dialogs.share.open()`, etc.
+  const dialogs = useDialogStates();
   const [playbackActiveNodeId, setPlaybackActiveNodeId] = useState<string | null>(null);
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [versionsOpen, setVersionsOpen] = useState(false);
-  const [findReplaceOpen, setFindReplaceOpen] = useState(false);
-  const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
-  const [aiChatOpen, setAiChatOpen] = useState(false);
-  const [skillsOpen, setSkillsOpen] = useState(false);
-  const [outlineOpen, setOutlineOpen] = useState(false);
-  const [contentTableOpen, setContentTableOpen] = useState(false);
-  const [voiceToneOpen, setVoiceToneOpen] = useState(false);
 
   // Realtime presence — só ativa se projetoId + user logado + não-demo
   const { peers, cursors, sendCursor } = useRealtimePresence({
@@ -1095,8 +1089,8 @@ function FlowEditorInner({
 
   // Abre o modal de template (upload de arquivo, paste, ou exemplo)
   const handleOpenTemplateDialog = useCallback(() => {
-    setTemplateOpen(true);
-  }, []);
+    dialogs.template.open();
+  }, [dialogs.template]);
 
   // =========================================================================
   // Inserir Skill (sub-fluxo reutilizável)
@@ -1275,10 +1269,8 @@ function FlowEditorInner({
       const k = e.key.toLowerCase();
       if (k === 'k') {
         e.preventDefault();
-        setCommandPaletteOpen((v) => {
-          if (!v) track('command_palette_used');
-          return !v;
-        });
+        if (!dialogs.commandPalette.opened) track('command_palette_used');
+        dialogs.commandPalette.toggle();
       } else if (k === 'f' && !e.shiftKey) {
         // Não interfere com Cmd+Shift+F (busca do browser)
         // e só ativa se NÃO estiver focado em input/textarea (pra não
@@ -1286,10 +1278,10 @@ function FlowEditorInner({
         const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
         if (tag === 'input' || tag === 'textarea') return;
         e.preventDefault();
-        setFindReplaceOpen(true);
+        dialogs.findReplace.open();
       } else if (k === 'h' && !e.shiftKey) {
         e.preventDefault();
-        setFindReplaceOpen(true);
+        dialogs.findReplace.open();
       }
     };
     // `?` (sem modifier) abre cheatsheet — ignora se foco em input
@@ -1298,7 +1290,7 @@ function FlowEditorInner({
       const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
       if (tag === 'input' || tag === 'textarea') return;
       e.preventDefault();
-      setCheatsheetOpen(true);
+      dialogs.cheatsheet.open();
     };
     window.addEventListener('keydown', onKey);
     window.addEventListener('keydown', onQuestion);
@@ -1306,7 +1298,7 @@ function FlowEditorInner({
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keydown', onQuestion);
     };
-  }, []);
+  }, [dialogs.cheatsheet, dialogs.commandPalette, dialogs.findReplace]);
 
   // Track project_opened uma vez por projectId
   useEffect(() => {
@@ -1448,24 +1440,24 @@ function FlowEditorInner({
     onOrganize: () => handleOrganizeLayout(false),
     onReorder: handleReorganizeCodes,
     onReset: handleResetPage,
-    onOpenShare: () => setShareOpen(true),
-    onOpenBlipExport: () => setBlipExportOpen(true),
-    onOpenVisualExport: () => setVisualExportOpen(true),
+    onOpenShare: () => dialogs.share.open(),
+    onOpenBlipExport: () => dialogs.blipExport.open(),
+    onOpenVisualExport: () => dialogs.visualExport.open(),
     onOpenTemplate: handleOpenTemplateDialog,
     onOpenComments: () => {
-      setCommentsOpen(true);
+      dialogs.comments.open();
       setPanelCollapsed(true);
     },
-    onOpenProblems: () => setProblemsOpen(true),
-    onOpenPlayback: () => setPlaybackOpen(true),
-    onOpenVersions: () => setVersionsOpen(true),
-    onOpenFindReplace: () => setFindReplaceOpen(true),
-    onOpenCheatsheet: () => setCheatsheetOpen(true),
-    onOpenAIChat: () => setAiChatOpen(true),
-    onOpenSkills: () => setSkillsOpen(true),
-    onOpenOutline: () => setOutlineOpen(true),
-    onOpenContentTable: () => setContentTableOpen(true),
-    onOpenVoiceTone: () => setVoiceToneOpen(true),
+    onOpenProblems: () => dialogs.problems.open(),
+    onOpenPlayback: () => dialogs.playback.open(),
+    onOpenVersions: () => dialogs.versions.open(),
+    onOpenFindReplace: () => dialogs.findReplace.open(),
+    onOpenCheatsheet: () => dialogs.cheatsheet.open(),
+    onOpenAIChat: () => dialogs.aiChat.open(),
+    onOpenSkills: () => dialogs.skills.open(),
+    onOpenOutline: () => dialogs.outline.open(),
+    onOpenContentTable: () => dialogs.contentTable.open(),
+    onOpenVoiceTone: () => dialogs.voiceTone.open(),
     onBackToDashboard: () => {
       if (typeof window !== 'undefined') window.location.href = '/dashboard';
     },
@@ -1509,8 +1501,8 @@ function FlowEditorInner({
           )}
           <Palette
             collapsed={paletteCollapsed}
-            onToggle={() => setPaletteCollapsed((v) => !v)}
-            onAddNode={(type) => createNode(type)}
+            onToggle={togglePaletteCollapsed}
+            onAddNode={createNode}
           />
         </ResizableSidebar>
       )}
@@ -1558,35 +1550,36 @@ function FlowEditorInner({
                 commentsCount={
                   comments.filter((c) => !c.parent_id && !c.resolved_at).length
                 }
-                commentsOpen={commentsOpen}
+                commentsOpen={dialogs.comments.opened}
                 autoTracking={autoTracking}
                 problemsCount={lint.counts.total}
                 problemsWorstSeverity={problemsWorstSeverity}
-                problemsOpen={problemsOpen}
-                playbackOpen={playbackOpen}
-                versionsOpen={versionsOpen}
-                aiChatOpen={aiChatOpen}
-                outlineOpen={outlineOpen}
-                onToggleOutline={() => setOutlineOpen((v) => !v)}
-                onOpenContentTable={() => setContentTableOpen(true)}
-                onOpenVoiceTone={() => setVoiceToneOpen(true)}
+                problemsOpen={dialogs.problems.opened}
+                playbackOpen={dialogs.playback.opened}
+                versionsOpen={dialogs.versions.opened}
+                aiChatOpen={dialogs.aiChat.opened}
+                outlineOpen={dialogs.outline.opened}
+                onToggleOutline={() => dialogs.outline.toggle()}
+                onOpenContentTable={() => dialogs.contentTable.open()}
+                onOpenVoiceTone={() => dialogs.voiceTone.open()}
                 canExport={Boolean(projectId)}
-                onShare={() => setShareOpen(true)}
+                onShare={() => dialogs.share.open()}
                 onToggleComments={() => {
-                  setCommentsOpen((v) => !v);
-                  if (!commentsOpen) setPanelCollapsed(true);
+                  const wasOpen = dialogs.comments.opened;
+                  dialogs.comments.toggle();
+                  if (!wasOpen) setPanelCollapsed(true);
                 }}
-                onToggleProblems={() => setProblemsOpen((v) => !v)}
-                onTogglePlayback={() => setPlaybackOpen((v) => !v)}
-                onToggleVersions={() => setVersionsOpen((v) => !v)}
-                onToggleAIChat={() => setAiChatOpen((v) => !v)}
-                onOpenFindReplace={() => setFindReplaceOpen(true)}
-                onOpenCheatsheet={() => setCheatsheetOpen(true)}
-                onOpenSkills={() => setSkillsOpen(true)}
+                onToggleProblems={() => dialogs.problems.toggle()}
+                onTogglePlayback={() => dialogs.playback.toggle()}
+                onToggleVersions={() => dialogs.versions.toggle()}
+                onToggleAIChat={() => dialogs.aiChat.toggle()}
+                onOpenFindReplace={() => dialogs.findReplace.open()}
+                onOpenCheatsheet={() => dialogs.cheatsheet.open()}
+                onOpenSkills={() => dialogs.skills.open()}
                 onOrganizeLayout={() => handleOrganizeLayout(false)}
                 onReorganizeCodes={handleReorganizeCodes}
-                onExportBlip={() => setBlipExportOpen(true)}
-                onExportVisual={() => setVisualExportOpen(true)}
+                onExportBlip={() => dialogs.blipExport.open()}
+                onExportVisual={() => dialogs.visualExport.open()}
                 onLoadTemplate={handleOpenTemplateDialog}
                 onResetPage={handleResetPage}
                 onAutoTrackingChange={setAutoTracking}
@@ -1639,30 +1632,30 @@ function FlowEditorInner({
         <PresenceCursors cursors={cursors} peers={peers} />
 
         {/* Painel de problems (linter) — overlay sobre o canvas, acima do BottomToolbar */}
-        {!isReadOnly && !isDemo && problemsOpen && (
+        {!isReadOnly && !isDemo && dialogs.problems.opened && (
           <ProblemsPanel
             problems={lint.problems}
-            onClose={() => setProblemsOpen(false)}
+            onClose={() => dialogs.problems.close()}
             onJumpToNode={handleJumpToNode}
           />
         )}
 
         {/* Outline — lista hierárquica navegável */}
-        {!isReadOnly && outlineOpen && (
+        {!isReadOnly && dialogs.outline.opened && (
           <OutlinePanel
             nodes={nodes}
-            onClose={() => setOutlineOpen(false)}
+            onClose={() => dialogs.outline.close()}
             onJumpToNode={handleJumpToNode}
           />
         )}
 
         {/* Test playground — painel WhatsApp-mockup fixed à direita */}
-        {!isDemo && playbackOpen && (
+        {!isDemo && dialogs.playback.opened && (
           <PlaybackPanel
             nodes={nodes}
             edges={edges}
             onClose={() => {
-              setPlaybackOpen(false);
+              dialogs.playback.close();
               setPlaybackActiveNodeId(null);
             }}
             onActiveNode={setPlaybackActiveNodeId}
@@ -1670,10 +1663,10 @@ function FlowEditorInner({
         )}
 
         {/* Painel de Versões — histórico de snapshots */}
-        {!isDemo && !isReadOnly && activePageId && versionsOpen && (
+        {!isDemo && !isReadOnly && activePageId && dialogs.versions.opened && (
           <VersionsPanel
             pageId={activePageId}
-            onClose={() => setVersionsOpen(false)}
+            onClose={() => dialogs.versions.close()}
             getCurrentState={() => ({
               nodes,
               edges,
@@ -1701,8 +1694,8 @@ function FlowEditorInner({
         {/* Command Palette (Cmd+K) — overlay global */}
         {!isReadOnly && (
           <CommandPalette
-            open={commandPaletteOpen}
-            onOpenChange={setCommandPaletteOpen}
+            open={dialogs.commandPalette.opened}
+            onOpenChange={dialogs.commandPalette.setOpen}
             context={commandContext}
           />
         )}
@@ -1710,8 +1703,8 @@ function FlowEditorInner({
         {/* Find & Replace (Cmd+F/H) — overlay modal */}
         {!isReadOnly && !isDemo && (
           <FindReplaceDialog
-            open={findReplaceOpen}
-            onOpenChange={setFindReplaceOpen}
+            open={dialogs.findReplace.opened}
+            onOpenChange={dialogs.findReplace.setOpen}
             nodes={nodes}
             edges={edges}
             onApply={(nextNodes) => {
@@ -1724,15 +1717,15 @@ function FlowEditorInner({
 
         {/* Cheatsheet (? key) — overlay modal global */}
         <ShortcutsCheatsheet
-          open={cheatsheetOpen}
-          onOpenChange={setCheatsheetOpen}
+          open={dialogs.cheatsheet.opened}
+          onOpenChange={dialogs.cheatsheet.setOpen}
         />
 
         {/* Skills dialog — biblioteca de sub-fluxos reutilizáveis */}
         {!isReadOnly && !isDemo && (
           <SkillsDialog
-            open={skillsOpen}
-            onOpenChange={setSkillsOpen}
+            open={dialogs.skills.opened}
+            onOpenChange={dialogs.skills.setOpen}
             onInsert={handleInsertSkill}
           />
         )}
@@ -1740,8 +1733,8 @@ function FlowEditorInner({
         {/* Content Table — modo planilha pra editar textos em massa */}
         {!isReadOnly && (
           <ContentTableDialog
-            open={contentTableOpen}
-            onOpenChange={setContentTableOpen}
+            open={dialogs.contentTable.opened}
+            onOpenChange={dialogs.contentTable.setOpen}
             nodes={nodes}
             onUpdate={(nodeId, patch) => {
               pushHistory();
@@ -1758,8 +1751,8 @@ function FlowEditorInner({
         {/* Voice & Tone — análise IA de consistência do tom */}
         {!isReadOnly && !isDemo && projectId && (
           <VoiceTonePanel
-            open={voiceToneOpen}
-            onOpenChange={setVoiceToneOpen}
+            open={dialogs.voiceTone.opened}
+            onOpenChange={dialogs.voiceTone.setOpen}
             projectId={projectId}
             nodes={nodes}
             onUpdate={(nodeId, patch) => {
@@ -1779,7 +1772,7 @@ function FlowEditorInner({
         )}
 
         {/* Chat IA contextual — pergunta sobre o fluxo, sugere blocos */}
-        {!isReadOnly && !isDemo && aiChatOpen && (() => {
+        {!isReadOnly && !isDemo && dialogs.aiChat.opened && (() => {
           const selectedFrame = selectedId
             ? nodes.find((n) => n.id === selectedId && n.type === 'frame')
             : undefined;
@@ -1789,7 +1782,7 @@ function FlowEditorInner({
               edges={edges}
               selectedFrameId={selectedFrame?.data?.frameId as string | undefined}
               selectedFrameTitle={selectedFrame?.data?.title as string | undefined}
-              onClose={() => setAiChatOpen(false)}
+              onClose={() => dialogs.aiChat.close()}
             />
           );
         })()}
@@ -1824,12 +1817,12 @@ function FlowEditorInner({
         />
       )}
 
-      {!isReadOnly && !isDemo && projectId && commentsOpen && (
+      {!isReadOnly && !isDemo && projectId && dialogs.comments.opened && (
         <CommentsPanel
           projectId={projectId}
           nodes={nodes}
           selectedNodeId={selectedId}
-          onToggle={() => setCommentsOpen(false)}
+          onToggle={() => dialogs.comments.close()}
           onJumpToNode={handleJumpToNode}
           onCommentsChanged={refetchComments}
         />
@@ -1839,8 +1832,8 @@ function FlowEditorInner({
       {!isDemo && !isReadOnly && projectId && (
         <ShareDialog
           projectId={projectId}
-          open={shareOpen}
-          onClose={() => setShareOpen(false)}
+          open={dialogs.share.opened}
+          onClose={() => dialogs.share.close()}
         />
       )}
 
@@ -1848,29 +1841,29 @@ function FlowEditorInner({
       {!isDemo && !isReadOnly && projectId && (
         <TemplateDialog
           projectId={projectId}
-          open={templateOpen}
-          onClose={() => setTemplateOpen(false)}
+          open={dialogs.template.opened}
+          onClose={() => dialogs.template.close()}
           currentPageId={activePageId ?? undefined}
         />
       )}
 
       {/* Modal "Exportar Blip" — gera .zip de JSONs por frame */}
-      {!isDemo && !isReadOnly && projectId && blipExportOpen && (
+      {!isDemo && !isReadOnly && projectId && dialogs.blipExport.opened && (
         <BlipExportDialog
           projectId={projectId}
           projectName={projectName ?? 'fluxo'}
           currentPageId={activePageId ?? undefined}
           currentNodes={nodes}
           currentEdges={edges}
-          onClose={() => setBlipExportOpen(false)}
+          onClose={() => dialogs.blipExport.close()}
         />
       )}
 
       {/* Modal "Exportar imagem" — captura o canvas como PNG/PDF/HTML */}
-      {visualExportOpen && (
+      {dialogs.visualExport.opened && (
         <ExportVisualDialog
           projectName={projectName ?? 'fluxo'}
-          onClose={() => setVisualExportOpen(false)}
+          onClose={() => dialogs.visualExport.close()}
         />
       )}
     </div>

@@ -135,6 +135,7 @@ export default function ProblemsPanel({
             onClick={onClose}
             className="ml-2 text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded p-1 transition-colors"
             title="Fechar"
+            aria-label="Fechar painel de problemas"
           >
             <X size={14} />
           </button>

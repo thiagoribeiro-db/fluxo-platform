@@ -119,6 +119,7 @@ export default function AIChatPanel({
           onClick={onClose}
           className="p-1.5 rounded-md hover:bg-white/10"
           title="Fechar"
+          aria-label="Fechar Chat IA"
         >
           <X size={16} />
         </button>

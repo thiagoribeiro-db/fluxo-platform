@@ -477,6 +477,7 @@ function IconOnly({ icon, onClick, title, tone = 'default', active = false }: Ic
       type="button"
       onClick={onClick}
       title={title}
+      aria-label={title}
       className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blip-purple/30 ${
         active ? styles.active : styles.idle
       }`}

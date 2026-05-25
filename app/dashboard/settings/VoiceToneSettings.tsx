@@ -12,13 +12,13 @@
  */
 import { Check, Loader2, RotateCcw, Save, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { toast } from '@/lib/utils/errors';
+import { handleError, toast } from '@/lib/utils/errors';
 import {
-  clearGlobalDefaultProfile,
-  hasGlobalDefaultProfile,
-  loadGlobalDefaultProfile,
-  saveGlobalDefaultProfile,
-} from '@/lib/voice-tone/profile-storage';
+  clearGlobalVoiceProfileDB,
+  loadGlobalVoiceProfileDB,
+  saveGlobalVoiceProfileDB,
+} from '@/lib/actions/voice-profile';
+import { saveGlobalDefaultProfile, clearGlobalDefaultProfile } from '@/lib/voice-tone/profile-storage';
 import {
   DEFAULT_PROFILE,
   VOICE_PRESETS,
@@ -31,11 +31,34 @@ export default function VoiceToneSettings() {
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
   const [hasCustomGlobal, setHasCustomGlobal] = useState(false);
   const [savedRecently, setSavedRecently] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  // Carrega o profile no mount (client-only — localStorage)
+  // Carrega o profile do banco no mount. Se não tiver no banco, mostra o
+  // DEFAULT_PROFILE hardcoded (Casual próximo). O state `hasCustomGlobal`
+  // distingue entre os dois (afeta visibilidade do "Restaurar padrão").
   useEffect(() => {
-    setProfile(loadGlobalDefaultProfile());
-    setHasCustomGlobal(hasGlobalDefaultProfile());
+    let cancelled = false;
+    (async () => {
+      try {
+        const fromDb = await loadGlobalVoiceProfileDB();
+        if (cancelled) return;
+        if (fromDb) {
+          setProfile(fromDb);
+          setHasCustomGlobal(true);
+        } else {
+          setProfile(DEFAULT_PROFILE);
+          setHasCustomGlobal(false);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        handleError(err, { context: 'load-voice-profile', toast: false });
+        setProfile(DEFAULT_PROFILE);
+        setHasCustomGlobal(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Loading inicial — evita flicker
@@ -71,17 +94,27 @@ export default function VoiceToneSettings() {
     setProfile((p) => (p ? { ...p, examples: lines, preset: 'custom' } : p));
   }
 
-  function handleSave() {
-    if (!profile) return;
-    saveGlobalDefaultProfile(profile);
-    setHasCustomGlobal(true);
-    setSavedRecently(true);
-    setTimeout(() => setSavedRecently(false), 2500);
-    toast({
-      level: 'success',
-      message: 'Padrão salvo',
-      detail: 'Novos projetos vão usar esse perfil como ponto de partida.',
-    });
+  async function handleSave() {
+    if (!profile || saving) return;
+    setSaving(true);
+    try {
+      await saveGlobalVoiceProfileDB(profile);
+      // Cache local pra o editor poder ler síncrono sem round-trip ao banco
+      // toda hora — funciona como mirror do DB pra UX no editor.
+      saveGlobalDefaultProfile(profile);
+      setHasCustomGlobal(true);
+      setSavedRecently(true);
+      setTimeout(() => setSavedRecently(false), 2500);
+      toast({
+        level: 'success',
+        message: 'Padrão salvo',
+        detail: 'Sincronizado entre todos seus dispositivos.',
+      });
+    } catch (err) {
+      handleError(err, { context: 'save-voice-profile' });
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleReset() {
@@ -93,10 +126,15 @@ export default function VoiceToneSettings() {
       variant: 'danger',
     });
     if (!ok) return;
-    clearGlobalDefaultProfile();
-    setProfile(DEFAULT_PROFILE);
-    setHasCustomGlobal(false);
-    toast({ level: 'success', message: 'Padrão restaurado' });
+    try {
+      await clearGlobalVoiceProfileDB();
+      clearGlobalDefaultProfile(); // limpa também o cache local
+      setProfile(DEFAULT_PROFILE);
+      setHasCustomGlobal(false);
+      toast({ level: 'success', message: 'Padrão restaurado' });
+    } catch (err) {
+      handleError(err, { context: 'clear-voice-profile' });
+    }
   }
 
   const examplesText = (profile.examples ?? []).join('\n');
@@ -219,9 +257,18 @@ export default function VoiceToneSettings() {
           <button
             type="button"
             onClick={handleSave}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blip-purple hover:bg-blip-purple-dark rounded-lg shadow-sm transition-colors"
+            disabled={saving}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blip-purple hover:bg-blip-purple-dark rounded-lg shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <Save size={14} /> Salvar padrão
+            {saving ? (
+              <>
+                <Loader2 size={14} className="animate-spin" /> Salvando…
+              </>
+            ) : (
+              <>
+                <Save size={14} /> Salvar padrão
+              </>
+            )}
           </button>
         </div>
       </footer>

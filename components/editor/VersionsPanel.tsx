@@ -217,6 +217,7 @@ export default function VersionsPanel({
           onClick={onClose}
           className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded p-1.5"
           title="Fechar"
+          aria-label="Fechar painel"
         >
           <X size={16} />
         </button>

@@ -3,6 +3,7 @@ import { HelpCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { signOut } from '@/lib/actions/auth';
 import DashboardTabs from './DashboardTabs';
+import HelpHotkey from './HelpHotkey';
 
 /**
  * Layout compartilhado entre /dashboard (projetos) e /dashboard/components.
@@ -55,6 +56,9 @@ export default async function DashboardLayout({
       </header>
 
       <div className="max-w-6xl mx-auto px-6 py-8">{children}</div>
+
+      {/* Atalho global: tecla `?` → /help */}
+      <HelpHotkey />
     </main>
   );
 }

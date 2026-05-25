@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { ChevronsRight } from 'lucide-react';
 import { PALETTE_GROUPS, type PaletteItem } from '@/lib/components/nodes/defaults';
 import type { FluxoNodeType } from '@/lib/types';
@@ -17,8 +17,12 @@ interface PaletteProps {
  *
  * Cada grupo é colapsável. Cada card é arrastável (drag) ou pode ser
  * adicionado por duplo clique (cria abaixo do último/selecionado).
+ *
+ * Memoizado — props são apenas `collapsed` (bool) + 2 callbacks. Se os
+ * callbacks forem estáveis no FlowEditor (useCallback), evita re-render
+ * a cada mudança de nodes/edges.
  */
-export default function Palette({ collapsed, onToggle, onAddNode }: PaletteProps) {
+function PaletteImpl({ collapsed, onToggle, onAddNode }: PaletteProps) {
   // Acordeão exclusivo: só um grupo aberto por vez. null = todos fechados.
   const [openGroup, setOpenGroup] = useState<string | null>(
     PALETTE_GROUPS[1]?.id ?? null // começa em "Mensagens" aberto
@@ -110,6 +114,9 @@ export default function Palette({ collapsed, onToggle, onAddNode }: PaletteProps
     </aside>
   );
 }
+
+const Palette = memo(PaletteImpl);
+export default Palette;
 
 function PaletteCard({
   item,

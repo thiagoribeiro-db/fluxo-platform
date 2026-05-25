@@ -179,6 +179,7 @@ function PlaybackSession({
           onClick={onClose}
           className="p-2 rounded-full hover:bg-white/10 transition-colors"
           title="Fechar"
+          aria-label="Fechar Test Playground"
         >
           <X size={16} />
         </button>

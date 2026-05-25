@@ -114,6 +114,11 @@ export async function analyzeVoiceTone(
     throw new Error('ANTHROPIC_API_KEY não configurada');
   }
 
+  // Rate limit (10 análises/min por user)
+  const { checkIaRateLimit } = await import('@/lib/utils/rate-limit');
+  const limit = checkIaRateLimit(user.id, 'VOICE_TONE');
+  if (!limit.allowed) throw new Error(limit.message);
+
   const { profile, messages } = req;
   if (!messages || messages.length === 0) {
     return { suggestions: [], analyzedCount: 0, model: MODEL };

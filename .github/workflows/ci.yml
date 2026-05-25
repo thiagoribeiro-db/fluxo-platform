@@ -1,0 +1,83 @@
+# =============================================================================
+# CI — Fluxo Platform
+# =============================================================================
+# Roda em:
+#  - Pull requests pra `main`
+#  - Push direto em `main` (pra pegar regressão se alguém fizer commit direto)
+#
+# Jobs:
+#  - quality: type-check + lint + tests unitários (vitest)
+#  - build:   garante que o `next build` passa (sem deploy)
+#
+# Por que não rodar Playwright E2E aqui? Precisa de Supabase rodando, env vars,
+# etc. Mantemos pra rodar local/manual por enquanto. CI cobre os checks
+# determinísticos.
+# =============================================================================
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancela runs anteriores no mesmo branch quando há novo push (economiza CI minutes)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Type-check, lint e testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests (vitest)
+        run: npm test
+
+  build:
+    name: Build (next build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Build pode rodar em paralelo com quality — não depende dos checks acima
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Build precisa de env vars públicas pra não quebrar nos imports.
+      # Usamos valores DUMMY — não acessam serviços reais.
+      - name: Build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://dummy.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key
+          NEXT_PUBLIC_POSTHOG_KEY: phc_dummy
+          NEXT_PUBLIC_POSTHOG_HOST: https://us.i.posthog.com
+        run: npm run build

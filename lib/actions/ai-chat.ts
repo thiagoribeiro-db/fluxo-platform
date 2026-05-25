@@ -109,6 +109,11 @@ export async function askAI(req: ChatRequest): Promise<ChatResponse> {
     throw new Error('ANTHROPIC_API_KEY não configurada');
   }
 
+  // Rate limit (30 msg/min por user)
+  const { checkIaRateLimit } = await import('@/lib/utils/rate-limit');
+  const limit = checkIaRateLimit(user.id, 'AI_CHAT');
+  if (!limit.allowed) throw new Error(limit.message);
+
   // Monta a pergunta humana
   const flowSnapshot = summarizeNodes(req.nodes, req.edges);
   let userMessage: string;

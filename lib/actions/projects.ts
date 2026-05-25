@@ -5,6 +5,11 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import type { Project, ProjectState, ProjectStatus, ProjectVisibility } from '@/lib/types';
 import { logAuditEvent } from './audit';
+import {
+  UpdateProjectInput as UpdateProjectSchema,
+  ApplyTemplateInput as ApplyTemplateSchema,
+  formatZodError,
+} from '@/lib/schemas/actions';
 
 const EMPTY_STATE: ProjectState = {
   nodes: [],
@@ -289,6 +294,12 @@ export async function applyTemplate(
   /** Página alvo. Se omitido, usa `projects.active_page_id`. */
   pageId?: string
 ): Promise<void> {
+  // Valida input — templateName precisa ser um dos slugs conhecidos.
+  const parsed = ApplyTemplateSchema.safeParse({ projectId, templateName, pageId });
+  if (!parsed.success) {
+    throw new Error(`Input inválido: ${formatZodError(parsed.error).message}`);
+  }
+
   const supabase = createClient();
   const {
     data: { user },
@@ -442,9 +453,16 @@ export async function updateProject(
     estimated_hours?: number | null;
   }
 ) {
+  // Valida o patch com Zod — pega erros bobos (name vazio, status inválido,
+  // hours negativo) antes de tocar no banco.
+  const parsed = UpdateProjectSchema.safeParse(patch);
+  if (!parsed.success) {
+    throw new Error(`Input inválido: ${formatZodError(parsed.error).message}`);
+  }
+
   const supabase = createClient();
 
-  const { error } = await supabase.from('projects').update(patch).eq('id', id);
+  const { error } = await supabase.from('projects').update(parsed.data).eq('id', id);
   if (error) throw new Error(`Falha ao atualizar: ${error.message}`);
 
   // Audit log: registra mudança de status (alta sensibilidade pra governança)

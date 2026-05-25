@@ -70,6 +70,21 @@ export async function parseEscopoWithAI(input: ParseInput): Promise<ParseResult>
     throw new Error('Texto do escopo vazio — nada a interpretar.');
   }
 
+  // --- Rate limit por user (evita estouro de quota Anthropic)
+  // PARSE_FLOW = 5 calls/min — operação cara (15-120s por chamada)
+  {
+    const { createClient } = await import('@/lib/supabase/server');
+    const { checkIaRateLimit } = await import('@/lib/utils/rate-limit');
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const limit = checkIaRateLimit(user?.id, 'PARSE_FLOW');
+    if (!limit.allowed) {
+      throw new Error(limit.message);
+    }
+  }
+
   // Lê ANTHROPIC_API_KEY do env, com fallback que lê .env.local direto.
   //
   // Por quê o fallback? Em Windows, o Claude Code CLI (e algumas instalações

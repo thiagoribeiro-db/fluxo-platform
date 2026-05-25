@@ -2,6 +2,10 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import {
+  CreateCommentInput as CreateCommentSchema,
+  formatZodError,
+} from '@/lib/schemas/actions';
 
 export interface Comment {
   id: string;
@@ -57,6 +61,15 @@ interface CreateCommentInput {
  * Retorna o ID criado (o client refaz listComments).
  */
 export async function createComment(input: CreateCommentInput): Promise<string> {
+  // Validação Zod — falha em input malformado ANTES de tocar no Supabase.
+  // Mantém a assinatura antiga (throw) pra compat com callers existentes;
+  // migração pro padrão Result fica em fase futura.
+  const parsed = CreateCommentSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(`Input inválido: ${formatZodError(parsed.error).message}`);
+  }
+  const validated = parsed.data;
+
   const supabase = createClient();
   const {
     data: { user },
@@ -66,12 +79,12 @@ export async function createComment(input: CreateCommentInput): Promise<string> 
   const { data, error } = await supabase
     .from('comments')
     .insert({
-      project_id: input.projectId,
-      body: input.body,
-      node_id: input.nodeId ?? null,
-      position_x: input.positionX ?? null,
-      position_y: input.positionY ?? null,
-      parent_id: input.parentId ?? null,
+      project_id: validated.projectId,
+      body: validated.body,
+      node_id: validated.nodeId ?? null,
+      position_x: validated.positionX ?? null,
+      position_y: validated.positionY ?? null,
+      parent_id: validated.parentId ?? null,
       author_id: user.id,
     })
     .select('id')
@@ -81,7 +94,7 @@ export async function createComment(input: CreateCommentInput): Promise<string> 
     throw new Error(`Falha ao criar comentário: ${error?.message}`);
   }
 
-  revalidatePath(`/editor/${input.projectId}`);
+  revalidatePath(`/editor/${validated.projectId}`);
   return data.id as string;
 }
 

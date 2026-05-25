@@ -201,6 +201,9 @@ function FlowEditorInner({
 }: FlowEditorProps) {
   const isDemo = !projectId || projectId === 'demo';
   const isReadOnly = shareMode === 'view' || shareMode === 'comment';
+  // Em modo 'comment' o cliente PRECISA selecionar nodes pra ancorar
+  // comentários. Em 'view' a seleção fica bloqueada (read-only puro).
+  const isCommentMode = shareMode === 'comment';
   const isShared = !!shareMode;
   const isSharedEdit = shareMode === 'edit' && !!shareToken;
   // Loading overlay: mensagem custom (null = escondido)
@@ -1669,7 +1672,9 @@ function FlowEditorInner({
     if (isReadOnly || n.data?.locked) {
       out.draggable = false;
       out.deletable = false;
-      out.selectable = !isReadOnly;
+      // Em modo 'comment', mantém selecionável pra cliente ancorar comments.
+      // Em 'view', bloqueia (read-only puro). Locked sempre selecionável.
+      out.selectable = isCommentMode || !!n.data?.locked || !isReadOnly;
     }
     if (nodeIdsWithComments.has(n.id)) {
       out.style = {

@@ -23,6 +23,8 @@ export interface SharedProjectView {
   permission: SharePermission;
   expires_at: string | null;
   updated_at: string;
+  /** ID da página ativa do projeto (pra save em modo edit). */
+  active_page_id: string | null;
 }
 
 /**
@@ -160,6 +162,7 @@ export async function getSharedProject(
     permission: SharePermission;
     expires_at: string | null;
     updated_at: string;
+    active_page_id: string | null;
   };
 
   return {
@@ -170,5 +173,6 @@ export async function getSharedProject(
     permission: row.permission,
     expires_at: row.expires_at,
     updated_at: row.updated_at,
+    active_page_id: row.active_page_id,
   };
 }

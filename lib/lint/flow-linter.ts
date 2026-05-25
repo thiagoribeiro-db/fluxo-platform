@@ -513,9 +513,13 @@ function checkBrokenVariables(state: LintState, push: Pusher): void {
       const v = data[f];
       if (typeof v === 'string') allTexts.push(v);
     }
-    // Menus têm `options: string[]` — varrer cada uma também
-    if (n.type === 'menu' && Array.isArray(data.options)) {
-      for (const o of data.options as unknown[]) {
+    // Menus têm `options: string[]` — varrer cada uma também.
+    // `data.options` veio do `data` (Record<string, unknown>) — Array.isArray
+    // já garante runtime, mas TS não estreita pra unknown[]; iteramos com
+    // type-guard em cada item pra ficar safe sem casts.
+    const opts = data.options;
+    if (n.type === 'menu' && Array.isArray(opts)) {
+      for (const o of opts) {
         if (typeof o === 'string') allTexts.push(o);
       }
     }

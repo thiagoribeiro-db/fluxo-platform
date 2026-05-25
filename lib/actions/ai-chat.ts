@@ -140,11 +140,22 @@ export async function askAI(req: ChatRequest): Promise<ChatResponse> {
     .join('\n')
     .trim();
 
-  return {
+  // Valida output da IA antes de devolver — modelo às vezes retorna vazio
+  // ou estrutura estranha. Zod garante contrato.
+  const { ChatResponseSchema } = await import('@/lib/schemas/ai-outputs');
+  const payload = {
     answer,
     usage: {
       inputTokens: result.usage.input_tokens,
       outputTokens: result.usage.output_tokens,
     },
   };
+  const parsed = ChatResponseSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw new Error(
+      `IA retornou resposta inválida: ${parsed.error.issues.map((i) => i.message).join('; ')}`
+    );
+  }
+
+  return parsed.data;
 }

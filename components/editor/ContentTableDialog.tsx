@@ -259,8 +259,12 @@ export default function ContentTableDialog({
       { wch: 16 }, // campo
       { wch: 60 }, // valor (cresce com texto longo)
     ];
-    // Freeze do header
-    ws['!freeze'] = { xSplit: 0, ySplit: 1 } as unknown as undefined;
+    // Freeze do header — `!freeze` é uma prop documentada do xlsx mas
+    // não está nos types oficiais. Anotamos como Record<string, unknown>
+    // pra setar sem forçar o tipo do worksheet inteiro.
+    (ws as unknown as Record<string, { xSplit: number; ySplit: number }>)[
+      '!freeze'
+    ] = { xSplit: 0, ySplit: 1 };
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Conteúdo');
     XLSX.writeFile(wb, `conteudo-${Date.now()}.xlsx`);

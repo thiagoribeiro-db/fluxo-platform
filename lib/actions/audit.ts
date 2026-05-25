@@ -82,24 +82,20 @@ export async function listAuditEvents(
     return [];
   }
 
-  return (data ?? []).map((row) => {
-    const r = row as unknown as {
-      id: string;
-      project_id: string;
-      user_id: string | null;
-      action: AuditAction;
-      details: Record<string, unknown> | null;
-      created_at: string;
-      profiles: { display_name: string | null } | null;
-    };
+  return (data ?? []).map((row): AuditEvent => {
+    // Supabase devolve `data` como any[] quando o select tem join — em vez de
+    // `as unknown as Foo`, tipamos `row` como Record<string, unknown> e
+    // narrowing via runtime checks pra cada campo.
+    const r = row as Record<string, unknown>;
+    const profiles = r.profiles as { display_name: string | null } | null;
     return {
-      id: r.id,
-      project_id: r.project_id,
-      user_id: r.user_id,
-      action: r.action,
-      details: r.details,
-      created_at: r.created_at,
-      user_display_name: r.profiles?.display_name ?? null,
+      id: String(r.id),
+      project_id: String(r.project_id),
+      user_id: (r.user_id as string | null) ?? null,
+      action: r.action as AuditAction,
+      details: (r.details as Record<string, unknown> | null) ?? null,
+      created_at: String(r.created_at),
+      user_display_name: profiles?.display_name ?? null,
     };
   });
 }

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import FlowEditor from '@/components/editor/FlowEditor';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { createClient } from '@/lib/supabase/server';
 import { getProjectWithPages } from '@/lib/actions/projects';
 
@@ -13,7 +14,11 @@ export const dynamic = 'force-dynamic';
 export default async function EditorPage({ params }: EditorPageProps) {
   // /editor/demo continua funcionando sem auth (canvas com seed local)
   if (params.id === 'demo') {
-    return <FlowEditor projectId="demo" />;
+    return (
+      <ErrorBoundary fallbackTitle="Editor falhou em modo demo">
+        <FlowEditor projectId="demo" />
+      </ErrorBoundary>
+    );
   }
 
   const supabase = createClient();
@@ -55,18 +60,23 @@ export default async function EditorPage({ params }: EditorPageProps) {
     .single();
 
   return (
-    <FlowEditor
-      projectId={project.id}
-      projectName={project.name}
-      initialStatus={project.status ?? 'draft'}
-      initialState={activePage?.state ?? project.state}
-      pages={pages}
-      activePageId={activePage?.id ?? null}
-      currentUser={{
-        id: user.id,
-        email: user.email,
-        name: profile?.display_name ?? user.email?.split('@')[0],
-      }}
-    />
+    <ErrorBoundary
+      fallbackTitle="Editor falhou ao carregar"
+      fallbackHint="Tente recarregar a página. Se o erro persistir, volte ao dashboard e abra novamente."
+    >
+      <FlowEditor
+        projectId={project.id}
+        projectName={project.name}
+        initialStatus={project.status ?? 'draft'}
+        initialState={activePage?.state ?? project.state}
+        pages={pages}
+        activePageId={activePage?.id ?? null}
+        currentUser={{
+          id: user.id,
+          email: user.email,
+          name: profile?.display_name ?? user.email?.split('@')[0],
+        }}
+      />
+    </ErrorBoundary>
   );
 }

@@ -39,31 +39,39 @@ export interface FindOptions {
  * `replaceInNode` (deve cobrir os mesmos campos).
  */
 const SEARCHABLE_FIELDS: Record<string, string[]> = {
-  'bubble-bot': ['text'],
-  'bubble-user': ['text'],
-  'menu': ['header', 'footer'],
-  'btn-short': ['label', 'buttonText'],
-  'btn-long': ['label', 'buttonText'],
-  'direcionamento': ['label'],
-  'condicional': ['condition', 'trueLabel', 'falseLabel'],
-  'link': ['url', 'linkTitle', 'linkDescription'],
-  'midia-imagem-bot': ['caption', 'filename'],
-  'midia-imagem-user': ['caption', 'filename'],
-  'midia-documento-bot': ['caption', 'filename'],
-  'midia-documento-user': ['caption', 'filename'],
-  'midia-video-bot': ['caption', 'filename'],
-  'midia-video-user': ['caption', 'filename'],
-  'integracao-api': ['title'],
-  'integracao-planilha': ['title'],
-  'iag-entrada': ['title'],
-  'iag-reentrada': ['title'],
-  'iag-saida': ['title'],
-  'frame': ['title'],
+  // 'code' está em todos os tipos com ID semântico — permite buscar por "EN001",
+  // "S004" etc. direto. Replace ignora a coluna code via `REPLACE_BLOCKED`.
+  'bubble-bot': ['text', 'code'],
+  'bubble-user': ['text', 'code'],
+  'menu': ['header', 'footer', 'code'],
+  'btn-short': ['label', 'buttonText', 'code'],
+  'btn-long': ['label', 'buttonText', 'code'],
+  'direcionamento': ['label', 'code'],
+  'condicional': ['condition', 'trueLabel', 'falseLabel', 'code'],
+  'link': ['url', 'linkTitle', 'linkDescription', 'code'],
+  'midia-imagem-bot': ['caption', 'filename', 'code'],
+  'midia-imagem-user': ['caption', 'filename', 'code'],
+  'midia-documento-bot': ['caption', 'filename', 'code'],
+  'midia-documento-user': ['caption', 'filename', 'code'],
+  'midia-video-bot': ['caption', 'filename', 'code'],
+  'midia-video-user': ['caption', 'filename', 'code'],
+  'integracao-api': ['title', 'code'],
+  'integracao-planilha': ['title', 'code'],
+  'iag-entrada': ['title', 'code'],
+  'iag-reentrada': ['title', 'code'],
+  'iag-saida': ['title', 'code'],
+  'frame': ['title', 'frameId', 'prefix'],
   'tracking': ['label', 'trackingText', 'trackingSub'],
   'excecao': ['label', 'excecaoTitle', 'excecaoSub'],
   'entry-point': ['label'],
-  'atendimento-humano': ['label'],
+  'atendimento-humano': ['label', 'code'],
 };
+
+/**
+ * Campos que aparecem em SEARCHABLE_FIELDS pra BUSCA mas que NÃO devem ser
+ * substituídos pelo replace (perigosos — quebram lookups internos).
+ */
+const REPLACE_BLOCKED = new Set(['code', 'frameId', 'prefix']);
 
 function countOccurrences(haystack: string, query: string, matchCase: boolean): number {
   if (!query) return 0;
@@ -209,6 +217,9 @@ export function replaceInNodes(
     let nodeChanged = false;
 
     for (const field of fields) {
+      // Campos sensíveis (code, frameId, prefix) entram na busca mas não
+      // permitem substituição — evita quebrar lookups internos.
+      if (REPLACE_BLOCKED.has(field)) continue;
       const value = newData[field];
       if (typeof value === 'string' && value) {
         const count = countOccurrences(value, query, matchCase);

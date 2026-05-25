@@ -103,6 +103,7 @@ import { track } from '@/lib/analytics/posthog';
 import { useDialogStates } from './hooks/use-dialog-states';
 import { useFlowOperations } from './hooks/use-flow-operations';
 import { useSkillOperations } from './hooks/use-skill-operations';
+import { useLayoutEngine } from './hooks/use-layout-engine';
 import { useUndoHistory } from './hooks/use-undo-history';
 import { useAutoSave } from './hooks/use-auto-save';
 import { usePages } from './hooks/use-pages';
@@ -1073,18 +1074,16 @@ function FlowEditorInner({
     [setEdges, pushHistory]
   );
 
-  const handleReorganizeCodes = useCallback(async () => {
-    const ok = await confirmDialog({
-      title: 'Reorganizar IDs?',
-      message:
-        'Isso vai renumerar todos os blocos em sequência pela posição vertical (de cima pra baixo).\n\n⚠️ Códigos antigos serão perdidos. Use com cuidado se você já referenciou esses IDs em outros lugares.',
-      confirmText: 'Reorganizar',
-      variant: 'danger',
-    });
-    if (!ok) return;
-    pushHistory();
-    setNodes((prev) => reorganizeCodes(prev));
-  }, [setNodes, pushHistory]);
+  // Layout engine — organize + reorganize codes extraídos pra
+  // `hooks/use-layout-engine.ts`. Operações pesadas e isoladas.
+  const { handleOrganizeLayout, handleReorganizeCodes } = useLayoutEngine({
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+    pushHistory,
+    getInternalNode,
+  });
 
   // Abre o modal de template (upload de arquivo, paste, ou exemplo)
   const handleOpenTemplateDialog = useCallback(() => {
@@ -1126,55 +1125,7 @@ function FlowEditorInner({
     setSelectedIds([]);
   }, [setNodes, setEdges, pushHistory]);
 
-  const handleOrganizeLayout = useCallback(
-    async (skipConfirm = false) => {
-      if (!skipConfirm) {
-        const ok = await confirmDialog({
-          title: 'Organizar layout?',
-          message:
-            'Os componentes principais (bubbles, menus, mídias, integrações, IAG) serão alinhados em coluna vertical à direita de cada frame.\n\nOs frames serão redimensionados pra caber exatamente o conteúdo. Trackings e exceções movem junto.\n\nFrames sem marcador de Início ganham um automaticamente.',
-          confirmText: 'Organizar',
-        });
-        if (!ok) return;
-      }
-
-      pushHistory();
-      track('organize_layout');
-
-      // Callback: usa dimensões REAIS medidas pelo React Flow (não aproximadas)
-      const getMeasured = (id: string) => {
-        const internal = getInternalNode(id);
-        const w = internal?.measured?.width;
-        const h = internal?.measured?.height;
-        if (typeof w === 'number' && typeof h === 'number' && w > 0 && h > 0) {
-          return { w, h };
-        }
-        return undefined;
-      };
-
-      // Conserta o grafo ANTES do organize: conecta btn-shorts órfãos ao
-      // seu main destino e remove edges direct main→main redundantes. O
-      // organize precisa ver o grafo corrigido pra calcular branches/merges.
-      const cleanedEdges = repairMainFlowEdges(edges, nodes);
-
-      // Organiza o layout
-      const organized = organizeLayoutByFrame(nodes, cleanedEdges, getMeasured);
-
-      // Auto-fix: cria entry-point pros frames que não têm
-      const entryResult = ensureEntryPointsForFrames(organized, cleanedEdges);
-
-      setNodes(entryResult.nodes);
-      setEdges(entryResult.edges);
-
-      if (entryResult.created > 0) {
-        toast({
-          level: 'success',
-          message: `${entryResult.created} marcador${entryResult.created === 1 ? '' : 'es'} de "Início" adicionado${entryResult.created === 1 ? '' : 's'} automaticamente`,
-        });
-      }
-    },
-    [setNodes, setEdges, edges, nodes, getInternalNode, pushHistory]
-  );
+  // handleOrganizeLayout: extraído pra useLayoutEngine acima.
 
   // Atalhos globais — Cmd+K (palette), Cmd+F (find), Cmd+H (replace)
   useEffect(() => {

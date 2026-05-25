@@ -34,6 +34,22 @@ create table if not exists public.component_specs (
 create index if not exists idx_specs_org on public.component_specs(organization_id, spec_id);
 
 -- ---- 2. Trigger updated_at --------------------------------------------------
+-- Função genérica `update_updated_at_column` — escreve `now()` em `updated_at`
+-- antes de cada UPDATE. Definida aqui (em vez de migration separada) pra
+-- garantir que projetos novos do Supabase, que não vêm com essa função
+-- automaticamente, consigam aplicar a migration sem erro
+-- "function public.update_updated_at_column() does not exist".
+-- IDEMPOTENTE — `create or replace` é safe em re-runs.
+create or replace function public.update_updated_at_column()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
 drop trigger if exists trg_specs_updated_at on public.component_specs;
 create trigger trg_specs_updated_at before update on public.component_specs
   for each row execute function public.update_updated_at_column();

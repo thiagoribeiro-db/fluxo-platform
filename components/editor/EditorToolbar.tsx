@@ -157,6 +157,35 @@ export default function EditorToolbar(props: EditorToolbarProps) {
         />
       )}
 
+      {/* Comentários — standalone (alta frequência de uso) */}
+      <IconButton
+        icon={<MessageSquare size={15} />}
+        label="Comentários"
+        active={commentsOpen}
+        badge={commentsCount > 0 ? commentsCount : undefined}
+        onClick={onToggleComments}
+        title="Comentários e revisões do fluxo"
+      />
+
+      {/* Problemas (linter) — standalone com tone conforme severity */}
+      <IconButton
+        icon={<AlertCircle size={15} />}
+        label="Problemas"
+        active={problemsOpen}
+        badge={problemsCount > 0 ? problemsCount : undefined}
+        tone={
+          problemsWorstSeverity === 'error'
+            ? 'danger'
+            : problemsWorstSeverity === 'warning'
+              ? 'amber'
+              : problemsWorstSeverity === 'info'
+                ? 'primary'
+                : 'default'
+        }
+        onClick={onToggleProblems}
+        title="Problemas detectados pelo linter (textos vazios, variáveis quebradas, loops…)"
+      />
+
       <Divider />
 
       {/* Editar ▾ */}
@@ -254,30 +283,6 @@ export default function EditorToolbar(props: EditorToolbarProps) {
                 },
               ]
             : []),
-          {
-            key: 'comments',
-            icon: <MessageSquare size={15} />,
-            label: 'Comentários',
-            active: commentsOpen,
-            badge: commentsCount > 0 ? commentsCount : undefined,
-            onClick: onToggleComments,
-          },
-          {
-            key: 'problems',
-            icon: <AlertCircle size={15} />,
-            label: 'Problemas',
-            active: problemsOpen,
-            badge: problemsCount > 0 ? problemsCount : undefined,
-            tone:
-              problemsWorstSeverity === 'error'
-                ? ('danger' as const)
-                : problemsWorstSeverity === 'warning'
-                  ? ('amber' as const)
-                  : problemsWorstSeverity === 'info'
-                    ? ('primary' as const)
-                    : undefined,
-            onClick: onToggleProblems,
-          },
           {
             key: 'playback',
             icon: <Play size={15} />,

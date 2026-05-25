@@ -56,6 +56,8 @@ export type FluxoEvent =
   | 'organize_layout'
   | 'shared_link_created'
   | 'skill_inserted'
+  | 'user_skill_saved'
+  | 'user_skill_inserted'
   | 'voice_tone_analyzed'
   | 'voice_tone_accepted'
   | 'voice_tone_rejected';

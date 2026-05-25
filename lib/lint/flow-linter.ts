@@ -20,6 +20,7 @@
  */
 import type { Edge } from '@xyflow/react';
 import type { FluxoNode } from '@/lib/types';
+import { extractVariables } from '@/lib/variables/extract-variables';
 
 export type ProblemSeverity = 'error' | 'warning' | 'info';
 
@@ -37,7 +38,13 @@ export type ProblemCode =
   | 'entry-point-no-target'
   | 'condicional-empty'
   | 'link-no-url'
-  | 'unreachable-node';
+  | 'unreachable-node'
+  | 'broken-variable'
+  | 'btn-short-too-long'
+  | 'btn-long-too-long'
+  | 'menu-header-too-long'
+  | 'menu-option-too-long'
+  | 'infinite-loop';
 
 export interface Problem {
   /** Identificador estável do tipo de problema (pra filtros/agrupamento). */
@@ -471,6 +478,246 @@ function checkUnreachable(state: LintState, push: Pusher): void {
   }
 }
 
+// =============================================================================
+// Variáveis quebradas: {{nome}} usadas que não foram declaradas
+// =============================================================================
+const VAR_REGEX = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
+
+function checkBrokenVariables(state: LintState, push: Pusher): void {
+  // 1. Variáveis declaradas — pega da fonte canônica (slug normalizado).
+  const declaredSlugs = new Set(
+    extractVariables(state.nodes).map((v) => v.name)
+  );
+
+  // 2. Campos textuais a varrer por node-type. Inclui paths simples e arrays.
+  const TEXT_FIELDS: Record<string, string[]> = {
+    'bubble-bot': ['text'],
+    'bubble-user': ['text'],
+    'menu': ['header', 'footer'],
+    'btn-short': ['label'],
+    'btn-long': ['label'],
+    'link': ['linkTitle', 'description'],
+    'condicional': ['condition'],
+    'integracao-api': ['title', 'description'],
+    'iag-entrada': ['prompt'],
+    'iag-saida': ['title'],
+  };
+
+  for (const n of state.nodes) {
+    if (!n.type || !TEXT_FIELDS[n.type]) continue;
+    const fields = TEXT_FIELDS[n.type];
+    const reported = new Set<string>();
+    const data = (n.data ?? {}) as Record<string, unknown>;
+    const allTexts: string[] = [];
+    for (const f of fields) {
+      const v = data[f];
+      if (typeof v === 'string') allTexts.push(v);
+    }
+    // Menus têm `options: string[]` — varrer cada uma também
+    if (n.type === 'menu' && Array.isArray(data.options)) {
+      for (const o of data.options as unknown[]) {
+        if (typeof o === 'string') allTexts.push(o);
+      }
+    }
+
+    for (const text of allTexts) {
+      let m: RegExpExecArray | null;
+      VAR_REGEX.lastIndex = 0;
+      while ((m = VAR_REGEX.exec(text)) !== null) {
+        const raw = m[1];
+        const slug = raw.toLowerCase();
+        if (declaredSlugs.has(slug)) continue;
+        if (reported.has(slug)) continue;
+        reported.add(slug);
+        push({
+          code: 'broken-variable',
+          severity: 'warning',
+          nodeId: n.id,
+          message: `Variável \`{{${raw}}}\` usada mas não declarada no fluxo`,
+          hint: 'Crie um tracking input/output, IAG saída, ou bubble-user com esse nome — ou ajuste a referência.',
+        });
+      }
+    }
+  }
+}
+
+// =============================================================================
+// Pré-validação Blip: limites de chars/items que a plataforma impõe
+// =============================================================================
+// Limites baseados na documentação Blip + UX WhatsApp Business:
+//   - btn-short label: até 20 chars (botão lista)
+//   - btn-long label:  até 72 chars (texto livre/long)
+//   - menu header:     até 60 chars (cabeçalho da lista interativa)
+//   - menu option:     até 24 chars (limite do título de cada item de lista)
+const BLIP_LIMITS = {
+  btnShort: 20,
+  btnLong: 72,
+  menuHeader: 60,
+  menuOption: 24,
+};
+
+function checkBlipLimits(state: LintState, push: Pusher): void {
+  for (const n of state.nodes) {
+    if (n.type === 'btn-short') {
+      const label = (n.data?.label as string | undefined)?.trim() ?? '';
+      if (label.length > BLIP_LIMITS.btnShort) {
+        push({
+          code: 'btn-short-too-long',
+          severity: 'warning',
+          nodeId: n.id,
+          message: `Botão curto com ${label.length} chars (limite ${BLIP_LIMITS.btnShort})`,
+          hint: 'Encurte o texto ou troque pra "Botão longo" se precisar de mais espaço.',
+        });
+      }
+    } else if (n.type === 'btn-long') {
+      const label = (n.data?.label as string | undefined)?.trim() ?? '';
+      if (label.length > BLIP_LIMITS.btnLong) {
+        push({
+          code: 'btn-long-too-long',
+          severity: 'warning',
+          nodeId: n.id,
+          message: `Botão longo com ${label.length} chars (limite ${BLIP_LIMITS.btnLong})`,
+          hint: 'WhatsApp trunca textos longos. Reduza pra caber.',
+        });
+      }
+    } else if (n.type === 'menu') {
+      const header = (n.data?.header as string | undefined)?.trim() ?? '';
+      if (header.length > BLIP_LIMITS.menuHeader) {
+        push({
+          code: 'menu-header-too-long',
+          severity: 'warning',
+          nodeId: n.id,
+          message: `Header do menu com ${header.length} chars (limite ${BLIP_LIMITS.menuHeader})`,
+          hint: 'Mova parte do texto pro bubble-bot anterior, deixe o header como prompt curto.',
+        });
+      }
+      const options = (n.data?.options as string[] | undefined) ?? [];
+      for (let i = 0; i < options.length; i++) {
+        const opt = options[i]?.trim() ?? '';
+        if (opt.length > BLIP_LIMITS.menuOption) {
+          push({
+            code: 'menu-option-too-long',
+            severity: 'warning',
+            nodeId: n.id,
+            message: `Opção #${i + 1} do menu com ${opt.length} chars (limite ${BLIP_LIMITS.menuOption})`,
+            hint: 'WhatsApp lista trunca títulos longos. Encurte o texto da opção.',
+          });
+        }
+      }
+    }
+  }
+}
+
+// =============================================================================
+// Loops infinitos: ciclos no grafo onde NENHUM node é bubble-user
+// (bubble-user pausa esperando o usuário — quebra naturalmente o loop).
+// =============================================================================
+function checkInfiniteLoops(state: LintState, push: Pusher): void {
+  // Constrói lista de adjacência (saídas).
+  const adj = new Map<string, string[]>();
+  for (const e of state.edges) {
+    if (!adj.has(e.source)) adj.set(e.source, []);
+    adj.get(e.source)!.push(e.target);
+  }
+
+  // Tarjan SCC — encontra strongly connected components.
+  // Componente com size > 1 OU self-loop = ciclo.
+  let idx = 0;
+  const index = new Map<string, number>();
+  const lowlink = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  const sccs: string[][] = [];
+
+  // Iterativa pra evitar stack overflow em grafos grandes.
+  function strongConnect(v0: string) {
+    const work: Array<{ v: string; iter: number }> = [{ v: v0, iter: 0 }];
+    while (work.length > 0) {
+      const top = work[work.length - 1];
+      const { v, iter } = top;
+      if (iter === 0) {
+        index.set(v, idx);
+        lowlink.set(v, idx);
+        idx++;
+        stack.push(v);
+        onStack.add(v);
+      }
+      const neighbors = adj.get(v) ?? [];
+      if (iter < neighbors.length) {
+        top.iter++;
+        const w = neighbors[iter];
+        if (!index.has(w)) {
+          work.push({ v: w, iter: 0 });
+        } else if (onStack.has(w)) {
+          lowlink.set(v, Math.min(lowlink.get(v)!, index.get(w)!));
+        }
+      } else {
+        if (lowlink.get(v) === index.get(v)) {
+          const comp: string[] = [];
+          let w: string;
+          do {
+            w = stack.pop()!;
+            onStack.delete(w);
+            comp.push(w);
+          } while (w !== v);
+          sccs.push(comp);
+        }
+        work.pop();
+        if (work.length > 0) {
+          const parent = work[work.length - 1].v;
+          lowlink.set(
+            parent,
+            Math.min(lowlink.get(parent)!, lowlink.get(v)!)
+          );
+        }
+      }
+    }
+  }
+
+  for (const n of state.nodes) {
+    if (!index.has(n.id) && adj.has(n.id)) {
+      strongConnect(n.id);
+    }
+  }
+
+  // Filtra SCCs que são ciclos genuínos e SEM bubble-user dentro.
+  for (const comp of sccs) {
+    const isCycle =
+      comp.length > 1 ||
+      (comp.length === 1 && (adj.get(comp[0]) ?? []).includes(comp[0]));
+    if (!isCycle) continue;
+
+    // Se algum node do ciclo é bubble-user, o loop pausa pro user — OK.
+    const hasUserPause = comp.some(
+      (id) => state.nodeById.get(id)?.type === 'bubble-user'
+    );
+    if (hasUserPause) continue;
+
+    // Reporta no primeiro node do ciclo (com code se houver).
+    const sortedByCode = comp
+      .map((id) => state.nodeById.get(id))
+      .filter((n): n is FluxoNode => !!n)
+      .sort((a, b) => {
+        const ca = (a.data?.code as string | undefined) ?? '';
+        const cb = (b.data?.code as string | undefined) ?? '';
+        return ca.localeCompare(cb);
+      });
+    const pivot = sortedByCode[0];
+    if (!pivot) continue;
+    const otherCodes = sortedByCode
+      .slice(1)
+      .map((n) => (n.data?.code as string | undefined) ?? n.id.slice(0, 6))
+      .join(' → ');
+    push({
+      code: 'infinite-loop',
+      severity: 'warning',
+      nodeId: pivot.id,
+      message: `Loop sem saída envolvendo ${comp.length} bloco(s)${otherCodes ? `: ${otherCodes}` : ''}`,
+      hint: 'Adicione um bubble-user (pausa pro usuário) ou um direcionamento que saia do ciclo.',
+    });
+  }
+}
+
 const ALL_CHECKS: Array<(state: LintState, push: Pusher) => void> = [
   checkEmptyText,
   checkMenu,
@@ -482,6 +729,9 @@ const ALL_CHECKS: Array<(state: LintState, push: Pusher) => void> = [
   checkEntryPointNoTarget,
   checkCondicional,
   checkLink,
+  checkBrokenVariables,
+  checkBlipLimits,
+  checkInfiniteLoops,
   checkUnreachable, // por último — pode ler `state.reachable` se quiser cachear
 ];
 

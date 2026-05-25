@@ -34,7 +34,8 @@ export type DialogKey =
   | 'skills'
   | 'outline'
   | 'contentTable'
-  | 'voiceTone';
+  | 'voiceTone'
+  | 'bulkEdit';
 
 export interface DialogControls {
   /** Estado atual (open=true / closed=false). */
@@ -68,6 +69,7 @@ const DIALOG_KEYS: DialogKey[] = [
   'outline',
   'contentTable',
   'voiceTone',
+  'bulkEdit',
 ];
 
 /**

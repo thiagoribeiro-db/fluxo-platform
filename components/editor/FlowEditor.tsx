@@ -36,8 +36,10 @@ import {
   reorganizeCodes,
   organizeLayoutByFrame,
   repairMainFlowEdges,
+  getNodeBox,
 } from '@/lib/components/nodes/helpers';
 import { ensureEntryPointsForFrames } from '@/lib/components/nodes/ensure-entry-points';
+import { alignNodes, type AlignOp } from '@/lib/components/nodes/align';
 import {
   getPositionBelow,
   getRelativePositionLeft,
@@ -63,6 +65,7 @@ import WelcomeTour, { startTour } from './WelcomeTour';
 import type { Skill } from '@/lib/skills';
 import PresenceAvatars from './PresenceAvatars';
 import PresenceCursors from './PresenceCursors';
+import { CanvasContextMenu, type ContextMenuAction } from './CanvasContextMenu';
 import { useRealtimePresence } from '@/lib/realtime/use-realtime-presence';
 import HelperLines from './HelperLines';
 import SidebarHeader from './SidebarHeader';
@@ -92,6 +95,7 @@ const VoiceTonePanel = dynamic(() => import('./VoiceTonePanel'), { ssr: false, l
 const PlaybackPanel = dynamic(() => import('./PlaybackPanel'), { ssr: false, loading: () => null });
 const ProblemsPanel = dynamic(() => import('./ProblemsPanel'), { ssr: false, loading: () => null });
 const VersionsPanel = dynamic(() => import('./VersionsPanel'), { ssr: false, loading: () => null });
+const BulkEditDialog = dynamic(() => import('./BulkEditDialog'), { ssr: false, loading: () => null });
 import { useFlowLint } from '@/lib/lint/use-flow-lint';
 import type { CommandContext, CommandFrame } from '@/lib/commands/registry';
 import { track } from '@/lib/analytics/posthog';
@@ -101,7 +105,7 @@ import { useAutoSave } from './hooks/use-auto-save';
 import { usePages } from './hooks/use-pages';
 import { listComments, type Comment } from '@/lib/actions/comments';
 import { handleError, toast } from '@/lib/utils/errors';
-import { confirmDialog } from '@/lib/utils/dialog';
+import { confirmDialog, promptDialog } from '@/lib/utils/dialog';
 
 // ---------- SEED DEMO (usado quando projectId === 'demo') ----------
 const DEMO_NODES: FluxoNode[] = [
@@ -287,6 +291,13 @@ function FlowEditorInner({
   const [comments, setComments] = useState<Comment[]>([]);
   // Modo de seleção retangular: panOnDrag false, selectionOnDrag true
   const [selectMode, setSelectMode] = useState(false);
+
+  // Estado do menu contextual (right-click). `targetId === null` = pane vazio.
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    targetId: string | null;
+  } | null>(null);
 
   // Undo history — extraído em hook (components/editor/hooks/use-undo-history.ts)
   const { pushHistory, handleUndo } = useUndoHistory({
@@ -578,7 +589,14 @@ function FlowEditorInner({
                 type: 'tracking',
                 parentId: refNode.id,
                 position: getRelativePositionLeft(stackIdx),
-                data: { label: `${refName} input` },
+                // `createdForUserId` marca o tracking como gerado AUTOMATICAMENTE
+                // junto com o bubble-user `id`. Quando o user é deletado, o
+                // tracking_input perde sentido — o handler deleteSelected
+                // detecta esse vínculo e remove em cascata.
+                data: {
+                  label: `${refName} input`,
+                  createdForUserId: id,
+                },
               },
             ];
           }
@@ -713,37 +731,172 @@ function FlowEditorInner({
     [selectedId, setNodes, pushHistory]
   );
 
+  // Duplica os nodes selecionados (1 ou N) com offset fixo (40, 40).
+  // - Mantém geometria relativa entre clones (offset aplicado uniformemente).
+  // - Clona edges internas (source E target ambos no grupo selecionado).
+  // - Preserva parentId entre clones quando o parent também foi duplicado.
+  // - Regenera `code` por prefixo (cada clone numera a partir do estado já
+  //   incluindo os clones anteriores na mesma operação, pra evitar colisão).
+  // - Limpa `createdForUserId` no clone (era vínculo do tracking original).
   const duplicateNode = useCallback(() => {
-    if (!selectedId) return;
-    const orig = nodes.find((n) => n.id === selectedId);
-    if (!orig || !orig.type) return;
+    if (selectedIds.length === 0) return;
+    const origs = selectedIds
+      .map((id) => nodes.find((n) => n.id === id))
+      .filter((n): n is NonNullable<typeof n> => !!n && !!n.type);
+    if (origs.length === 0) return;
+
     pushHistory();
-    const newId = `${orig.type}-${nanoid(6)}`;
-    const newPosition = {
-      x: orig.position.x + 40,
-      y: orig.position.y + 40,
-    };
-    const containingFrame = findContainingFrameAt(
-      newPosition.x,
-      newPosition.y,
-      nodes
-    );
-    const prefix = resolveFramePrefix(containingFrame);
-    const code =
-      orig.type === 'frame' ? prefix : generateNextCodeForPrefix(prefix, nodes);
-    setNodes((prev) => [
-      ...prev,
-      {
+
+    const OFFSET = 40;
+    // Mapa: id antigo → id novo (pra reescrever parentId + edges).
+    const idMap = new Map<string, string>();
+    for (const o of origs) idMap.set(o.id, `${o.type}-${nanoid(6)}`);
+
+    // Acumula nodes incluindo os já clonados — `generateNextCodeForPrefix`
+    // precisa enxergar os clones anteriores pra não repetir code.
+    let acc = [...nodes];
+    const clones: typeof nodes = [];
+    for (const orig of origs) {
+      const newId = idMap.get(orig.id)!;
+      const newPosition = {
+        x: orig.position.x + OFFSET,
+        y: orig.position.y + OFFSET,
+      };
+      const containingFrame = findContainingFrameAt(
+        newPosition.x,
+        newPosition.y,
+        acc
+      );
+      const prefix = resolveFramePrefix(containingFrame);
+      const code =
+        orig.type === 'frame' ? prefix : generateNextCodeForPrefix(prefix, acc);
+      // Se o parent também foi duplicado, aponta pro novo parent.
+      const newParentId =
+        orig.parentId && idMap.has(orig.parentId)
+          ? idMap.get(orig.parentId)
+          : orig.parentId;
+      // Tipo do node — sem o `createdForUserId` (vínculo do original).
+      const origData = (orig.data ?? {}) as Record<string, unknown>;
+      const { createdForUserId: _drop, ...restData } = origData;
+      void _drop;
+      const clone = {
         ...orig,
         id: newId,
         position: newPosition,
         selected: true,
-        data: { ...orig.data, code },
+        parentId: newParentId,
+        data: { ...restData, code },
+      };
+      clones.push(clone);
+      acc = [...acc, clone];
+    }
+
+    // Clona edges internas (source E target ambos no grupo).
+    const internalEdges = edges
+      .filter((e) => idMap.has(e.source) && idMap.has(e.target))
+      .map((e) => ({
+        ...e,
+        id: `e-${nanoid(6)}`,
+        source: idMap.get(e.source)!,
+        target: idMap.get(e.target)!,
+      }));
+
+    setNodes((prev) => [...prev, ...clones]);
+    if (internalEdges.length > 0) {
+      setEdges((prev) => [...prev, ...internalEdges]);
+    }
+
+    const newIds = Array.from(idMap.values());
+    setSelectedIds(newIds);
+    setLastAddedId(newIds[newIds.length - 1] ?? null);
+  }, [selectedIds, nodes, edges, setNodes, setEdges, pushHistory]);
+
+  // Cmd+G: agrupa os nodes selecionados num frame novo. O frame envolve a
+  // bbox absoluta dos selecionados com PADDING e fica zIndex 0 (atrás).
+  // Não muda parentId dos selecionados — mains seguem position absoluta
+  // dentro da bbox (igual ao resto do projeto). Frames pré-existentes na
+  // seleção são ignorados (não agrupamos frame em frame).
+  const groupSelectedInFrame = useCallback(() => {
+    const targets = selectedIds
+      .map((id) => nodes.find((n) => n.id === id))
+      .filter((n): n is NonNullable<typeof n> => !!n && n.type !== 'frame');
+    if (targets.length < 1) {
+      toast({
+        level: 'info',
+        message: 'Selecione pelo menos um bloco (não-frame) pra agrupar.',
+      });
+      return;
+    }
+
+    // Calcula bbox ABSOLUTA. Pra child (com parentId), soma position do parent.
+    const absBox = (n: FluxoNode) => {
+      const local = getNodeBox(n);
+      let ax = local.x;
+      let ay = local.y;
+      let cur = n;
+      while (cur.parentId) {
+        const p = nodes.find((x) => x.id === cur.parentId);
+        if (!p) break;
+        ax += p.position.x;
+        ay += p.position.y;
+        cur = p;
+      }
+      return { x: ax, y: ay, w: local.w, h: local.h };
+    };
+
+    const boxes = targets.map(absBox);
+    const minX = Math.min(...boxes.map((b) => b.x));
+    const minY = Math.min(...boxes.map((b) => b.y));
+    const maxX = Math.max(...boxes.map((b) => b.x + b.w));
+    const maxY = Math.max(...boxes.map((b) => b.y + b.h));
+
+    const PADDING_X = 40;
+    const PADDING_TOP = 64; // espaço pro título do frame
+    const PADDING_BOTTOM = 40;
+
+    pushHistory();
+
+    const frameId = `frame-${nanoid(6)}`;
+    const frameSlug = `grupo-${nanoid(4)}`;
+    const newFrame: FluxoNode = {
+      id: frameId,
+      type: 'frame',
+      position: { x: minX - PADDING_X, y: minY - PADDING_TOP },
+      zIndex: 0,
+      data: {
+        title: 'Grupo',
+        frameId: frameSlug,
+        width: maxX - minX + 2 * PADDING_X,
+        height: maxY - minY + PADDING_TOP + PADDING_BOTTOM,
       },
-    ]);
-    setSelectedId(newId);
-    setLastAddedId(newId);
-  }, [selectedId, nodes, setNodes, setSelectedId, pushHistory]);
+    };
+
+    setNodes((prev) => [newFrame, ...prev]);
+    setSelectedIds([frameId]);
+    setLastAddedId(frameId);
+
+    toast({
+      level: 'success',
+      message: `Frame "Grupo" criado englobando ${targets.length} bloco(s).`,
+    });
+  }, [selectedIds, nodes, setNodes, pushHistory]);
+
+  // Aplica align/distribute nos selecionados. Função pura em
+  // `lib/components/nodes/align.ts`; aqui só plugamos history + state.
+  const alignSelected = useCallback(
+    (op: AlignOp) => {
+      if (selectedIds.length < 2) {
+        toast({
+          level: 'info',
+          message: 'Selecione 2+ blocos pra alinhar (3+ pra distribuir).',
+        });
+        return;
+      }
+      pushHistory();
+      setNodes((prev) => alignNodes(prev, selectedIds, op));
+    },
+    [selectedIds, setNodes, pushHistory]
+  );
 
   const deleteSelected = useCallback(() => {
     if (selectedIds.length === 0) return;
@@ -768,6 +921,19 @@ function FlowEditorInner({
     for (const n of nodes) {
       if (n.parentId && toDelete.has(n.parentId)) {
         toDelete.add(n.id);
+      }
+    }
+    // Cascade: tracking inputs criados automaticamente junto com um
+    // bubble-user (marca `createdForUserId`) saem juntos. A existência
+    // do tracking de input depende do bubble-user que o originou —
+    // sem o user, o input perde sentido.
+    for (const n of nodes) {
+      if (n.type === 'tracking') {
+        const createdFor = (n.data as Record<string, unknown> | undefined)
+          ?.createdForUserId as string | undefined;
+        if (createdFor && toDelete.has(createdFor)) {
+          toDelete.add(n.id);
+        }
       }
     }
     setNodes((prev) => prev.filter((n) => !toDelete.has(n.id)));
@@ -877,9 +1043,15 @@ function FlowEditorInner({
       } else if (e.key === 'Escape') {
         setSelectedIds([]);
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
-        if (selectedId) {
+        if (selectedIds.length > 0) {
           e.preventDefault();
           duplicateNode();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+        // Cmd+G: agrupa selecionados num frame novo
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          groupSelectedInFrame();
         }
       } else if (e.key === 'h' || e.key === 'H') {
         // Atalho H: modo Mover (pan canvas)
@@ -891,7 +1063,15 @@ function FlowEditorInner({
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedId, selectedIds, nodes, deleteSelected, duplicateNode, handleUndo]);
+  }, [
+    selectedId,
+    selectedIds,
+    nodes,
+    deleteSelected,
+    duplicateNode,
+    groupSelectedInFrame,
+    handleUndo,
+  ]);
 
   // =========================================================================
   // Drag-and-drop da paleta
@@ -1195,6 +1375,136 @@ function FlowEditorInner({
     ]
   );
 
+  // Salva os blocos selecionados como skill customizada na biblioteca do
+  // usuário (localStorage). Inclui children (parentId em selecionados) e
+  // edges internas. Pede nome/emoji via prompt dialog.
+  const handleSaveSelectionAsSkill = useCallback(async () => {
+    if (selectedIds.length === 0) {
+      toast({
+        level: 'warn',
+        message: 'Selecione 1+ bloco(s) no canvas pra salvar como skill.',
+      });
+      return;
+    }
+    const { extractSubgraph, createUserSkill } = await import(
+      '@/lib/skills/user-library'
+    );
+    const subgraph = extractSubgraph(nodes, edges, selectedIds);
+    if (subgraph.nodes.length === 0) {
+      toast({ level: 'warn', message: 'Nada selecionado pra salvar.' });
+      return;
+    }
+    const name = await promptDialog({
+      title: 'Salvar como skill',
+      message: `Salvando ${subgraph.nodes.length} bloco(s) e ${subgraph.edges.length} conexão(ões). Digite o nome:`,
+      placeholder: 'Ex: Coleta de CPF + nome',
+      defaultValue: '',
+    });
+    if (!name) return;
+    const skill = createUserSkill({
+      name,
+      description: `${subgraph.nodes.length} nós · ${subgraph.edges.length} conexões`,
+      emoji: '🧩',
+      nodes: subgraph.nodes,
+      edges: subgraph.edges,
+    });
+    toast({
+      level: 'success',
+      message: `Skill "${skill.name}" salva na sua biblioteca.`,
+    });
+    track('user_skill_saved', {
+      nodeCount: subgraph.nodes.length,
+      edgeCount: subgraph.edges.length,
+    });
+  }, [selectedIds, nodes, edges]);
+
+  // Insere skill customizada — clona nodes com novos IDs, remapeia parentId
+  // e edges. Posiciona com offset baseado no canto superior esquerdo dos
+  // nodes salvos pra preservar geometria relativa interna.
+  const handleInsertUserSkill = useCallback(
+    async (skill: { nodes: FluxoNode[]; edges: Edge[]; name: string }) => {
+      pushHistory();
+      track('user_skill_inserted', { skillName: skill.name });
+
+      // Calcula bbox original pra subtrair → todas posições viram relativas
+      // ao top-left da skill.
+      const topLevel = skill.nodes.filter((n) => !n.parentId);
+      if (topLevel.length === 0) {
+        toast({ level: 'error', message: 'Skill sem nodes top-level.' });
+        return;
+      }
+      const minX = Math.min(...topLevel.map((n) => n.position.x));
+      const minY = Math.min(...topLevel.map((n) => n.position.y));
+
+      // Origem no canvas: direita do conteúdo existente, igual ao handleInsertSkill
+      let origin = { x: 60, y: 40 };
+      const existingTopLevel = nodes.filter((n) => !n.parentId);
+      if (existingTopLevel.length > 0) {
+        const maxX = Math.max(
+          ...existingTopLevel.map((n) => {
+            const w =
+              n.measured?.width ??
+              (n.data?.width as number | undefined) ??
+              APPROX_WIDTH_BY_TYPE[n.type as FluxoNodeType] ??
+              240;
+            return n.position.x + w;
+          })
+        );
+        const yTop = Math.min(...existingTopLevel.map((n) => n.position.y));
+        origin = { x: maxX + 200, y: yTop };
+      }
+
+      // Map de IDs antigos → novos
+      const idMap = new Map<string, string>();
+      for (const n of skill.nodes) {
+        idMap.set(n.id, `${n.type}-${nanoid(6)}`);
+      }
+
+      // Clona nodes com IDs novos + posições reorientadas
+      const newNodes: FluxoNode[] = skill.nodes.map((n) => {
+        const newId = idMap.get(n.id)!;
+        // Top-level: posição relativa ao bbox origem + offset
+        // Children: position é relativa ao parent, mantém
+        const newPos = n.parentId
+          ? n.position
+          : {
+              x: origin.x + (n.position.x - minX),
+              y: origin.y + (n.position.y - minY),
+            };
+        return {
+          ...n,
+          id: newId,
+          position: newPos,
+          parentId:
+            n.parentId && idMap.has(n.parentId)
+              ? idMap.get(n.parentId)
+              : undefined,
+          selected: false,
+        };
+      });
+
+      // Clona edges com IDs remapeados
+      const newEdges: Edge[] = skill.edges
+        .filter((e) => idMap.has(e.source) && idMap.has(e.target))
+        .map((e) => ({
+          ...e,
+          id: `e-${nanoid(6)}`,
+          source: idMap.get(e.source)!,
+          target: idMap.get(e.target)!,
+        }));
+
+      setNodes((prev) => [...prev, ...newNodes]);
+      setEdges((prev) => [...prev, ...newEdges]);
+
+      toast({
+        level: 'success',
+        message: `Skill "${skill.name}" inserida`,
+        detail: `${newNodes.length} nós, ${newEdges.length} conexões`,
+      });
+    },
+    [nodes, setNodes, setEdges, pushHistory]
+  );
+
   const handleResetPage = useCallback(async () => {
     const ok = await confirmDialog({
       title: 'Resetar a página atual?',
@@ -1461,6 +1771,8 @@ function FlowEditorInner({
     onBackToDashboard: () => {
       if (typeof window !== 'undefined') window.location.href = '/dashboard';
     },
+    onAlignSelected: alignSelected,
+    selectedCount: selectedIds.length,
     canExport: Boolean(projectId),
   };
 
@@ -1525,6 +1837,24 @@ function FlowEditorInner({
           onConnect={onConnect}
           onSelectionChange={onSelectionChange}
           onNodeDragStart={onNodeDragStart}
+          onNodeContextMenu={(e, node) => {
+            e.preventDefault();
+            // Se o node clicado não está na seleção, troca a seleção pra ele.
+            // Mantém a seleção atual se já contém o node (permite menu em
+            // múltiplos selecionados via right-click num deles).
+            if (!selectedIds.includes(node.id)) {
+              setSelectedIds([node.id]);
+            }
+            setContextMenu({ x: e.clientX, y: e.clientY, targetId: node.id });
+          }}
+          onPaneContextMenu={(e) => {
+            e.preventDefault();
+            setContextMenu({
+              x: (e as React.MouseEvent).clientX,
+              y: (e as React.MouseEvent).clientY,
+              targetId: null,
+            });
+          }}
           nodeTypes={nodeTypes}
           defaultViewport={seedViewport}
           fitView={isDemo}
@@ -1628,6 +1958,143 @@ function FlowEditorInner({
 
         </ReactFlow>
 
+        {/* Menu contextual (right-click) — lista de ações depende da seleção */}
+        <CanvasContextMenu
+          open={contextMenu !== null}
+          x={contextMenu?.x ?? 0}
+          y={contextMenu?.y ?? 0}
+          onClose={() => setContextMenu(null)}
+          actions={(() => {
+            const acts: ContextMenuAction[] = [];
+            const hasSelection = selectedIds.length > 0;
+            const isPane = contextMenu?.targetId === null;
+            const count = selectedIds.length;
+            if (hasSelection && !isPane) {
+              acts.push({
+                id: 'duplicate',
+                label: count > 1 ? `Duplicar ${count} blocos` : 'Duplicar',
+                shortcut: '⌘D',
+                icon: '⎘',
+                onSelect: duplicateNode,
+              });
+              acts.push({
+                id: 'group',
+                label: count > 1 ? `Agrupar em frame` : 'Agrupar em frame',
+                shortcut: '⌘G',
+                icon: '🗂',
+                onSelect: groupSelectedInFrame,
+              });
+              // Align/distribute aparecem só com 2+ selecionados
+              if (count >= 2) {
+                acts.push({
+                  id: 'align-left',
+                  label: 'Alinhar à esquerda',
+                  icon: '⇤',
+                  separatorBefore: true,
+                  onSelect: () => alignSelected('align-left'),
+                });
+                acts.push({
+                  id: 'align-center-h',
+                  label: 'Centralizar horizontal',
+                  icon: '⇔',
+                  onSelect: () => alignSelected('align-center-h'),
+                });
+                acts.push({
+                  id: 'align-right',
+                  label: 'Alinhar à direita',
+                  icon: '⇥',
+                  onSelect: () => alignSelected('align-right'),
+                });
+                acts.push({
+                  id: 'align-top',
+                  label: 'Alinhar ao topo',
+                  icon: '⇡',
+                  onSelect: () => alignSelected('align-top'),
+                });
+                acts.push({
+                  id: 'align-center-v',
+                  label: 'Centralizar vertical',
+                  icon: '⇕',
+                  onSelect: () => alignSelected('align-center-v'),
+                });
+                acts.push({
+                  id: 'align-bottom',
+                  label: 'Alinhar à base',
+                  icon: '⇣',
+                  onSelect: () => alignSelected('align-bottom'),
+                });
+              }
+              if (count >= 3) {
+                acts.push({
+                  id: 'distribute-h',
+                  label: 'Distribuir horizontal',
+                  icon: '⇿',
+                  onSelect: () => alignSelected('distribute-h'),
+                });
+                acts.push({
+                  id: 'distribute-v',
+                  label: 'Distribuir vertical',
+                  icon: '⇳',
+                  onSelect: () => alignSelected('distribute-v'),
+                });
+              }
+              if (count >= 2) {
+                acts.push({
+                  id: 'bulk-edit',
+                  label: 'Editar em massa…',
+                  icon: '📝',
+                  separatorBefore: true,
+                  onSelect: () => dialogs.bulkEdit.open(),
+                });
+              }
+              acts.push({
+                id: 'delete',
+                label: count > 1 ? `Apagar ${count} blocos` : 'Apagar',
+                shortcut: 'Del',
+                icon: '🗑',
+                variant: 'danger',
+                separatorBefore: true,
+                onSelect: deleteSelected,
+              });
+            } else {
+              // Right-click no pane vazio — atalhos pra abrir painéis úteis
+              acts.push({
+                id: 'cmdk',
+                label: 'Abrir paleta de comandos',
+                shortcut: '⌘K',
+                icon: '⌘',
+                onSelect: () => dialogs.commandPalette.open(),
+              });
+              acts.push({
+                id: 'outline',
+                label: 'Abrir outline',
+                icon: '☰',
+                onSelect: () => dialogs.outline.toggle(),
+              });
+            }
+            return acts;
+          })()}
+        />
+
+        {/* Bulk edit — modal escopado aos selecionados (label/text/locked) */}
+        {!isReadOnly && !isDemo && dialogs.bulkEdit.opened && (
+          <BulkEditDialog
+            open={dialogs.bulkEdit.opened}
+            onOpenChange={dialogs.bulkEdit.setOpen}
+            nodes={nodes}
+            selectedIds={selectedIds}
+            onApply={(patches) => {
+              pushHistory();
+              setNodes((prev) =>
+                prev.map((n) => {
+                  const p = patches.find((pp) => pp.nodeId === n.id);
+                  return p ? { ...n, data: p.data } : n;
+                })
+              );
+            }}
+          />
+        )}
+
         {/* Cursores dos peers (fixed overlay, fora do React Flow pra não receber transform) */}
         <PresenceCursors cursors={cursors} peers={peers} />
 
@@ -1727,6 +2194,9 @@ function FlowEditorInner({
             open={dialogs.skills.opened}
             onOpenChange={dialogs.skills.setOpen}
             onInsert={handleInsertSkill}
+            onInsertUserSkill={handleInsertUserSkill}
+            onSaveSelection={handleSaveSelectionAsSkill}
+            selectedCount={selectedIds.length}
           />
         )}
 
@@ -1817,7 +2287,8 @@ function FlowEditorInner({
         />
       )}
 
-      {!isReadOnly && !isDemo && projectId && dialogs.comments.opened && (
+      {/* Comments: interno OU share-mode (view/comment) com token. */}
+      {!isDemo && projectId && (dialogs.comments.opened || shareMode === 'comment') && (
         <CommentsPanel
           projectId={projectId}
           nodes={nodes}
@@ -1825,6 +2296,8 @@ function FlowEditorInner({
           onToggle={() => dialogs.comments.close()}
           onJumpToNode={handleJumpToNode}
           onCommentsChanged={refetchComments}
+          shareMode={shareMode}
+          shareToken={shareToken}
         />
       )}
 

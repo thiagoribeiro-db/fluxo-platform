@@ -1,10 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Edge } from '@xyflow/react';
 import type { FluxoNode, FluxoNodeData } from '@/lib/types';
 import ApiMockEditor from './ApiMockEditor';
 import RichTextEditor from './RichTextEditor';
+import {
+  extractVariables,
+  type FlowVariable,
+} from '@/lib/variables/extract-variables';
 
 interface PropertiesPanelProps {
   selectedNode: FluxoNode | null;
@@ -217,6 +221,11 @@ function NodeFields({
   allNodesForSelect: FluxoNode[];
 }) {
   const data = node.data;
+  // Variáveis declaradas no fluxo — alimenta o popover `{{...}}` do RichTextEditor.
+  const variables = useMemo<FlowVariable[]>(
+    () => extractVariables(allNodesForSelect),
+    [allNodesForSelect]
+  );
 
   return (
     <div className="space-y-4">
@@ -324,6 +333,7 @@ function NodeFields({
             onChange={(text) => onUpdate({ text })}
             placeholder="Digite a mensagem do bot…"
             minHeight={110}
+            variables={variables}
           />
         </Field>
       )}
@@ -362,12 +372,14 @@ function NodeFields({
               placeholder="Texto do cabeçalho do menu"
               minHeight={50}
               singleLine
+              variables={variables}
             />
           </Field>
           <Field label="Opções">
             <OptionsListEditor
               options={data.options ?? []}
               onChange={(options) => onUpdate({ options })}
+              variables={variables}
             />
           </Field>
           <Field label="Footer (texto do botão)">
@@ -1268,9 +1280,11 @@ function AddConnectionSelect({
 function OptionsListEditor({
   options,
   onChange,
+  variables,
 }: {
   options: string[];
   onChange: (next: string[]) => void;
+  variables?: FlowVariable[];
 }) {
   const [newOpt, setNewOpt] = useState('');
 
@@ -1306,6 +1320,7 @@ function OptionsListEditor({
               placeholder="Texto da opção"
               minHeight={36}
               singleLine
+              variables={variables}
             />
           </div>
           <button

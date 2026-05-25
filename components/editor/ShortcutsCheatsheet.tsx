@@ -55,7 +55,8 @@ const GROUPS: ShortcutGroup[] = [
     items: [
       { keys: [MOD, 'Z'], description: 'Desfazer última ação' },
       { keys: [MOD, 'C'], description: 'Copiar texto do(s) nó(s) selecionado(s)' },
-      { keys: [MOD, 'D'], description: 'Duplicar nó selecionado' },
+      { keys: [MOD, 'D'], description: 'Duplicar nó(s) selecionado(s) — multi-select clona edges internas' },
+      { keys: [MOD, 'G'], description: 'Agrupar nó(s) num frame novo' },
       { keys: [MOD, 'F'], description: 'Buscar e substituir' },
       { keys: [MOD, 'H'], description: 'Buscar e substituir (alternativo)' },
       { keys: ['Del'], description: 'Apagar nó(s) selecionado(s)' },

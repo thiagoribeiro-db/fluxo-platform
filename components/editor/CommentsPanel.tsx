@@ -8,6 +8,8 @@ import {
   updateComment,
   deleteComment,
   setCommentResolved,
+  listShareComments,
+  createShareComment,
 } from '@/lib/actions/comments';
 import type { FluxoNode } from '@/lib/types';
 import { toast } from '@/lib/utils/errors';
@@ -23,7 +25,14 @@ interface CommentsPanelProps {
   onJumpToNode?: (nodeId: string) => void;
   /** Avisa o pai que houve mudança (insert/update/delete/resolve). */
   onCommentsChanged?: () => void;
+  /** Modo share — quando setado, usa RPCs externas (sem auth de membro). */
+  shareMode?: 'view' | 'comment' | 'edit';
+  /** Token do share, necessário pra criar comentário externo. */
+  shareToken?: string;
 }
+
+/** Chave do localStorage onde guardamos o nome digitado pelo cliente. */
+const EXT_AUTHOR_KEY = 'fluxo:ext-author-name';
 
 /**
  * Sidebar direita — lista de threads de comentários do projeto.
@@ -39,16 +48,36 @@ export default function CommentsPanel({
   onToggle,
   onJumpToNode,
   onCommentsChanged,
+  shareMode,
+  shareToken,
 }: CommentsPanelProps) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'open' | 'resolved'>('open');
   const [newBody, setNewBody] = useState('');
   const [isPending, startTransition] = useTransition();
+  // Nome digitado pelo cliente externo (só usado em shareMode). Carrega do
+  // localStorage pra ele não precisar redigitar a cada novo comentário.
+  const [extAuthorName, setExtAuthorName] = useState('');
+
+  // Hidrata o nome externo no primeiro paint do shareMode
+  useEffect(() => {
+    if (!shareMode || !shareToken) return;
+    if (typeof window === 'undefined') return;
+    const cached = localStorage.getItem(EXT_AUTHOR_KEY);
+    if (cached) setExtAuthorName(cached);
+  }, [shareMode, shareToken]);
+
+  // Externo só pode criar (não resolver/deletar) e só com permission='comment' ou 'edit'
+  const isShare = !!shareMode && !!shareToken;
+  const canComment = isShare ? shareMode === 'comment' || shareMode === 'edit' : true;
+  const showActions = !isShare; // ações de resolve/edit/delete só pra interno
 
   // Carrega ao abrir + recarrega manualmente após mutações (sem polling).
   const reload = async () => {
-    const data = await listComments(projectId);
+    const data = isShare
+      ? await listShareComments(shareToken!)
+      : await listComments(projectId);
     setComments(data);
     setLoading(false);
     onCommentsChanged?.();
@@ -77,13 +106,33 @@ export default function CommentsPanel({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!newBody.trim()) return;
+    if (isShare && !extAuthorName.trim()) {
+      toast({
+        level: 'warn',
+        message: 'Digite seu nome antes de comentar.',
+      });
+      return;
+    }
     startTransition(async () => {
       try {
-        await createComment({
-          projectId,
-          body: newBody.trim(),
-          nodeId: selectedNodeId,
-        });
+        if (isShare) {
+          // Salva nome no localStorage pra próxima sessão
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(EXT_AUTHOR_KEY, extAuthorName.trim());
+          }
+          await createShareComment({
+            token: shareToken!,
+            authorName: extAuthorName.trim(),
+            body: newBody.trim(),
+            nodeId: selectedNodeId,
+          });
+        } else {
+          await createComment({
+            projectId,
+            body: newBody.trim(),
+            nodeId: selectedNodeId,
+          });
+        }
         setNewBody('');
         await reload();
       } catch (err) {
@@ -155,40 +204,52 @@ export default function CommentsPanel({
         })}
       </div>
 
-      {/* Form de novo comentário */}
-      <form onSubmit={handleSubmit} className="p-3 border-b border-gray-100">
-        {selectedNodeId ? (
-          <p className="text-[10px] text-gray-500 mb-1.5 uppercase font-semibold tracking-wide">
-            📌 Ancorando em{' '}
-            <span className="font-mono normal-case bg-gray-100 px-1 rounded">
-              {nodes.find((n) => n.id === selectedNodeId)?.data?.code ??
-                selectedNodeId.slice(0, 8)}
-            </span>
-          </p>
-        ) : (
-          <p className="text-[10px] text-gray-400 mb-1.5">
-            Selecione um nó pra ancorar o comentário, ou escreva pra comentar
-            no projeto.
-          </p>
-        )}
-        <textarea
-          value={newBody}
-          onChange={(e) => setNewBody(e.target.value)}
-          rows={2}
-          placeholder="Escreva um comentário…"
-          className="w-full text-sm px-2.5 py-1.5 border border-gray-300 rounded-md focus:border-blip-purple focus:outline-none focus:ring-1 focus:ring-blip-purple/30 resize-none"
-          disabled={isPending}
-        />
-        <div className="flex items-center justify-end mt-2">
-          <button
-            type="submit"
-            disabled={isPending || !newBody.trim()}
-            className="px-3 py-1 text-xs font-semibold bg-blip-purple text-white rounded hover:bg-blip-purple-dark disabled:opacity-40"
-          >
-            {isPending ? 'Enviando…' : 'Comentar'}
-          </button>
-        </div>
-      </form>
+      {/* Form de novo comentário — só se a permissão deixa */}
+      {canComment && (
+        <form onSubmit={handleSubmit} className="p-3 border-b border-gray-100">
+          {selectedNodeId ? (
+            <p className="text-[10px] text-gray-500 mb-1.5 uppercase font-semibold tracking-wide">
+              📌 Ancorando em{' '}
+              <span className="font-mono normal-case bg-gray-100 px-1 rounded">
+                {nodes.find((n) => n.id === selectedNodeId)?.data?.code ??
+                  selectedNodeId.slice(0, 8)}
+              </span>
+            </p>
+          ) : (
+            <p className="text-[10px] text-gray-400 mb-1.5">
+              Selecione um nó pra ancorar o comentário, ou escreva pra comentar
+              no projeto.
+            </p>
+          )}
+          {isShare && (
+            <input
+              type="text"
+              value={extAuthorName}
+              onChange={(e) => setExtAuthorName(e.target.value)}
+              placeholder="Seu nome (aparece como autor)"
+              className="w-full mb-2 text-xs px-2 py-1 border border-gray-300 rounded focus:border-blip-purple focus:outline-none focus:ring-1 focus:ring-blip-purple/30"
+              disabled={isPending}
+            />
+          )}
+          <textarea
+            value={newBody}
+            onChange={(e) => setNewBody(e.target.value)}
+            rows={2}
+            placeholder="Escreva um comentário…"
+            className="w-full text-sm px-2.5 py-1.5 border border-gray-300 rounded-md focus:border-blip-purple focus:outline-none focus:ring-1 focus:ring-blip-purple/30 resize-none"
+            disabled={isPending}
+          />
+          <div className="flex items-center justify-end mt-2">
+            <button
+              type="submit"
+              disabled={isPending || !newBody.trim() || (isShare && !extAuthorName.trim())}
+              className="px-3 py-1 text-xs font-semibold bg-blip-purple text-white rounded hover:bg-blip-purple-dark disabled:opacity-40"
+            >
+              {isPending ? 'Enviando…' : 'Comentar'}
+            </button>
+          </div>
+        </form>
+      )}
 
       {/* Lista de threads */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
@@ -214,6 +275,7 @@ export default function CommentsPanel({
                   ? nodes.find((n) => n.id === root.node_id)?.data?.code
                   : undefined
               }
+              showActions={showActions}
             />
           ))
         )}
@@ -232,6 +294,7 @@ function CommentThread({
   onChange,
   onJumpToNode,
   nodeCode,
+  showActions = true,
 }: {
   root: Comment;
   replies: Comment[];
@@ -239,6 +302,8 @@ function CommentThread({
   onChange: () => void;
   onJumpToNode?: (nodeId: string) => void;
   nodeCode?: string;
+  /** Em shareMode, esconde Resolver/Responder (só interno pode). */
+  showActions?: boolean;
 }) {
   const [replyBody, setReplyBody] = useState('');
   const [showReply, setShowReply] = useState(false);
@@ -315,24 +380,26 @@ function CommentThread({
         </div>
       )}
 
-      {/* Footer: resolver + responder */}
-      <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
-        <button
-          type="button"
-          onClick={handleResolve}
-          disabled={isPending}
-          className="text-[11px] text-gray-600 hover:text-green-700 font-medium"
-        >
-          {root.resolved_at ? '↶ Reabrir' : '✓ Resolver'}
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowReply((v) => !v)}
-          className="text-[11px] text-blip-purple hover:underline font-medium"
-        >
-          {showReply ? 'Cancelar' : 'Responder'}
-        </button>
-      </div>
+      {/* Footer: resolver + responder — só pra usuários internos */}
+      {showActions && (
+        <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
+          <button
+            type="button"
+            onClick={handleResolve}
+            disabled={isPending}
+            className="text-[11px] text-gray-600 hover:text-green-700 font-medium"
+          >
+            {root.resolved_at ? '↶ Reabrir' : '✓ Resolver'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowReply((v) => !v)}
+            className="text-[11px] text-blip-purple hover:underline font-medium"
+          >
+            {showReply ? 'Cancelar' : 'Responder'}
+          </button>
+        </div>
+      )}
 
       {showReply && (
         <div className="mt-2 space-y-2">
@@ -379,10 +446,13 @@ function CommentBubble({
   const [body, setBody] = useState(comment.body);
   const [, startTransition] = useTransition();
 
-  const authorName =
-    comment.author_display_name ||
-    comment.author_email?.split('@')[0] ||
-    'Usuário';
+  // Comments externos têm author_id NULL e usam external_author_name + sufixo
+  // " (externo)" pra deixar claro que o autor não é membro da org.
+  const authorName = comment.external_author_name
+    ? `${comment.external_author_name} (externo)`
+    : comment.author_display_name ||
+      comment.author_email?.split('@')[0] ||
+      'Usuário';
 
   function handleSave() {
     if (!body.trim() || body === comment.body) {

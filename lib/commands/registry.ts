@@ -12,6 +12,7 @@
  *   3. `perform` executa a ação (geralmente um handler do ctx)
  */
 import type { FluxoNodeType } from '@/lib/types';
+import type { AlignOp } from '@/lib/components/nodes/align';
 
 export type CommandGroup =
   | 'create' // criar nó
@@ -60,6 +61,10 @@ export interface CommandContext {
   onOpenVoiceTone: () => void;
   /** Navegação. */
   onBackToDashboard: () => void;
+  /** Alinhar/distribuir blocos selecionados. Os comandos só aparecem
+   *  se `selectedCount` >= 2 (align) ou >= 3 (distribute). */
+  onAlignSelected: (op: AlignOp) => void;
+  selectedCount: number;
   /** Habilita opcionalmente. */
   canExport?: boolean;
 }
@@ -284,6 +289,46 @@ export function buildCommands(ctx: CommandContext): Command[] {
     keywords: ['importar', 'escopo', 'pdf'],
     perform: ctx.onOpenTemplate,
   });
+
+  // ---- ALIGN / DISTRIBUTE (só com seleção múltipla) ----------------------
+  if (ctx.selectedCount >= 2) {
+    const alignOps: Array<{ op: AlignOp; label: string; keywords: string[] }> = [
+      { op: 'align-left', label: 'Alinhar à esquerda', keywords: ['align', 'left', 'esquerda'] },
+      { op: 'align-center-h', label: 'Centralizar horizontal', keywords: ['align', 'center', 'centralizar', 'horizontal'] },
+      { op: 'align-right', label: 'Alinhar à direita', keywords: ['align', 'right', 'direita'] },
+      { op: 'align-top', label: 'Alinhar ao topo', keywords: ['align', 'top', 'topo'] },
+      { op: 'align-center-v', label: 'Centralizar vertical', keywords: ['align', 'center', 'centralizar', 'vertical'] },
+      { op: 'align-bottom', label: 'Alinhar à base', keywords: ['align', 'bottom', 'base'] },
+    ];
+    for (const { op, label, keywords } of alignOps) {
+      cmds.push({
+        id: `align-${op}`,
+        group: 'actions',
+        label,
+        description: `Aplica em ${ctx.selectedCount} blocos selecionados`,
+        keywords,
+        perform: () => ctx.onAlignSelected(op),
+      });
+    }
+  }
+  if (ctx.selectedCount >= 3) {
+    cmds.push({
+      id: 'distribute-h',
+      group: 'actions',
+      label: 'Distribuir horizontal',
+      description: `Espaça uniformemente ${ctx.selectedCount} blocos`,
+      keywords: ['distribute', 'distribuir', 'horizontal', 'espacar'],
+      perform: () => ctx.onAlignSelected('distribute-h'),
+    });
+    cmds.push({
+      id: 'distribute-v',
+      group: 'actions',
+      label: 'Distribuir vertical',
+      description: `Espaça uniformemente ${ctx.selectedCount} blocos`,
+      keywords: ['distribute', 'distribuir', 'vertical', 'espacar'],
+      perform: () => ctx.onAlignSelected('distribute-v'),
+    });
+  }
 
   // ---- EXPORT ------------------------------------------------------------
   if (ctx.canExport !== false) {

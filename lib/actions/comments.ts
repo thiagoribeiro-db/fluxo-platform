@@ -11,9 +11,12 @@ export interface Comment {
   position_y: number | null;
   parent_id: string | null;
   body: string;
-  author_id: string;
+  /** NULL quando o comment foi criado por um usuário EXTERNO (via share link). */
+  author_id: string | null;
   author_email: string | null;
   author_display_name: string | null;
+  /** Nome preenchido pelo cliente no form da página /share/[token]. */
+  external_author_name: string | null;
   resolved_at: string | null;
   resolved_by: string | null;
   created_at: string;
@@ -116,6 +119,59 @@ export async function deleteComment(id: string, projectId: string): Promise<void
     );
   }
   revalidatePath(`/editor/${projectId}`);
+}
+
+// =============================================================================
+// EXTERNAL — usuário acessando via /share/[token] sem login
+// =============================================================================
+
+/**
+ * Lista comentários do projeto via share token. Usada na página pública
+ * `/share/[token]`. A RPC valida o token e ignora membership na org.
+ */
+export async function listShareComments(token: string): Promise<Comment[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc('list_share_comments', {
+    p_token: token,
+  });
+  if (error) {
+    console.error('listShareComments error:', error);
+    return [];
+  }
+  return (data ?? []) as Comment[];
+}
+
+interface CreateShareCommentInput {
+  token: string;
+  authorName: string;
+  body: string;
+  nodeId?: string | null;
+  positionX?: number | null;
+  positionY?: number | null;
+  parentId?: string | null;
+}
+
+/**
+ * Cria comentário via share token. Não exige login. Valida no DB que
+ * o token tem `permission ∈ ('comment', 'edit')`.
+ */
+export async function createShareComment(
+  input: CreateShareCommentInput
+): Promise<string> {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc('create_share_comment', {
+    p_token: input.token,
+    p_author_name: input.authorName,
+    p_body: input.body,
+    p_node_id: input.nodeId ?? null,
+    p_position_x: input.positionX ?? null,
+    p_position_y: input.positionY ?? null,
+    p_parent_id: input.parentId ?? null,
+  });
+  if (error) {
+    throw new Error(`Falha ao criar comentário: ${error.message}`);
+  }
+  return data as string;
 }
 
 /**

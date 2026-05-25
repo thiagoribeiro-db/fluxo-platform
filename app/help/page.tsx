@@ -132,7 +132,8 @@ export default async function HelpPage() {
               rows={[
                 ['⌘Z', 'Desfazer última ação'],
                 ['⌘C', 'Copiar texto do(s) bloco(s) selecionado(s)'],
-                ['⌘D', 'Duplicar bloco selecionado'],
+                ['⌘D', 'Duplicar bloco(s) selecionado(s) — multi-select clona edges internas'],
+                ['⌘G', 'Agrupar bloco(s) num frame novo'],
                 ['Del / Backspace', 'Apagar bloco(s) selecionado(s)'],
                 ['Shift + click', 'Selecionar múltiplos blocos'],
               ]}
@@ -226,16 +227,134 @@ export default async function HelpPage() {
           </p>
         </Section>
 
+        {/* ────────── Biblioteca e reuso ────────── */}
+        <Section id="biblioteca" emoji="📚" title="Biblioteca e reuso">
+          <p>
+            3 jeitos de NÃO redigitar a mesma coisa:
+          </p>
+
+          <Subsection title="Templates por vertical 🆕">
+            <p>
+              Toolbar Editar ▾ → <em>Carregar template</em> → tab <strong>🌱 Usar exemplo</strong>:
+            </p>
+            <ul>
+              <li>🛒 <strong>Varejo</strong> — chatbot completo (12 frames)</li>
+              <li>🩺 <strong>Saúde / Clínica</strong> — agendamento + confirmação + convênios (8 frames)</li>
+              <li>🚧 <strong>Educação</strong> e <strong>Financeiro</strong> em breve</li>
+            </ul>
+            <p>
+              Substituem o conteúdo da página atual. Auto-organize roda em seguida pra deixar limpo.
+            </p>
+          </Subsection>
+
+          <Subsection title="Skills customizadas (sua biblioteca) 🆕">
+            <p>
+              Salve <strong>seleções do canvas</strong> como skill reusável — toolbar Editar ▾ → <em>Inserir Skill</em> → botão <strong>+ Salvar seleção</strong>. Próxima vez que precisar daquele sub-fluxo (validação de CPF customizada, padrão de coleta de dados, etc.), aparece na seção <strong>🧩 Minha biblioteca</strong> ao lado dos builtins. Click insere com IDs novos, edges internas preservadas.
+            </p>
+            <p className="text-[11px] text-gray-500">
+              Persistência: localStorage do navegador (por usuário). Sync por org chega em fase futura.
+            </p>
+          </Subsection>
+
+          <Subsection title="Snippets de texto 🆕">
+            <p>
+              No <strong>RichTextEditor</strong> (campos de texto rich do PropertiesPanel), botão <strong>📋</strong> abre popover com seus snippets salvos. Use <strong>+ Salvar</strong> pra guardar o texto atual com um nome (ex: &quot;Saudação genérica&quot;, &quot;Erro padrão&quot;). Click insere no cursor preservando formatação. Persistência por usuário (localStorage).
+            </p>
+          </Subsection>
+        </Section>
+
+        {/* ────────── Problems Panel (linter) ────────── */}
+        <Section id="problems" emoji="🩹" title="Problems Panel (linter)">
+          <p>
+            Painel lateral que escaneia o fluxo continuamente e aponta problemas estruturais. Toolbar mostra um badge com a contagem; clica pra abrir.
+          </p>
+          <Subsection title="Checks ativos">
+            <ul>
+              <li><strong>Texto vazio</strong> — bubble-bot/user sem conteúdo</li>
+              <li><strong>Menu sem opções / sem header</strong> — bloqueia export</li>
+              <li><strong>Botão / direcionamento sem destino</strong> — fluxo quebrado</li>
+              <li><strong>Códigos duplicados</strong> — IDs colidindo (rode &quot;Reordenar IDs&quot;)</li>
+              <li><strong>Frame vazio / sem &quot;Início&quot;</strong> — sem ponto de entrada</li>
+              <li><strong>Nó inalcançável</strong> — fluxo morto sem caminho de chegada</li>
+              <li>🆕 <strong>Variável quebrada</strong> — <code>{'{{x}}'}</code> usada mas não declarada em tracking/IAG/bubble-user</li>
+              <li>🆕 <strong>Limites Blip</strong> — btn-short &gt; 20 chars, btn-long &gt; 72, header menu &gt; 60, opção &gt; 24</li>
+              <li>🆕 <strong>Loop infinito</strong> — ciclo de bots sem bubble-user (pausa do usuário) pra quebrar</li>
+            </ul>
+          </Subsection>
+          <p>
+            <strong>Como usar:</strong> Toolbar Visualizar ▾ → <em>Problemas</em>. Ou <kbd>⌘K</kbd> → digite &quot;problem&quot;. Clica num item pra pular pro nó no canvas.
+          </p>
+        </Section>
+
+        {/* ────────── Produtividade no canvas (multi-select) ────────── */}
+        <Section id="produtividade-canvas" emoji="⚡" title="Produtividade no canvas">
+          <p>
+            Atalhos e ações que economizam tempo no dia-a-dia, principalmente quando você seleciona vários blocos com <kbd>Shift+click</kbd>.
+          </p>
+          <Subsection title="Atalhos rápidos">
+            <ShortcutsTable
+              rows={[
+                ['⌘D', 'Duplicar — multi-select clona com edges internas preservadas'],
+                ['⌘G', 'Agrupar selecionados num frame novo (com padding automático)'],
+                ['Botão direito', 'Menu contextual com Duplicar, Agrupar, Alinhar, Editar em massa, Apagar'],
+              ]}
+            />
+          </Subsection>
+
+          <Subsection title="Alinhar e distribuir">
+            <p>
+              Selecione 2+ blocos → menu contextual ou <kbd>⌘K</kbd> → busca <em>alinhar</em>. Opções: à esquerda, direita, topo, base, centralizar horizontal/vertical. Com 3+ selecionados, também aparece <strong>Distribuir horizontal/vertical</strong> (espaça uniformemente entre os extremos).
+            </p>
+          </Subsection>
+
+          <Subsection title="Editar em massa">
+            <p>
+              Com 2+ blocos selecionados, abra <strong>Editar em massa…</strong> (menu contextual). Modal lista todos os campos de texto editáveis, com ações em massa: aplicar prefixo a todos, travar/destravar de uma vez. Salva tudo em 1 operação (Undo reverte junto).
+            </p>
+          </Subsection>
+
+          <Subsection title="Inserir variáveis ({{...}})">
+            <p>
+              Nos campos de texto rich (bubble-bot, header de menu, opções), a toolbar agora tem o botão <code>{'{{ }}'}</code>. Clica e vê todas as variáveis declaradas no fluxo (trackings, IAG saídas, bubble-users) com busca. Click insere <code>{'{{nome}}'}</code> na posição do cursor.
+            </p>
+          </Subsection>
+        </Section>
+
         {/* ────────── 7. TABELA DE CONTEÚDO ────────── */}
         <Section id="tabela-conteudo" emoji="📊" title="Tabela de conteúdo">
           <p>
             Vista <strong>tipo planilha</strong> com TODOS os textos do fluxo numa só tela. Cada linha é um campo editável (menu = header + footer + N opções; condicional = condição + true label + false label).
           </p>
           <p>
-            <strong>Como usar:</strong> Toolbar Visualizar ▾ → <em>Tabela de conteúdo</em>. Edite o texto inline (salva no blur). Filtros por tipo (bot/user/menu/etc.) e por frame. Botão CSV exporta tudo pra abrir em Excel/Sheets.
+            <strong>Como usar:</strong> Toolbar Visualizar ▾ → <em>Tabela de conteúdo</em>. Edite o texto inline (salva no blur). Filtros por tipo (bot/user/menu/etc.) e por frame.
           </p>
+          <Subsection title="Round-trip com cliente (CSV/Excel)">
+            <ul>
+              <li><strong>CSV</strong>: UTF-8 BOM + separador <code>;</code>, Excel BR abre direto com acentos OK</li>
+              <li>🆕 <strong>Excel (.xlsx)</strong>: colunas formatadas, larguras automáticas, header congelado</li>
+              <li>🆕 <strong>Importar</strong>: aceita .xlsx ou .csv com colunas <code>nodeId</code>, <code>fieldPath</code>, <code>valor</code>. Match exato por chave, conta diffs e pede confirmação antes de aplicar. Tudo num único Undo.</li>
+            </ul>
+            <p>
+              <strong>Workflow:</strong> exporta Excel → manda pro cliente revisar → cliente devolve a planilha com edições → importa de volta no editor. <em>Não cria/apaga blocos, só atualiza textos existentes.</em>
+            </p>
+          </Subsection>
           <p>
             Click no ↗ ao final da linha pra navegar até o bloco no canvas.
+          </p>
+        </Section>
+
+        {/* ────────── Compartilhamento + Comentário externo ────────── */}
+        <Section id="compartilhamento" emoji="🤝" title="Compartilhar com cliente">
+          <p>
+            Toolbar &quot;Compartilhar&quot; (canto superior direito do editor) abre o modal de links públicos. <strong>3 níveis de permissão</strong>:
+          </p>
+          <FeatureGrid>
+            <FeatureCard emoji="👁" title="Visualizar" desc="Só leitura — cliente abre o link, navega o fluxo, não interage." />
+            <FeatureCard emoji="💬" title="Comentar 🆕" desc="Cliente vê e COMENTA em blocos. Digita o nome (salva no navegador), comments aparecem no painel interno com sufixo (externo)." />
+            <FeatureCard emoji="✏️" title="Editar" desc="Cliente pode mover, editar textos, deletar nodes. Use com cuidado, revogue quando não precisar mais." />
+          </FeatureGrid>
+          <p>
+            Links são <strong>tokens únicos</strong> em <code>/share/[token]</code>. Cliente acessa sem login. Revogue a qualquer momento — o link para de funcionar instantaneamente.
           </p>
         </Section>
 

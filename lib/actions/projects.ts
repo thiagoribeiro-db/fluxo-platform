@@ -147,7 +147,7 @@ export async function createProject(formData: FormData) {
   redirect(`/editor/${data.id}`);
 }
 
-export type TemplateName = 'varejo-exemplo';
+export type TemplateName = 'varejo-exemplo' | 'saude-clinica';
 
 /**
  * Aplica um escopo em TEXTO (Markdown ou TXT) ao projeto, parseando via REGEX
@@ -300,6 +300,11 @@ export async function applyTemplate(
       '@/lib/templates/varejo-exemplo'
     );
     state = buildVarejoExemploTemplate();
+  } else if (templateName === 'saude-clinica') {
+    const { buildSaudeClinicaTemplate } = await import(
+      '@/lib/templates/saude-clinica'
+    );
+    state = buildSaudeClinicaTemplate();
   } else {
     throw new Error(`Template desconhecido: ${templateName}`);
   }

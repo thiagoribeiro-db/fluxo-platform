@@ -104,9 +104,9 @@ export const TRACKING_WIDTH_APPROX = 240;
 // fallback na CRIAÇÃO inicial — o `organizeLayoutByFrame` recalcula REL_X
 // dinamicamente baseado na largura MEDIDA do bubble-user, garantindo que o
 // gap seja respeitado mesmo com bubbles de tamanhos variados.
-export const EXCECAO_REL_X = 240; // ≈ bubble-user width médio (200) + GAP (16) com folga
+export const EXCECAO_REL_X = 208; // ≈ bubble-user width médio (200) + GAP (8)
 export const EXCECAO_REL_Y = 0;   // mesmo Y do bubble-user
-export const EXCECAO_GAP_X = 16;  // gap entre bubble-user e exceção
+export const EXCECAO_GAP_X = 8;   // gap compacto entre bubble-user e exceção
 export const EXCECAO_APPROX_WIDTH = 200; // pílula compacta — pouca variação
 
 // =============================================================================

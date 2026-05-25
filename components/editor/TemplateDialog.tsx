@@ -171,21 +171,24 @@ export default function TemplateDialog({
     });
   }
 
-  async function handleApplyExemplo() {
+  async function handleApplyExemplo(
+    name: 'varejo-exemplo' | 'saude-clinica',
+    displayName: string
+  ) {
     const ok = await confirmDialog({
-      title: 'Carregar template "Varejo (exemplo)"?',
+      title: `Carregar template "${displayName}"?`,
       message:
         '⚠️ Isso APAGA o conteúdo atual do projeto.\n\nApós o carregamento, o layout será organizado automaticamente.',
       confirmText: 'Carregar',
       variant: 'danger',
     });
     if (!ok) return;
-    track('template_applied', { template: 'varejo-exemplo' });
+    track('template_applied', { template: name });
     onClose();
     dispatchLoading('Carregando template…');
     startTransition(async () => {
       try {
-        await applyTemplate(projectId, 'varejo-exemplo', currentPageId);
+        await applyTemplate(projectId, name, currentPageId);
         window.location.href = `/editor/${projectId}?autoOrganize=1`;
       } catch (err) {
         dispatchLoading(null);
@@ -433,30 +436,59 @@ Bot: Em qual estado?
         )}
 
         {tab === 'exemplo' && (
-          <div className="space-y-4">
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <h3 className="font-semibold text-amber-900 mb-1">
-                🌱 Template "Varejo (exemplo)"
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              Escolha um template inicial pra começar. <strong>Carregar
+              substitui</strong> o conteúdo atual da página.
+            </p>
+
+            {/* Card: Varejo */}
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 dark:bg-amber-950/30 dark:border-amber-900">
+              <h3 className="font-semibold text-amber-900 mb-1 dark:text-amber-300">
+                🛒 Varejo (exemplo)
               </h3>
-              <p className="text-sm text-amber-800">
-                Chatbot genérico de varejo no WhatsApp. Contém:
+              <p className="text-sm text-amber-800 dark:text-amber-200">
+                Chatbot genérico de varejo no WhatsApp — Saudação + 9 cenários
+                (Ofertas, Lojas, Cartão, Compras, SAC, Devolução, etc.) + Algo
+                Mais + Encerramento. ~12 frames, modelo completo.
               </p>
-              <ul className="list-disc ml-5 mt-2 text-xs text-amber-800 space-y-0.5">
-                <li>12 frames (Saudação, 9 cenários, Algo Mais, Encerramento)</li>
-                <li>Bubbles BOT/USER com trackings automáticos</li>
-                <li>Menu principal com 9 direcionamentos</li>
-                <li>Exemplo de branching com btn-short → mídias diferentes</li>
-              </ul>
+              <div className="flex justify-end mt-3">
+                <button
+                  type="button"
+                  onClick={() => handleApplyExemplo('varejo-exemplo', 'Varejo (exemplo)')}
+                  disabled={isPending}
+                  className="bg-blip-purple text-white px-4 py-1.5 rounded-md text-sm font-semibold hover:bg-blip-purple-dark disabled:opacity-40"
+                >
+                  {isPending ? 'Aplicando…' : 'Carregar Varejo →'}
+                </button>
+              </div>
             </div>
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={handleApplyExemplo}
-                disabled={isPending}
-                className="bg-blip-purple text-white px-5 py-2 rounded-lg font-semibold hover:bg-blip-purple-dark disabled:opacity-40"
-              >
-                {isPending ? 'Aplicando…' : 'Carregar exemplo →'}
-              </button>
+
+            {/* Card: Saúde 🆕 */}
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 dark:bg-emerald-950/30 dark:border-emerald-900">
+              <h3 className="font-semibold text-emerald-900 mb-1 dark:text-emerald-300">
+                🩺 Saúde / Clínica <span className="text-[10px] font-normal">NOVO</span>
+              </h3>
+              <p className="text-sm text-emerald-800 dark:text-emerald-200">
+                Chatbot pra clínica ou consultório — Agendar, Confirmar,
+                Cancelar consulta, lista de Convênios, transbordo pra
+                Atendente. ~8 frames, mais enxuto que Varejo.
+              </p>
+              <div className="flex justify-end mt-3">
+                <button
+                  type="button"
+                  onClick={() => handleApplyExemplo('saude-clinica', 'Saúde / Clínica')}
+                  disabled={isPending}
+                  className="bg-emerald-600 text-white px-4 py-1.5 rounded-md text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40"
+                >
+                  {isPending ? 'Aplicando…' : 'Carregar Saúde →'}
+                </button>
+              </div>
+            </div>
+
+            {/* Placeholder pros próximos verticais */}
+            <div className="text-xs text-gray-400 text-center pt-2 dark:text-gray-500">
+              🚧 Educação e Financeiro chegam em breve.
             </div>
           </div>
         )}

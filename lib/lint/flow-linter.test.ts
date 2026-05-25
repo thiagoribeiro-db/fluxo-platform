@@ -284,3 +284,155 @@ describe('countBySeverity / groupByNode / worstSeverity', () => {
     expect(worstSeverity([])).toBeNull();
   });
 });
+
+// ============================================================================
+// Variáveis quebradas
+// ============================================================================
+
+describe('lintFlow — broken-variable', () => {
+  function tracking(id: string, label: string): FluxoNode {
+    return {
+      id,
+      type: 'tracking',
+      position: { x: 0, y: 0 },
+      data: { label },
+    } as FluxoNode;
+  }
+
+  it('reporta {{x}} quando x não está declarado', () => {
+    const nodes = [
+      frame('f', 'saudacao'),
+      bot('b1', 'Olá {{nome_inexistente}}!', { x: 100, y: 50 }),
+    ];
+    const problems = lintFlow({ nodes, edges: [] });
+    expect(problems).toContainEqual(
+      expect.objectContaining({
+        code: 'broken-variable',
+        severity: 'warning',
+        nodeId: 'b1',
+      })
+    );
+  });
+
+  it('NÃO reporta {{x}} quando x foi declarado em tracking', () => {
+    const nodes = [
+      frame('f', 'saudacao'),
+      tracking('t1', 'Nome input'), // declara `nome`
+      bot('b1', 'Olá {{nome}}!', { x: 100, y: 50 }),
+    ];
+    const problems = lintFlow({ nodes, edges: [] });
+    expect(problems.filter((p) => p.code === 'broken-variable')).toHaveLength(0);
+  });
+
+  it('detecta múltiplas variáveis quebradas no mesmo node mas dedupe por slug', () => {
+    const nodes = [
+      frame('f', 'saudacao'),
+      bot('b1', '{{a}} {{a}} {{b}}', { x: 100, y: 50 }),
+    ];
+    const problems = lintFlow({ nodes, edges: [] });
+    const broken = problems.filter((p) => p.code === 'broken-variable');
+    expect(broken).toHaveLength(2); // a e b — uma única ocorrência cada
+  });
+
+  it('varre opções de menu também', () => {
+    const nodes = [
+      frame('f', 'x'),
+      menu('m1', 'Header', ['Opção {{nada}}'], { x: 100, y: 100 }),
+    ];
+    const problems = lintFlow({ nodes, edges: [] });
+    expect(problems).toContainEqual(
+      expect.objectContaining({ code: 'broken-variable', nodeId: 'm1' })
+    );
+  });
+});
+
+// ============================================================================
+// Pré-validação Blip (limites de chars)
+// ============================================================================
+
+describe('lintFlow — limites Blip', () => {
+  it('reporta btn-short com mais de 20 chars', () => {
+    const longLabel = 'Esse texto é muito longo pra um botão curto, vai estourar';
+    const nodes = [frame('f', 'x'), btn('b1', longLabel)];
+    const problems = lintFlow({ nodes, edges: [] });
+    expect(problems).toContainEqual(
+      expect.objectContaining({
+        code: 'btn-short-too-long',
+        severity: 'warning',
+      })
+    );
+  });
+
+  it('NÃO reporta btn-short curto', () => {
+    const nodes = [frame('f', 'x'), btn('b1', 'Sim')];
+    const problems = lintFlow({ nodes, edges: [] });
+    expect(problems.filter((p) => p.code === 'btn-short-too-long')).toHaveLength(0);
+  });
+
+  it('reporta header de menu com mais de 60 chars', () => {
+    const longHeader = 'A'.repeat(70);
+    const nodes = [frame('f', 'x'), menu('m1', longHeader, ['Sim'])];
+    const problems = lintFlow({ nodes, edges: [] });
+    expect(problems).toContainEqual(
+      expect.objectContaining({ code: 'menu-header-too-long', nodeId: 'm1' })
+    );
+  });
+
+  it('reporta opção de menu com mais de 24 chars', () => {
+    const longOpt = 'Essa opção é muito grande pro WhatsApp lista';
+    const nodes = [frame('f', 'x'), menu('m1', 'Header', [longOpt])];
+    const problems = lintFlow({ nodes, edges: [] });
+    expect(problems).toContainEqual(
+      expect.objectContaining({ code: 'menu-option-too-long', nodeId: 'm1' })
+    );
+  });
+});
+
+// ============================================================================
+// Loops infinitos
+// ============================================================================
+
+describe('lintFlow — infinite-loop', () => {
+  it('reporta ciclo entre bots sem bubble-user', () => {
+    // bot A → bot B → bot A (loop sem pausa)
+    const nodes = [
+      frame('f', 'x'),
+      bot('a', 'A', { x: 100, y: 50 }, 'B001'),
+      bot('b', 'B', { x: 100, y: 150 }, 'B002'),
+    ];
+    const edges = [edge('e1', 'a', 'b'), edge('e2', 'b', 'a')];
+    const problems = lintFlow({ nodes, edges });
+    expect(problems).toContainEqual(
+      expect.objectContaining({ code: 'infinite-loop', severity: 'warning' })
+    );
+  });
+
+  it('NÃO reporta ciclo que passa por bubble-user (pausa pro usuário)', () => {
+    const userNode: FluxoNode = {
+      id: 'u',
+      type: 'bubble-user',
+      position: { x: 100, y: 150 },
+      data: { text: 'resposta' },
+    } as FluxoNode;
+    const nodes = [
+      frame('f', 'x'),
+      bot('a', 'A', { x: 100, y: 50 }),
+      userNode,
+    ];
+    const edges = [edge('e1', 'a', 'u'), edge('e2', 'u', 'a')];
+    const problems = lintFlow({ nodes, edges });
+    expect(problems.filter((p) => p.code === 'infinite-loop')).toHaveLength(0);
+  });
+
+  it('NÃO reporta fluxo linear sem ciclos', () => {
+    const nodes = [
+      frame('f', 'x'),
+      bot('a', 'A'),
+      bot('b', 'B'),
+      bot('c', 'C'),
+    ];
+    const edges = [edge('e1', 'a', 'b'), edge('e2', 'b', 'c')];
+    const problems = lintFlow({ nodes, edges });
+    expect(problems.filter((p) => p.code === 'infinite-loop')).toHaveLength(0);
+  });
+});

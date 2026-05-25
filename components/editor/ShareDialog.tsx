@@ -105,7 +105,7 @@ export default function ShareDialog({ projectId, open, onClose }: ShareDialogPro
           <label className="block text-xs font-semibold text-gray-700 mb-2">
             Permissão do novo link
           </label>
-          <div className="grid grid-cols-2 gap-1.5 mb-3">
+          <div className="grid grid-cols-3 gap-1.5 mb-3">
             <PermissionPill
               active={newPermission === 'view'}
               onClick={() => setNewPermission('view')}
@@ -113,6 +113,14 @@ export default function ShareDialog({ projectId, open, onClose }: ShareDialogPro
               label="Visualizar"
               desc="Só leitura"
               accent="gray"
+            />
+            <PermissionPill
+              active={newPermission === 'comment'}
+              onClick={() => setNewPermission('comment')}
+              icon="💬"
+              label="Comentar"
+              desc="Lê + comenta"
+              accent="amber"
             />
             <PermissionPill
               active={newPermission === 'edit'}
@@ -123,6 +131,12 @@ export default function ShareDialog({ projectId, open, onClose }: ShareDialogPro
               accent="purple"
             />
           </div>
+          {newPermission === 'comment' && (
+            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mb-2">
+              💬 Cliente abre o link, vê o fluxo, comenta em blocos sem editar.
+              Útil pra ciclo de revisão com cliente.
+            </p>
+          )}
           {newPermission === 'edit' && (
             <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mb-2">
               ⚠️ Qualquer pessoa com esse link poderá EDITAR o projeto (mover,
@@ -139,7 +153,9 @@ export default function ShareDialog({ projectId, open, onClose }: ShareDialogPro
               ? 'Criando…'
               : newPermission === 'edit'
                 ? '+ Criar link de EDIÇÃO'
-                : '+ Criar link de visualização'}
+                : newPermission === 'comment'
+                  ? '+ Criar link de comentário'
+                  : '+ Criar link de visualização'}
           </button>
         </div>
 
@@ -223,14 +239,16 @@ function PermissionPill({
   icon: string;
   label: string;
   desc: string;
-  accent: 'gray' | 'purple';
+  accent: 'gray' | 'purple' | 'amber';
 }) {
   const baseCls =
     'flex items-center gap-2 p-2 rounded-md border text-left transition';
   const activeCls =
     accent === 'purple'
       ? 'border-blip-purple bg-blip-purple/10 text-blip-purple'
-      : 'border-gray-400 bg-gray-100 text-gray-800';
+      : accent === 'amber'
+        ? 'border-amber-500 bg-amber-50 text-amber-700'
+        : 'border-gray-400 bg-gray-100 text-gray-800';
   const inactiveCls =
     'border-gray-200 bg-white text-gray-600 hover:border-gray-300';
   return (

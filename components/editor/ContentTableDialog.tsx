@@ -12,7 +12,8 @@
  * single-line). Empty value é permitido — apaga o texto.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Search, Table2, X } from 'lucide-react';
+import { Download, Search, Table2, Upload, X } from 'lucide-react';
+import { confirmDialog } from '@/lib/utils/dialog';
 import {
   Dialog,
   DialogContent,
@@ -107,25 +108,163 @@ export default function ContentTableDialog({
   }
 
   function exportCsv() {
-    const header = ['frame', 'code', 'tipo', 'campo', 'valor'];
+    // Exporta colunas estáveis pra round-trip: nodeId + fieldPath são chaves
+    // que o import usa pra match exato. Posições adicionais (frame, code, tipo,
+    // campo) são pra humano ler.
+    const header = ['nodeId', 'fieldPath', 'frame', 'code', 'tipo', 'campo', 'valor'];
     const escape = (v: string) =>
       `"${(v ?? '').replace(/"/g, '""').replace(/\n/g, '\\n')}"`;
+    // BOM UTF-8 + separador `;` — Excel BR abre direto com acentos OK.
     const csv = [
-      header.join(','),
+      header.join(';'),
       ...rows.map((r) =>
-        [r.frameLabel, r.code ?? '', r.nodeType, r.fieldLabel, r.value]
+        [r.nodeId, r.fieldPath, r.frameLabel, r.code ?? '', r.nodeType, r.fieldLabel, r.value]
           .map(escape)
-          .join(',')
+          .join(';')
       ),
     ].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `conteudo-${Date.now()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    toast({ level: 'success', message: `${rows.length} linhas exportadas` });
+    toast({ level: 'success', message: `${rows.length} linhas exportadas (CSV)` });
+  }
+
+  // Import: aceita .xlsx ou .csv exportado por nós. Match por (nodeId,
+  // fieldPath) — colunas obrigatórias no arquivo. Conta diffs antes de aplicar
+  // e pede confirmação pro user revisar quantos campos vão mudar.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleImportFile(file: File) {
+    try {
+      const XLSX = await import('xlsx');
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json<Record<string, string>>(ws, {
+        defval: '',
+        // header: 1 → array de arrays. Usamos default (objetos com header da 1ª linha).
+      });
+      if (data.length === 0) {
+        toast({ level: 'warn', message: 'Planilha vazia ou sem header.' });
+        return;
+      }
+
+      // Validar colunas mínimas
+      const first = data[0];
+      if (!('nodeId' in first) || !('fieldPath' in first) || !('valor' in first)) {
+        toast({
+          level: 'error',
+          message:
+            'Planilha sem colunas obrigatórias. Esperado: nodeId, fieldPath, valor (exporte primeiro do botão CSV/Excel).',
+        });
+        return;
+      }
+
+      // Index dos rows atuais pra match rápido
+      const currentByKey = new Map<string, ContentRow>();
+      for (const r of rows) {
+        currentByKey.set(`${r.nodeId}::${r.fieldPath}`, r);
+      }
+
+      // Coleta diffs reais (valor mudou)
+      const updates: Array<{ row: ContentRow; newValue: string }> = [];
+      let skippedUnknown = 0;
+      for (const r of data) {
+        const key = `${r.nodeId}::${r.fieldPath}`;
+        const cur = currentByKey.get(key);
+        if (!cur) {
+          skippedUnknown++;
+          continue;
+        }
+        const newValue = (r.valor ?? '').toString();
+        if (newValue !== cur.value) {
+          updates.push({ row: cur, newValue });
+        }
+      }
+
+      if (updates.length === 0) {
+        toast({
+          level: 'info',
+          message: `Nenhuma diferença encontrada. ${skippedUnknown > 0 ? `${skippedUnknown} linhas não bateram com nenhum bloco do projeto.` : ''}`,
+        });
+        return;
+      }
+
+      const ok = await confirmDialog({
+        title: 'Aplicar edições da planilha?',
+        message: `${updates.length} campo(s) vão ser atualizado(s).${skippedUnknown > 0 ? ` ${skippedUnknown} linha(s) ignorada(s) (nodeId/fieldPath inexistentes).` : ''} Pode desfazer com Ctrl+Z.`,
+        confirmText: `Aplicar ${updates.length} edição(ões)`,
+      });
+      if (!ok) return;
+
+      // Aplica em batch — uma chamada por nodeId pra não chamar setNodes N×
+      // (`onUpdate` faz merge no parent). Mas como podemos ter vários campos
+      // por node, mesclamos antes.
+      const patchesByNode = new Map<string, Record<string, unknown>>();
+      for (const u of updates) {
+        const existing = patchesByNode.get(u.row.nodeId) ?? {};
+        // Pra arrays (options[N]), precisamos do array atual completo.
+        const node = nodes.find((n) => n.id === u.row.nodeId);
+        let basis = existing;
+        if (u.row.fieldPath.includes('[') && Object.keys(existing).length === 0) {
+          const arrKey = u.row.fieldPath.split('[')[0];
+          basis = { ...existing, [arrKey]: (node?.data?.[arrKey] as string[]) ?? [] };
+        }
+        const next = applyFieldPatch(basis, u.row.fieldPath, u.newValue);
+        patchesByNode.set(u.row.nodeId, next);
+      }
+      for (const [nodeId, patch] of patchesByNode.entries()) {
+        onUpdate(nodeId, patch as Partial<FluxoNodeData>);
+      }
+
+      toast({
+        level: 'success',
+        message: `${updates.length} campo(s) atualizado(s) em ${patchesByNode.size} bloco(s).`,
+      });
+    } catch (err) {
+      toast({
+        level: 'error',
+        message: `Falha ao importar: ${err instanceof Error ? err.message : 'erro desconhecido'}`,
+      });
+    }
+  }
+
+  async function exportXlsx() {
+    // Dynamic import: `xlsx` é ~600kb minified, só baixa quando usuário clica.
+    const XLSX = await import('xlsx');
+    const data = [
+      ['nodeId', 'fieldPath', 'frame', 'code', 'tipo', 'campo', 'valor'],
+      ...rows.map((r) => [
+        r.nodeId,
+        r.fieldPath,
+        r.frameLabel,
+        r.code ?? '',
+        r.nodeType,
+        r.fieldLabel,
+        r.value,
+      ]),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    // Larguras humanas em chars (col widths em "wch")
+    ws['!cols'] = [
+      { wch: 18 }, // nodeId
+      { wch: 16 }, // fieldPath
+      { wch: 22 }, // frame
+      { wch: 10 }, // code
+      { wch: 16 }, // tipo
+      { wch: 16 }, // campo
+      { wch: 60 }, // valor (cresce com texto longo)
+    ];
+    // Freeze do header
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 } as unknown as undefined;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Conteúdo');
+    XLSX.writeFile(wb, `conteudo-${Date.now()}.xlsx`);
+    toast({ level: 'success', message: `${rows.length} linhas exportadas (Excel)` });
   }
 
   return (
@@ -194,10 +333,39 @@ export default function ContentTableDialog({
             onClick={exportCsv}
             disabled={rows.length === 0}
             className="text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-1 disabled:opacity-40 shrink-0"
-            title="Exportar como CSV"
+            title="Exportar como CSV (UTF-8 BOM + separador ;, compatível Excel BR)"
           >
             <Download size={13} /> CSV
           </button>
+          <button
+            type="button"
+            onClick={exportXlsx}
+            disabled={rows.length === 0}
+            className="text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-1 disabled:opacity-40 shrink-0"
+            title="Exportar como Excel (.xlsx) com colunas formatadas e header fixo"
+          >
+            <Download size={13} /> Excel
+          </button>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-1 shrink-0"
+            title="Importar planilha (.xlsx ou .csv) — atualiza textos pelo nodeId+fieldPath"
+          >
+            <Upload size={13} /> Importar
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.csv"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleImportFile(file);
+              // Reset pra permitir o mesmo arquivo de novo
+              e.target.value = '';
+            }}
+          />
           <span className="text-[11px] text-gray-500 dark:text-gray-400 shrink-0 ml-1 tabular-nums">
             {rows.length} {rows.length === 1 ? 'linha' : 'linhas'}
           </span>

@@ -1,7 +1,7 @@
 id: whatsapp-flow
 displayName: "WhatsApp Flow (mini-app)"
 icon: "📋"
-category: interactive
+category: structure
 nodeType: whatsapp-flow
 flowControl: linear
 

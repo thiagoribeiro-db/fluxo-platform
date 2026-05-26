@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useTransition } from 'react';
+import { useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   createComponentSpec,
@@ -16,6 +16,8 @@ import {
 import type { ComponentSpec } from '@/lib/component-specs/spec-schema';
 import { toast } from '@/lib/utils/errors';
 import { confirmDialog } from '@/lib/utils/dialog';
+import { formatTimeAgo, isRecent } from '@/lib/utils/time-ago';
+import { hasUnseenUpdate, markSeen } from '@/lib/utils/seen-tracker';
 
 interface ComponentsSectionProps {
   specs: ListedSpec[];
@@ -143,6 +145,39 @@ export default function ComponentsSection({ specs }: ComponentsSectionProps) {
   const overrideCount = specs.filter((s) => s.source === 'override').length;
   const customCount = specs.filter((s) => s.source === 'custom').length;
 
+  // Conta specs com atualização não vista pelo user (vs lastSeen no
+  // localStorage). Usado pra mostrar badge contador no botão "Atualizar".
+  const unseenCount = useMemo(
+    () =>
+      specs.filter((s) =>
+        hasUnseenUpdate('spec', s.data.id, s.updatedAt)
+      ).length,
+    [specs]
+  );
+
+  /** Re-busca do server (Server Component refetch) + invalida cache. */
+  function handleRefresh() {
+    router.refresh();
+    toast({
+      level: 'success',
+      message: 'Componentes atualizados',
+      detail: 'Última versão do servidor carregada.',
+    });
+  }
+
+  /** Marca TODOS os specs como vistos AGORA — limpa todos os dots. */
+  function markAllSeen() {
+    const now = new Date().toISOString();
+    for (const s of specs) {
+      if (s.updatedAt) markSeen('spec', s.data.id, now);
+    }
+    toast({
+      level: 'info',
+      message: 'Tudo marcado como visto',
+    });
+    router.refresh();
+  }
+
   // Agrupa por categoria respeitando a ordem canônica
   const byCategory = new Map<ComponentSpec['category'], ListedSpec[]>();
   for (const cat of CATEGORY_ORDER) byCategory.set(cat, []);
@@ -178,6 +213,35 @@ export default function ComponentsSection({ specs }: ComponentsSectionProps) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Botão "Atualizar" — força re-fetch + invalidação.
+              Mostra dot/contador quando há specs com atualização não-vista. */}
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="relative border border-gray-300 hover:border-blip-purple/40 hover:text-blip-purple text-gray-700 px-3 py-2 rounded-lg font-semibold text-sm flex items-center gap-1.5"
+            title={
+              unseenCount > 0
+                ? `${unseenCount} componente${unseenCount === 1 ? '' : 's'} atualizado${unseenCount === 1 ? '' : 's'} desde sua última visita`
+                : 'Puxa a versão mais recente do servidor'
+            }
+          >
+            <span>🔄</span> Atualizar
+            {unseenCount > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-bold animate-pulse-subtle">
+                {unseenCount}
+              </span>
+            )}
+          </button>
+          {unseenCount > 0 && (
+            <button
+              type="button"
+              onClick={markAllSeen}
+              className="text-xs text-gray-500 hover:text-gray-700 underline underline-offset-2"
+              title="Marca todas as atualizações como vistas"
+            >
+              marcar tudo como visto
+            </button>
+          )}
           <button
             type="button"
             onClick={handleExport}
@@ -498,7 +562,7 @@ function ComponentCard({
   spec: ListedSpec;
   onEdit: () => void;
 }) {
-  const { data, source } = spec;
+  const { data, source, updatedAt } = spec;
   const badge =
     source === 'builtin'
       ? { label: 'builtin', cls: 'bg-gray-100 text-gray-600' }
@@ -506,12 +570,40 @@ function ComponentCard({
         ? { label: 'editado', cls: 'bg-amber-100 text-amber-800' }
         : { label: 'customizado', cls: 'bg-emerald-100 text-emerald-800' };
 
+  // Sinalização "tem atualização não vista" — compara updated_at do DB com
+  // a marcação local (localStorage) da última visita do user a este spec.
+  const unseen = hasUnseenUpdate('spec', data.id, updatedAt);
+  const recent = isRecent(updatedAt, { withinMs: 24 * 60 * 60_000 }); // 24h
+  const timeAgo = formatTimeAgo(updatedAt);
+
+  function handleClick() {
+    // Ao abrir o editor, marca como visto — limpa o dot na próxima render.
+    markSeen('spec', data.id, updatedAt ?? new Date().toISOString());
+    onEdit();
+  }
+
   return (
     <button
       type="button"
-      onClick={onEdit}
-      className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md hover:border-blip-purple/40 transition text-left w-full group"
+      onClick={handleClick}
+      className={`relative bg-white border rounded-xl p-4 hover:shadow-md transition text-left w-full group ${
+        unseen
+          ? 'border-rose-300 ring-1 ring-rose-100 hover:border-rose-400'
+          : 'border-gray-200 hover:border-blip-purple/40'
+      }`}
     >
+      {/* Dot indicator "atualização não vista" — canto superior direito */}
+      {unseen && (
+        <span
+          className="absolute -top-1 -right-1 z-10 flex items-center justify-center"
+          title="Atualizado depois da sua última visita — clique pra ver"
+          aria-label="Atualização não vista"
+        >
+          <span className="absolute inline-flex h-3 w-3 rounded-full bg-rose-400 opacity-75 animate-ping" />
+          <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500" />
+        </span>
+      )}
+
       <div className="flex items-start gap-3">
         <span className="text-2xl shrink-0 leading-none">{data.icon}</span>
         <div className="flex-1 min-w-0">
@@ -529,6 +621,23 @@ function ComponentCard({
           <p className="text-xs text-gray-600 mt-2 line-clamp-2">
             {data.description.split('\n')[0]}
           </p>
+          {/* Timestamp visível pros customs/overrides — builtin não tem
+              porque não vem do DB. */}
+          {timeAgo && (
+            <p
+              className={`text-[10px] mt-1.5 flex items-center gap-1 ${
+                recent ? 'text-emerald-700 font-medium' : 'text-gray-400'
+              }`}
+              title={updatedAt}
+            >
+              <span
+                className={`inline-block w-1.5 h-1.5 rounded-full ${
+                  recent ? 'bg-emerald-500' : 'bg-gray-300'
+                }`}
+              />
+              atualizado {timeAgo}
+            </p>
+          )}
         </div>
       </div>
     </button>

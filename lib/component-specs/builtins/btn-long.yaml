@@ -1,32 +1,41 @@
 id: btn-long
-displayName: "Botão Longo (CTA)"
+displayName: "Botão Longo (quick-reply largo)"
 icon: "▭"
 category: navigation
 nodeType: btn-long
 flowControl: linear
 
 description: |
-  Botão único (call-to-action) com label longo. Renderiza como botão de
-  Reply Button do WhatsApp ocupando largura inteira.
+  Quick-reply button (interactive.button do Cloud API) renderizado com
+  largura inteira no canvas. É funcionalmente IDÊNTICO ao Botão Curto —
+  ambos viram `interactive.button` no WhatsApp. A diferença é só visual:
+  btn-long é usado quando há UMA única opção/CTA, ocupando linha inteira;
+  btn-short é usado em rows de 2-3 lado-a-lado.
 
-  Usado quando há UMA única ação/opção pra avançar — ex: "Continuar",
-  "Aceitar termos", "Iniciar atendimento".
+  ⚠️ NÃO confundir com CTA URL Button (`cta_url`) — esse abre URL externa
+  no navegador e é um componente separado (não implementado ainda).
+
+  Limites WhatsApp Cloud API (válidos pra btn-long E btn-short):
+    - label: até 20 chars
+    - máximo 3 quick-replies por mensagem (soma curtos + longos)
 
 detectionCues:
   - 'Lista com apenas 1 item após uma pergunta/instrução'
-  - 'CTAs explícitos: "Clique aqui pra continuar", "Aceitar e prosseguir"'
+  - 'CTAs explícitos curtos: "Continuar", "Aceitar"'
   - 'Frase como "o usuário toca em Continuar pra avançar"'
 
 usageRules:
   - 'Use APENAS quando há 1 ÚNICA opção/ação. Se houver 2-3, use `buttons`. Se 4+, use `menu`.'
-  - 'O `label` é o texto exibido no botão — geralmente um verbo de ação'
+  - 'O `label` é o texto exibido no botão — geralmente um verbo de ação curto'
+  - 'Limite Meta: 20 chars no label (mesmo que btn-short, é o mesmo interactive.button)'
+  - 'Pra link externo (URL no navegador), aguarde implementação do CTA URL — NÃO use btn-long pra isso'
 
 fields:
   label:
     type: string
     required: true
-    description: Texto do botão (CTA)
-    aiHint: 'Comece com verbo de ação: "Continuar", "Aceitar termos", "Ver detalhes"'
+    description: Texto do botão (quick-reply, até 20 chars)
+    aiHint: 'Comece com verbo de ação curto: "Continuar", "Aceitar", "Sim". Máximo 20 chars (limite WhatsApp).'
 
 builderRules:
   edgeFromPrevious: true
@@ -36,13 +45,15 @@ examples:
   - description: Aceitar termos antes de continuar
     input: |
       Bot: Para continuar, é necessário aceitar nossos termos.
-      - Aceito os termos e desejo continuar
+      - Aceitar termos
     output:
       - { kind: bot, text: "Para continuar, é necessário aceitar nossos termos." }
-      - { kind: btn-long, label: "Aceito os termos e desejo continuar" }
+      - { kind: btn-long, label: "Aceitar termos" }
 
-  - description: CTA único pra abrir um link
-    input: 'Bot: Veja todas as ofertas no nosso site.\n[Acessar site]'
+  - description: CTA único curto
+    input: |
+      Bot: Tudo pronto pra começar?
+      - Iniciar atendimento
     output:
-      - { kind: bot, text: "Veja todas as ofertas no nosso site." }
-      - { kind: btn-long, label: "Acessar site" }
+      - { kind: bot, text: "Tudo pronto pra começar?" }
+      - { kind: btn-long, label: "Iniciar atendimento" }

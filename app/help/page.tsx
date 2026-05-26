@@ -172,7 +172,7 @@ export default async function HelpPage() {
         {/* ────────── 4. PAINÉIS LATERAIS ────────── */}
         <Section id="paineis" emoji="🪟" title="Painéis laterais">
           <FeatureGrid>
-            <FeatureCard emoji="🎨" title="Paleta (esquerda)" desc="Lista de componentes arrastáveis: Frame, Bubble Bot/User, Menu, Botões, Direcionamento, Condicional, etc." />
+            <FeatureCard emoji="🎨" title="Paleta (esquerda)" desc="Lista de componentes arrastáveis: Frame, Bubble Bot/User, Menu, Botões, Direcionamento, Condicional, Mídia (Imagem/Documento/Vídeo/Áudio), Link, IA generativa, Integração API/Planilha, WhatsApp Flow (mini-app multi-screen com 14 componentes Meta + preview interativo + export JSON)." />
             <FeatureCard emoji="📄" title="Páginas (esquerda)" desc="Lista das páginas do projeto (dev, hmg, prd). Clica pra trocar, + Nova pra criar, ⎘ pra duplicar." />
             <FeatureCard emoji="⚙️" title="Propriedades (direita)" desc="Quando seleciona um bloco, mostra campos editáveis. Sem seleção, lista todos os frames com link de navegação." />
             <FeatureCard emoji="✋" title="Modos H / V (inferior)" desc="Toggle Mover (H — pan no drag) vs Selecionar (V — retângulo de seleção)." />

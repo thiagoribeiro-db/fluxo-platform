@@ -19,6 +19,7 @@ import LinkNode from './LinkNode';
 import ConditionalNode from './ConditionalNode';
 import AtendimentoHumanoNode from './AtendimentoHumanoNode';
 import EntryPointNode from './EntryPointNode';
+import WhatsAppFlowNode from './WhatsAppFlowNode';
 
 export const nodeTypes = {
   // Estrutura
@@ -51,6 +52,10 @@ export const nodeTypes = {
   'midia-documento-user': MediaNode,
   'midia-video-bot': MediaNode,
   'midia-video-user': MediaNode,
+  'midia-audio-bot': MediaNode,
+  'midia-audio-user': MediaNode,
+  // WhatsApp Flow (mini-app multi-screen)
+  'whatsapp-flow': WhatsAppFlowNode,
 } as const;
 
 export {
@@ -69,4 +74,5 @@ export {
   ConditionalNode,
   AtendimentoHumanoNode,
   EntryPointNode,
+  WhatsAppFlowNode,
 };

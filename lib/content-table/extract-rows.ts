@@ -119,6 +119,8 @@ function emojiFor(type: string): string {
       if (type.startsWith('midia-imagem')) return '🖼️';
       if (type.startsWith('midia-documento')) return '📄';
       if (type.startsWith('midia-video')) return '🎥';
+      if (type.startsWith('midia-audio')) return '🔊';
+      if (type === 'whatsapp-flow') return '📋';
       return '◾';
   }
 }
@@ -164,6 +166,12 @@ const FIELD_MAP: Record<string, Array<{ path: string; label: string }>> = {
   ],
   'midia-video-bot': [{ path: 'caption', label: 'Legenda' }],
   'midia-video-user': [{ path: 'caption', label: 'Legenda' }],
+  'midia-audio-bot': [{ path: 'caption', label: 'Descrição (interna)' }],
+  'midia-audio-user': [{ path: 'caption', label: 'Descrição (interna)' }],
+  'whatsapp-flow': [
+    { path: 'flowName', label: 'Nome do Flow' },
+    { path: 'triggerLabel', label: 'Texto do botão' },
+  ],
   'integracao-api': [{ path: 'title', label: 'Título' }],
   'integracao-planilha': [{ path: 'title', label: 'Título' }],
   'iag-entrada': [{ path: 'title', label: 'Título' }],

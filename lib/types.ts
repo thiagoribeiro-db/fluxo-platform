@@ -115,13 +115,17 @@ export type FluxoNodeType =
   | 'iag-entrada'
   | 'iag-reentrada'
   | 'iag-saida'
-  // Mídias (3 tipos × 2 senders)
+  // Mídias (4 tipos × 2 senders)
   | 'midia-imagem-bot'
   | 'midia-imagem-user'
   | 'midia-documento-bot'
   | 'midia-documento-user'
   | 'midia-video-bot'
-  | 'midia-video-user';
+  | 'midia-video-user'
+  | 'midia-audio-bot'
+  | 'midia-audio-user'
+  // WhatsApp Flow (mini-app multi-screen dentro do WhatsApp)
+  | 'whatsapp-flow';
 
 export interface FluxoNodeData extends Record<string, unknown> {
   // Comuns
@@ -183,9 +187,9 @@ export interface FluxoNodeData extends Record<string, unknown> {
   headerIcon?: string;         // emoji ou char do ícone do header
   fields?: Array<{ label: string; key: string; value: string }>;
 
-  // MediaNode (imagem, documento, vídeo)
+  // MediaNode (imagem, documento, vídeo, áudio)
   sender?: 'bot' | 'user';
-  mediaKind?: 'imagem' | 'documento' | 'video';
+  mediaKind?: 'imagem' | 'documento' | 'video' | 'audio';
   caption?: string;            // descrição/legenda
   meta?: string;               // metadata (1 page · 262 KB · pdf)
   filename?: string;           // documento.pdf
@@ -201,7 +205,212 @@ export interface FluxoNodeData extends Record<string, unknown> {
   condition?: string;          // pergunta/condição avaliada (ex: "Cliente é VIP?")
   trueLabel?: string;          // texto da saída TRUE (default "Verdadeiro")
   falseLabel?: string;         // texto da saída FALSE (default "Falso")
+
+  // WhatsAppFlowNode (mini-app multi-screen do WhatsApp)
+  flowName?: string;           // nome do Flow (ex: "Agendamento", "Cadastro")
+  flowCategory?: WhatsAppFlowCategory;
+  screens?: WhatsAppFlowScreen[]; // até 10 screens
+  flowJsonVersion?: string;    // versão do Flow JSON spec (default "7.1")
+  dataApiVersion?: string;     // versão da Data API (default "3.0")
+  triggerLabel?: string;       // texto do botão que abre o Flow (max 20 chars)
+  /**
+   * URL do endpoint do cliente pra `data_exchange` (config opcional no
+   * Flow JSON: `data_channel_uri`). Quando preenchido, actions
+   * `data_exchange` POSTAM dados pra essa URL e usam a resposta pra
+   * decidir próxima screen. Sem isso, Flow só suporta `navigate` e
+   * `complete` (modo "client-only").
+   */
+  dataChannelUri?: string;
+  /**
+   * Timestamp ISO da última edição do Flow (sub-editor). Usado pra:
+   *  - Badge "atualizado há X" no node
+   *  - Pulse visual de "novidade" no canvas
+   *  - Dot indicator "não visto" comparando contra lastSeen no localStorage
+   */
+  flowUpdatedAt?: string;
 }
+
+/**
+ * Categorias oficiais Meta pro Flow JSON (campo `categories` do Flow).
+ * Exigido na publicação — define o "intent" do Flow.
+ */
+export type WhatsAppFlowCategory =
+  | 'SIGN_UP'
+  | 'SIGN_IN'
+  | 'APPOINTMENT_BOOKING'
+  | 'LEAD_GENERATION'
+  | 'CONTACT_US'
+  | 'CUSTOMER_SUPPORT'
+  | 'SURVEY'
+  | 'SHOPPING'
+  | 'OTHER';
+
+/**
+ * Tela individual de um WhatsApp Flow. Cada Flow tem 1..10 screens
+ * empilhadas com navegação via Footer.action.
+ *
+ * Componentes ficam num array; tipos específicos definidos em #207/#208.
+ * Por enquanto o `components` aceita qualquer shape — vai ser refinado
+ * com discriminated union nas próximas tasks.
+ */
+export interface WhatsAppFlowScreen {
+  /** ID estável da screen (usado em routing). Auto-gerado, ex: "screen_a1b2". */
+  id: string;
+  /** Título exibido no topo da screen (até 80 chars). */
+  title: string;
+  /** Componentes empilhados verticalmente (TextHeading, TextInput, etc). */
+  components: WhatsAppFlowComponent[];
+  /** Se true, é a screen inicial (entry point do Flow). Exatamente 1 por Flow. */
+  isEntry?: boolean;
+  /** Se true, é screen terminal (action = complete). Pode ter mais de 1. */
+  isTerminal?: boolean;
+}
+
+/**
+ * Action executada quando um Footer/EmbeddedLink/OptIn é tocado.
+ * Mapeia 1:1 pro Flow JSON spec (Meta v7.1).
+ *
+ *  - navigate:     pula pra próxima screen (refere-se por id)
+ *  - data_exchange: envia dados ao backend; resposta define próxima screen
+ *  - complete:     encerra o Flow, retornando dados ao chat
+ */
+export type WhatsAppFlowAction =
+  | { name: 'navigate'; next: { name: string } } // next.name = screen id
+  | { name: 'data_exchange'; payload?: Record<string, unknown> }
+  | { name: 'complete'; payload?: Record<string, unknown> };
+
+/**
+ * Item de uma lista de seleção (RadioButtonsGroup, CheckboxGroup, Dropdown).
+ * Mapeia pro `data-source` do Flow JSON.
+ */
+export interface WhatsAppFlowChoice {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+/**
+ * Discriminated union dos componentes de uma screen do Flow.
+ *
+ * Cada variant corresponde 1:1 ao schema do Flow JSON (Meta v7.1):
+ *   https://developers.facebook.com/docs/whatsapp/flows/reference/components
+ *
+ * O campo `id` é estável e usado pra ordenar/referenciar no editor; ele NÃO
+ * vai pro export final (o Flow JSON usa `name` como ID interno).
+ */
+export type WhatsAppFlowComponent =
+  // ---- Texto (não-interativos) ----------------------------------------
+  | { id: string; type: 'TextHeading'; text: string }
+  | { id: string; type: 'TextSubheading'; text: string }
+  | { id: string; type: 'TextBody'; text: string }
+  | { id: string; type: 'TextCaption'; text: string }
+  // ---- Visual ---------------------------------------------------------
+  | {
+      id: string;
+      type: 'Image';
+      src: string;              // URL ou base64
+      alt?: string;
+      width?: number;
+      height?: number;
+      scaleType?: 'contain' | 'cover';
+    }
+  | {
+      id: string;
+      type: 'EmbeddedLink';
+      text: string;
+      onClickAction: WhatsAppFlowAction;
+    }
+  // ---- Input simples --------------------------------------------------
+  | {
+      id: string;
+      type: 'TextInput';
+      name: string;             // identificador no payload final
+      label: string;
+      inputType?:
+        | 'text'
+        | 'number'
+        | 'email'
+        | 'password'
+        | 'passcode'
+        | 'phone';
+      required?: boolean;
+      helperText?: string;
+      minChars?: number;
+      maxChars?: number;
+      initValue?: string;
+    }
+  | {
+      id: string;
+      type: 'TextArea';
+      name: string;
+      label: string;
+      required?: boolean;
+      helperText?: string;
+      maxLength?: number;
+      initValue?: string;
+    }
+  // ---- Input com opções ------------------------------------------------
+  | {
+      id: string;
+      type: 'RadioButtonsGroup';
+      name: string;
+      label: string;
+      dataSource: WhatsAppFlowChoice[];
+      required?: boolean;
+      initValue?: string;
+    }
+  | {
+      id: string;
+      type: 'CheckboxGroup';
+      name: string;
+      label: string;
+      dataSource: WhatsAppFlowChoice[];
+      required?: boolean;
+      minSelectedItems?: number;
+      maxSelectedItems?: number;
+      initValue?: string[];
+    }
+  | {
+      id: string;
+      type: 'Dropdown';
+      name: string;
+      label: string;
+      dataSource: WhatsAppFlowChoice[];
+      required?: boolean;
+      initValue?: string;
+    }
+  | {
+      id: string;
+      type: 'DatePicker';
+      name: string;
+      label: string;
+      required?: boolean;
+      minDate?: string;         // YYYY-MM-DD
+      maxDate?: string;
+      helperText?: string;
+      initValue?: string;
+    }
+  | {
+      id: string;
+      type: 'OptIn';
+      name: string;
+      label: string;
+      required?: boolean;
+      onClickAction?: WhatsAppFlowAction;
+    }
+  // ---- Footer (action obrigatória; encerra/navega/data-exchange) ------
+  | {
+      id: string;
+      type: 'Footer';
+      label: string;            // texto do botão (até 35 chars)
+      leftCaption?: string;
+      centerCaption?: string;
+      rightCaption?: string;
+      onClickAction: WhatsAppFlowAction;
+    };
+
+/** Helper: discrimina pelo `type` (gera autocomplete melhor que `is`). */
+export type WhatsAppFlowComponentType = WhatsAppFlowComponent['type'];
 
 export type FluxoNode = Node<FluxoNodeData, FluxoNodeType>;
 

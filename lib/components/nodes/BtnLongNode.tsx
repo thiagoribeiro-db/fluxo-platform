@@ -6,9 +6,14 @@ import type { FluxoNode } from '@/lib/types';
 import CodeBadge from './CodeBadge';
 
 /**
- * BtnLong — botão longo (textos descritivos como "Falar com atendente humano").
+ * BtnLong — quick-reply (interactive.button) renderizado em largura inteira.
  *
- * Inputs: data.label (string)
+ * Funcionalmente IDÊNTICO ao BtnShort — ambos viram `interactive.button` no
+ * WhatsApp Cloud API. A diferença é só visual: btn-long é usado quando há
+ * UMA única opção/CTA, ocupando largura inteira no canvas. Limite Meta:
+ * label até 20 chars; máximo 3 quick-replies por mensagem (somando com btn-short).
+ *
+ * Inputs: data.label (string, max 20 chars)
  * Conexões: handle top (entrada), handle bottom (saída)
  */
 function BtnLongNode({ data, selected }: NodeProps<FluxoNode>) {
@@ -18,7 +23,7 @@ function BtnLongNode({ data, selected }: NodeProps<FluxoNode>) {
       <Handle type="target" position={Position.Top} className="!bg-blip-purple" />
 
       <div className="btn-long">
-        {data.label || 'Botão longo descritivo'}
+        {data.label || 'Continuar'}
       </div>
 
       <Handle type="source" position={Position.Bottom} className="!bg-blip-purple" />

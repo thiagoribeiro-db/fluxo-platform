@@ -29,7 +29,7 @@ import type { FluxoNode, FluxoNodeType } from '@/lib/types';
 
 export type RunnerEvent =
   | { kind: 'bot-text'; nodeId: string; text: string }
-  | { kind: 'bot-media'; nodeId: string; mediaKind: 'imagem' | 'documento' | 'video'; caption?: string; filename?: string }
+  | { kind: 'bot-media'; nodeId: string; mediaKind: 'imagem' | 'documento' | 'video' | 'audio'; caption?: string; filename?: string }
   | { kind: 'bot-link'; nodeId: string; url: string; title?: string; description?: string }
   | { kind: 'bot-menu'; nodeId: string; header: string; options: string[] }
   | { kind: 'bot-conditional'; nodeId: string; condition: string; trueLabel: string; falseLabel: string }
@@ -323,6 +323,8 @@ const MAIN_TYPES: ReadonlySet<string> = new Set<FluxoNodeType>([
   'midia-imagem-bot', 'midia-imagem-user',
   'midia-documento-bot', 'midia-documento-user',
   'midia-video-bot', 'midia-video-user',
+  'midia-audio-bot', 'midia-audio-user',
+  'whatsapp-flow',
   'link', 'direcionamento', 'condicional', 'atendimento-humano',
   'integracao-api', 'integracao-planilha',
   'iag-entrada', 'iag-reentrada', 'iag-saida',
@@ -668,9 +670,10 @@ function advance(
       }
       case 'midia-imagem-bot':
       case 'midia-documento-bot':
-      case 'midia-video-bot': {
+      case 'midia-video-bot':
+      case 'midia-audio-bot': {
         const mediaKind = type.replace('midia-', '').replace('-bot', '') as
-          | 'imagem' | 'documento' | 'video';
+          | 'imagem' | 'documento' | 'video' | 'audio';
         events.push({
           kind: 'bot-media',
           nodeId: node.id,
@@ -683,7 +686,8 @@ function advance(
       }
       case 'midia-imagem-user':
       case 'midia-documento-user':
-      case 'midia-video-user': {
+      case 'midia-video-user':
+      case 'midia-audio-user': {
         // User envia mídia → bloqueia (representa esperar upload)
         return {
           events,

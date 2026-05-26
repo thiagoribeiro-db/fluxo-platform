@@ -28,16 +28,21 @@ import {
   FieldsListEditor,
   OptionsListEditor,
 } from './shared';
+import { FLOW_CATEGORIES, FLOW_LIMITS } from '@/lib/whatsapp-flows/constants';
+import type { WhatsAppFlowCategory } from '@/lib/types';
 
 export function NodeFields({
   node,
   onUpdate,
   allNodesForSelect,
+  onOpenFlowEditor,
 }: {
   node: FluxoNode;
   onUpdate: (patch: Partial<FluxoNodeData>) => void;
   /** Lista de todos os nodes — usado pra montar dropdowns (frames disponíveis). */
   allNodesForSelect: FluxoNode[];
+  /** Callback pra abrir o sub-editor do WhatsApp Flow (só usado em whatsapp-flow). */
+  onOpenFlowEditor?: (nodeId: string) => void;
 }) {
   const data = node.data;
   // Variáveis declaradas no fluxo — alimenta o popover `{{...}}` do RichTextEditor.
@@ -411,13 +416,15 @@ export function NodeFields({
         </>
       )}
 
-      {/* ===== MEDIA (imagem, documento, vídeo) ===== */}
+      {/* ===== MEDIA (imagem, documento, vídeo, áudio) ===== */}
       {(node.type === 'midia-imagem-bot' ||
         node.type === 'midia-imagem-user' ||
         node.type === 'midia-documento-bot' ||
         node.type === 'midia-documento-user' ||
         node.type === 'midia-video-bot' ||
-        node.type === 'midia-video-user') && (
+        node.type === 'midia-video-user' ||
+        node.type === 'midia-audio-bot' ||
+        node.type === 'midia-audio-user') && (
         <>
           <Field label="Remetente">
             <div className="flex gap-1">
@@ -458,6 +465,30 @@ export function NodeFields({
                 />
               </Field>
             </>
+          ) : data.mediaKind === 'audio' ? (
+            <>
+              <Field label="Descrição (interna)">
+                <textarea
+                  value={data.caption ?? ''}
+                  onChange={(e) => onUpdate({ caption: e.target.value })}
+                  rows={2}
+                  placeholder="Áudio explicativo do bot"
+                  className={`${inputCls} resize-none`}
+                />
+                <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+                  WhatsApp Cloud API não suporta caption em áudio — esse texto é só pra documentação interna.
+                </p>
+              </Field>
+              <Field label="Duração (ex: 0:12)">
+                <input
+                  type="text"
+                  value={data.meta ?? ''}
+                  onChange={(e) => onUpdate({ meta: e.target.value })}
+                  placeholder="0:12"
+                  className={inputCls}
+                />
+              </Field>
+            </>
           ) : (
             <Field label="Legenda">
               <textarea
@@ -468,15 +499,80 @@ export function NodeFields({
               />
             </Field>
           )}
-          <Field label="Thumbnail URL (opcional)">
+          {data.mediaKind !== 'audio' && (
+            <Field label="Thumbnail URL (opcional)">
+              <input
+                type="text"
+                value={data.thumbnailUrl ?? ''}
+                onChange={(e) => onUpdate({ thumbnailUrl: e.target.value })}
+                placeholder="https://…"
+                className={inputCls}
+              />
+            </Field>
+          )}
+        </>
+      )}
+
+      {/* ===== WHATSAPP FLOW (mini-app multi-screen) ===== */}
+      {node.type === 'whatsapp-flow' && (
+        <>
+          <Field label="Nome do Flow">
             <input
               type="text"
-              value={data.thumbnailUrl ?? ''}
-              onChange={(e) => onUpdate({ thumbnailUrl: e.target.value })}
-              placeholder="https://…"
+              value={(data.flowName as string | undefined) ?? ''}
+              onChange={(e) => onUpdate({ flowName: e.target.value.slice(0, FLOW_LIMITS.flowName) })}
+              maxLength={FLOW_LIMITS.flowName}
+              placeholder="Ex: Cadastro de cliente"
               className={inputCls}
             />
           </Field>
+
+          <Field label="Categoria (Meta)">
+            <select
+              value={(data.flowCategory as WhatsAppFlowCategory | undefined) ?? 'OTHER'}
+              onChange={(e) => onUpdate({ flowCategory: e.target.value as WhatsAppFlowCategory })}
+              className={inputCls}
+            >
+              {FLOW_CATEGORIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+              Define o intent do Flow na publicação (Meta exige).
+            </p>
+          </Field>
+
+          <Field label={`Texto do botão (max ${FLOW_LIMITS.triggerLabel})`}>
+            <input
+              type="text"
+              value={(data.triggerLabel as string | undefined) ?? ''}
+              onChange={(e) => onUpdate({ triggerLabel: e.target.value.slice(0, FLOW_LIMITS.triggerLabel) })}
+              maxLength={FLOW_LIMITS.triggerLabel}
+              placeholder="Abrir"
+              className={inputCls}
+            />
+            <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+              Aparece no chat como botão CTA que abre o Flow.
+            </p>
+          </Field>
+
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={() => onOpenFlowEditor?.(node.id)}
+              className="w-full px-3 py-2.5 rounded-md bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-sm font-medium hover:from-emerald-600 hover:to-emerald-700 transition"
+            >
+              📋 Abrir editor de telas
+              <span className="text-[10px] opacity-80 ml-1.5">
+                ({((data.screens as unknown[] | undefined) ?? []).length} tela{((data.screens as unknown[] | undefined) ?? []).length === 1 ? '' : 's'})
+              </span>
+            </button>
+            <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 text-center">
+              Telas, componentes e roteamento ficam no sub-editor.
+            </p>
+          </div>
         </>
       )}
     </div>

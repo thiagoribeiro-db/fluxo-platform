@@ -22,6 +22,7 @@ import {
   FileText,
   Image as ImageIcon,
   Link2,
+  Mic,
   RotateCcw,
   Send,
   Video,
@@ -508,19 +509,36 @@ function MediaPreview({
   caption,
   filename,
 }: {
-  kind: 'imagem' | 'documento' | 'video';
+  kind: 'imagem' | 'documento' | 'video' | 'audio';
   caption?: string;
   filename?: string;
 }) {
-  const Icon = kind === 'imagem' ? ImageIcon : kind === 'video' ? Video : FileText;
-  const label = kind === 'imagem' ? 'Imagem' : kind === 'video' ? 'Vídeo' : filename || 'Documento';
+  const Icon =
+    kind === 'imagem'
+      ? ImageIcon
+      : kind === 'video'
+        ? Video
+        : kind === 'audio'
+          ? Mic
+          : FileText;
+  const label =
+    kind === 'imagem'
+      ? 'Imagem'
+      : kind === 'video'
+        ? 'Vídeo'
+        : kind === 'audio'
+          ? 'Áudio'
+          : filename || 'Documento';
   return (
     <div>
       <div className="bg-gray-200 rounded-lg p-3 flex items-center gap-2 text-gray-600 text-xs">
         <Icon size={18} />
         <span className="font-medium">{label}</span>
       </div>
-      {caption && <div className="text-sm text-gray-900 mt-1">{caption}</div>}
+      {/* WhatsApp Cloud API não suporta caption em áudio — só mostramos pra documentação interna */}
+      {caption && kind !== 'audio' && (
+        <div className="text-sm text-gray-900 mt-1">{caption}</div>
+      )}
     </div>
   );
 }

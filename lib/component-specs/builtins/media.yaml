@@ -1,5 +1,5 @@
 id: media
-displayName: "Mídia (Imagem/Documento/Vídeo)"
+displayName: "Mídia (Imagem/Documento/Vídeo/Áudio)"
 icon: "🖼️"
 category: media
 # Múltiplos nodeTypes: o builder escolhe baseado em media_kind + sender
@@ -10,42 +10,47 @@ nodeType:
   - midia-documento-user
   - midia-video-bot
   - midia-video-user
+  - midia-audio-bot
+  - midia-audio-user
 flowControl: linear
 
 description: |
-  Anexo de mídia trocado na conversa: imagem, documento (PDF/Word/etc) ou vídeo.
-  Pode ser enviado pelo BOT (mais comum — ex: encartes, fotos de produto) ou
-  pelo USUÁRIO (ex: foto da NF, comprovante, documento).
+  Anexo de mídia trocado na conversa: imagem, documento (PDF/Word/etc), vídeo
+  ou áudio. Pode ser enviado pelo BOT (mais comum — ex: encartes, fotos de
+  produto, áudio explicativo) ou pelo USUÁRIO (ex: foto da NF, comprovante,
+  áudio com a dúvida).
 
   O tipo concreto do node é decidido pela combinação `media_kind` + `sender`:
-  midia-imagem-bot, midia-imagem-user, midia-documento-bot, etc.
+  midia-imagem-bot, midia-audio-user, etc.
 
 detectionCues:
-  - 'Texto entre `[...]` mencionando "encarte", "foto", "imagem", "PDF", "vídeo", "card", "documento"'
-  - 'Frases como "o bot envia o encarte", "o bot mostra a imagem", "o cliente envia uma foto"'
-  - 'Listagens com nomes de arquivos: ".pdf", ".jpg", ".mp4"'
-  - 'Stand-alone entre colchetes: `[Encarte Pernambuco - PDF]`, `[Foto do produto]`'
+  - 'Texto entre `[...]` mencionando "encarte", "foto", "imagem", "PDF", "vídeo", "áudio", "voz", "card", "documento"'
+  - 'Frases como "o bot envia o encarte", "o bot mostra a imagem", "o cliente envia uma foto", "o cliente manda um áudio"'
+  - 'Listagens com nomes de arquivos: ".pdf", ".jpg", ".mp4", ".mp3", ".ogg"'
+  - 'Stand-alone entre colchetes: `[Encarte Pernambuco - PDF]`, `[Foto do produto]`, `[Áudio explicativo]`'
 
 usageRules:
   - 'Identifique o `media_kind` pelo conteúdo:'
   - '  - imagem: foto, card, figura, encarte gráfico, banner, gif, screenshot'
   - '  - documento: PDF, Word, planilha, encarte em PDF, contrato, política, comprovante (a não ser que esteja claro que é imagem)'
   - '  - video: vídeo, reel, animação, mp4, gif animado'
+  - '  - audio: áudio, voz, voicenote, gravação, mensagem de voz, mp3, ogg'
   - 'Identifique o `sender` pelo contexto:'
   - '  - bot: "o bot envia", "o bot mostra", encarte/material institucional'
-  - '  - user: "o cliente envia", "o usuário anexa", foto/comprovante do cliente'
-  - 'O `caption` deve descrever a mídia (vem do conteúdo entre colchetes ou da frase descritiva)'
+  - '  - user: "o cliente envia", "o usuário anexa", foto/comprovante/áudio do cliente'
+  - 'O `caption` deve descrever a mídia (vem do conteúdo entre colchetes ou da frase descritiva). Áudio NÃO suporta caption no WhatsApp Cloud API, mas mantemos como descrição interna para documentação.'
 
 commonMistakes:
   - 'Confundir "encarte em PDF" como imagem — é documento'
   - 'Não distinguir bot vs user — sempre considere quem envia no contexto'
   - 'Esquecer mídias inline dentro de um parágrafo (procure por `[...]` em qualquer lugar)'
+  - 'Confundir áudio de voz com vídeo curto — voicenote é audio'
 
 fields:
   media_kind:
     type: string
     required: true
-    enum: ['imagem', 'documento', 'video']
+    enum: ['imagem', 'documento', 'video', 'audio']
     description: Tipo da mídia
   sender:
     type: string
@@ -56,8 +61,8 @@ fields:
   caption:
     type: string
     required: true
-    description: Legenda/descrição da mídia
-    aiHint: 'Use o texto entre colchetes ou descreva o conteúdo. Ex: "Encarte Pernambuco", "Foto do produto", "Comprovante de pagamento"'
+    description: Legenda/descrição da mídia (em áudio é só descrição interna)
+    aiHint: 'Use o texto entre colchetes ou descreva o conteúdo. Ex: "Encarte Pernambuco", "Foto do produto", "Comprovante de pagamento", "Áudio explicativo do produto"'
 
 builderRules:
   edgeFromPrevious: true

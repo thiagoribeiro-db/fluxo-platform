@@ -42,12 +42,19 @@ const config: Config = {
           '0%': { opacity: '1', transform: 'scale(1)' },
           '100%': { opacity: '0', transform: 'scale(0.95)' },
         },
+        // Pulse sutil pra sinalizar "atualizado recente" sem irritar o olho.
+        // Usado no WhatsAppFlowNode + outros badges futuros.
+        'pulse-subtle': {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.85' },
+        },
       },
       animation: {
         'fade-in': 'fade-in 150ms ease-out',
         'fade-out': 'fade-out 150ms ease-out',
         'dialog-in': 'fade-in 150ms ease-out, zoom-in-95 150ms ease-out',
         'dialog-out': 'fade-out 150ms ease-out, zoom-out-95 150ms ease-out',
+        'pulse-subtle': 'pulse-subtle 2.4s ease-in-out infinite',
       },
     },
   },

@@ -27,7 +27,8 @@ export const NODE_DEFAULTS: Record<FluxoNodeType, FluxoNodeData> = {
   'bubble-bot': { text: 'Olá! Texto da mensagem BOT.', time: '9.41 AM' },
   'bubble-user': { text: 'Resposta do usuário', time: '9.41 AM' },
   'btn-short': { label: 'Opção' },
-  'btn-long': { label: 'Botão longo descritivo' },
+  // btn-long é quick-reply largo — mesmo limite de 20 chars do btn-short
+  'btn-long': { label: 'Continuar' },
   menu: {
     header: 'Selecione uma opção',
     options: ['Opção 1', 'Opção 2', 'Opção 3'],
@@ -160,6 +161,35 @@ export const NODE_DEFAULTS: Record<FluxoNodeType, FluxoNodeData> = {
     caption: 'Vídeo enviado pelo usuário',
     time: '9.41 AM',
   },
+  'midia-audio-bot': {
+    sender: 'bot',
+    mediaKind: 'audio',
+    caption: 'Áudio enviado pelo bot',
+    time: '9.41',
+  },
+  'midia-audio-user': {
+    sender: 'user',
+    mediaKind: 'audio',
+    caption: 'Áudio enviado pelo usuário',
+    time: '9.41 AM',
+  },
+
+  // ---- WHATSAPP FLOW (mini-app multi-screen) -------------------------------
+  'whatsapp-flow': {
+    flowName: 'Novo Flow',
+    flowCategory: 'OTHER',
+    flowJsonVersion: '7.1',
+    dataApiVersion: '3.0',
+    triggerLabel: 'Abrir',
+    screens: [
+      {
+        id: 'screen_init',
+        title: 'Início',
+        components: [],
+        isEntry: true,
+      },
+    ],
+  },
 
   // ---- LEGADO --------------------------------------------------------------
   block: {},
@@ -192,6 +222,7 @@ export const PALETTE_GROUPS: PaletteGroup[] = [
     items: [
       { type: 'frame', label: 'Frame', icon: '📦', description: 'Container nomeado (agrupa nós)' },
       { type: 'entry-point', label: 'Início', icon: '▶', description: 'Marca o início do fluxo dentro do frame' },
+      { type: 'whatsapp-flow', label: 'WhatsApp Flow', icon: '📋', description: 'Mini-app multi-screen (form) dentro do WhatsApp' },
     ],
   },
   {
@@ -215,6 +246,8 @@ export const PALETTE_GROUPS: PaletteGroup[] = [
       { type: 'midia-documento-user', label: 'Documento (USER)', icon: '📄', description: 'PDF/doc enviado pelo usuário' },
       { type: 'midia-video-bot', label: 'Vídeo (BOT)', icon: '🎬', description: 'Vídeo enviado pelo bot' },
       { type: 'midia-video-user', label: 'Vídeo (USER)', icon: '🎬', description: 'Vídeo enviado pelo usuário' },
+      { type: 'midia-audio-bot', label: 'Áudio (BOT)', icon: '🔊', description: 'Áudio enviado pelo bot' },
+      { type: 'midia-audio-user', label: 'Áudio (USER)', icon: '🎤', description: 'Áudio enviado pelo usuário' },
     ],
   },
   {

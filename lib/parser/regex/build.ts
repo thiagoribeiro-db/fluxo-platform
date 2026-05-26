@@ -338,11 +338,8 @@ function processBlock(
     case 'media': {
       const id = uid('midia');
       const sender = block.sender;
-      // FluxoNodeType só conhece imagem|documento|video — degrada `audio`
-      // pra `documento` (anexo). User pode trocar pra outro tipo na UI.
-      const mediaKindForType: 'imagem' | 'documento' | 'video' =
-        block.mediaKind === 'audio' ? 'documento' : block.mediaKind;
-      const type = `midia-${mediaKindForType}-${sender}` as FluxoNodeType;
+      // 4 tipos suportados (imagem|documento|video|audio) × 2 senders.
+      const type = `midia-${block.mediaKind}-${sender}` as FluxoNodeType;
       allNodes.push({
         id,
         type,
@@ -350,7 +347,7 @@ function processBlock(
         data: {
           code: nextCode(ctx),
           sender,
-          mediaKind: mediaKindForType,
+          mediaKind: block.mediaKind,
           caption: block.caption,
           time: '9.41 AM',
         },

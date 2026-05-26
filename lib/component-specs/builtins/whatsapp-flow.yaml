@@ -1,0 +1,86 @@
+id: whatsapp-flow
+displayName: "WhatsApp Flow (mini-app)"
+icon: "📋"
+category: interactive
+nodeType: whatsapp-flow
+flowControl: linear
+
+description: |
+  Mini-app multi-screen do WhatsApp pra coletar dados estruturados (formulários
+  guiados). É funcionalmente diferente do menu/lista: o user navega por TELAS
+  com inputs (texto, dropdown, radio, datepicker, etc) dentro do próprio
+  WhatsApp, retorna dados estruturados ao fim.
+
+  Casos típicos:
+   - Cadastro de cliente (Nome, CPF, Email, Aceite LGPD)
+   - Agendamento (data, hora, especialidade)
+   - Captura de lead (interesse, empresa, telefone)
+   - Pesquisa NPS estruturada
+
+  No canvas, o Flow é representado por UM bloco "WhatsApp Flow" — as telas,
+  componentes e roteamento ficam no SUB-EDITOR dedicado (clica em "Abrir
+  editor de telas" no painel de propriedades).
+
+detectionCues:
+  - 'Sentenças como "formulário", "form", "cadastro estruturado", "coleta de dados em telas"'
+  - 'Frases como "abre um formulário no WhatsApp", "tela de cadastro", "fluxo de inscrição"'
+  - 'Listagem de campos a coletar em sequência (Nome, CPF, Email, Telefone…)'
+
+usageRules:
+  - 'Use SOMENTE pra fluxos de DADOS ESTRUTURADOS coletados em uma sessão guiada (não pra menus simples — esses são `menu`).'
+  - 'Defina sempre a `category` Meta apropriada (SIGN_UP, APPOINTMENT_BOOKING, etc) — é exigido pela publicação na Meta.'
+  - 'Limite Meta: até 10 screens. Componentes detalhados ficam pra fase seguinte do sub-projeto.'
+  - 'Edge depois do Flow representa o que acontece após o user completar/cancelar.'
+
+commonMistakes:
+  - 'Usar Flow pra menu de 2-3 opções (deveria ser `buttons` ou `menu` quick-reply)'
+  - 'Esquecer de configurar a `category` (Meta rejeita publicação sem categoria)'
+  - 'Esperar que o Flow funcione como conversa livre — ele é estruturado, screens fixas, inputs específicos'
+
+fields:
+  flowName:
+    type: string
+    required: true
+    description: Nome do Flow (até 50 chars). Exibido internamente.
+    aiHint: 'Use um nome curto descritivo do propósito. Ex: "Cadastro de cliente", "Agendamento consulta"'
+  flowCategory:
+    type: string
+    required: true
+    enum:
+      - SIGN_UP
+      - SIGN_IN
+      - APPOINTMENT_BOOKING
+      - LEAD_GENERATION
+      - CONTACT_US
+      - CUSTOMER_SUPPORT
+      - SURVEY
+      - SHOPPING
+      - OTHER
+    description: Categoria Meta (exige na publicação).
+    default: OTHER
+  triggerLabel:
+    type: string
+    required: true
+    description: Texto do botão CTA que abre o Flow (max 20 chars).
+    default: 'Abrir'
+    aiHint: 'Verbo de ação curto: "Cadastrar", "Agendar", "Iniciar"'
+
+builderRules:
+  edgeFromPrevious: true
+  updatesLastFlowId: true
+
+examples:
+  - description: Cadastro de cliente novo
+    input: |
+      Bot: Pra te conhecer melhor, vou abrir um formulário com seu cadastro.
+      [Flow: cadastro - Nome, CPF, Email, Aceite LGPD]
+    output:
+      - { kind: bot, text: "Pra te conhecer melhor, vou abrir um formulário com seu cadastro." }
+      - { kind: whatsapp-flow, flowName: "Cadastro de cliente", flowCategory: SIGN_UP, triggerLabel: "Cadastrar" }
+
+  - description: Agendamento de consulta
+    input: |
+      Bot: Vamos agendar sua consulta. Toque em "Agendar" pra escolher data e horário.
+    output:
+      - { kind: bot, text: "Vamos agendar sua consulta. Toque em \"Agendar\" pra escolher data e horário." }
+      - { kind: whatsapp-flow, flowName: "Agendamento de consulta", flowCategory: APPOINTMENT_BOOKING, triggerLabel: "Agendar" }

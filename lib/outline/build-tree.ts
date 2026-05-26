@@ -95,6 +95,11 @@ function describeBlock(n: FluxoNode): { emoji: string; label: string } {
     case 'midia-video-bot':
     case 'midia-video-user':
       return { emoji: '🎥', label: truncate((d.caption as string) || 'Vídeo') };
+    case 'midia-audio-bot':
+    case 'midia-audio-user':
+      return { emoji: '🔊', label: truncate((d.caption as string) || 'Áudio') };
+    case 'whatsapp-flow':
+      return { emoji: '📋', label: truncate((d.flowName as string) || 'WhatsApp Flow') };
     default:
       return { emoji: '◾', label: n.type ?? 'Bloco' };
   }

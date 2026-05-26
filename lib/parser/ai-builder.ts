@@ -316,7 +316,7 @@ function emitBtnLong(ctx: BuildContext, label: string): string {
 
 function emitMedia(
   ctx: BuildContext,
-  mediaKind: 'imagem' | 'documento' | 'video',
+  mediaKind: 'imagem' | 'documento' | 'video' | 'audio',
   sender: 'bot' | 'user',
   caption: string
 ): string {

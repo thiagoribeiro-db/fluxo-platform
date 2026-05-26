@@ -120,6 +120,8 @@ const CREATE_NODE_ITEMS: Array<{
   { type: 'midia-imagem-bot', label: 'Imagem (Bot)', keywords: ['midia', 'imagem'] },
   { type: 'midia-documento-bot', label: 'Documento (Bot)', keywords: ['midia', 'pdf', 'arquivo'] },
   { type: 'midia-video-bot', label: 'Vídeo (Bot)', keywords: ['midia', 'video'] },
+  { type: 'midia-audio-bot', label: 'Áudio (Bot)', keywords: ['midia', 'audio', 'voz'] },
+  { type: 'whatsapp-flow', label: 'WhatsApp Flow', keywords: ['flow', 'form', 'formulário', 'meta', 'whatsapp'] },
 ];
 
 // =============================================================================

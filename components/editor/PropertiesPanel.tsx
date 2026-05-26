@@ -34,6 +34,8 @@ interface PropertiesPanelProps {
   onAddEdge?: (sourceId: string, targetId: string) => void;
   /** Troca o source ou target de uma edge existente. */
   onUpdateEdge?: (edgeId: string, patch: { source?: string; target?: string }) => void;
+  /** Abre o sub-editor do WhatsApp Flow (só usado quando whatsapp-flow está selecionado). */
+  onOpenFlowEditor?: (nodeId: string) => void;
 }
 
 /**
@@ -57,6 +59,7 @@ export default function PropertiesPanel({
   onRemoveEdge,
   onAddEdge,
   onUpdateEdge,
+  onOpenFlowEditor,
 }: PropertiesPanelProps) {
   if (collapsed) {
     return (
@@ -99,6 +102,7 @@ export default function PropertiesPanel({
               node={selectedNode}
               onUpdate={onUpdate}
               allNodesForSelect={allNodes ?? []}
+              onOpenFlowEditor={onOpenFlowEditor}
             />
             {/* Frame, tracking, exceção têm relação especial (parentId visual,
                 não edges). Pra eles, mostramos ParentRelationSection. Pros

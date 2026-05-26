@@ -55,6 +55,7 @@ import type { ProjectPage } from '@/lib/types';
 import dynamic from 'next/dynamic';
 import Palette from './Palette';
 import PropertiesPanel from './PropertiesPanel';
+import FlowSubEditor from './FlowSubEditor';
 import BottomToolbar from './BottomToolbar';
 import PagesSidebar from './PagesSidebar';
 import ResizableSidebar from './ResizableSidebar';
@@ -291,6 +292,8 @@ function FlowEditorInner({
   // Acesso: `dialogs.share.opened`, `dialogs.share.open()`, etc.
   const dialogs = useDialogStates();
   const [playbackActiveNodeId, setPlaybackActiveNodeId] = useState<string | null>(null);
+  /** ID do whatsapp-flow node sendo editado no sub-editor (null = modal fechado). */
+  const [flowEditorNodeId, setFlowEditorNodeId] = useState<string | null>(null);
 
   // Realtime presence — só ativa se projetoId + user logado + não-demo
   const { peers, cursors, sendCursor } = useRealtimePresence({
@@ -458,7 +461,9 @@ function FlowEditorInner({
           type === 'midia-documento-bot' ||
           type === 'midia-documento-user' ||
           type === 'midia-video-bot' ||
-          type === 'midia-video-user';
+          type === 'midia-video-user' ||
+          type === 'midia-audio-bot' ||
+          type === 'midia-audio-user';
         const code =
           type === 'frame'
             ? resolveFramePrefix({
@@ -498,7 +503,9 @@ function FlowEditorInner({
           t === 'midia-documento-bot' ||
           t === 'midia-documento-user' ||
           t === 'midia-video-bot' ||
-          t === 'midia-video-user';
+          t === 'midia-video-user' ||
+          t === 'midia-audio-bot' ||
+          t === 'midia-audio-user';
 
         // Tipos que se comportam como "USER recebendo input" — disparam
         // tracking_input no anterior + exceção como child
@@ -506,7 +513,8 @@ function FlowEditorInner({
           t === 'bubble-user' ||
           t === 'midia-imagem-user' ||
           t === 'midia-documento-user' ||
-          t === 'midia-video-user';
+          t === 'midia-video-user' ||
+          t === 'midia-audio-user';
 
         // Helper: deriva NOME CURTO do bloco (pra usar em label de tracking).
         // Substitui o antigo `getSlug` — agora usa palavras-chave separadas por
@@ -1854,6 +1862,24 @@ function FlowEditorInner({
           onRemoveEdge={handleRemoveEdge}
           onAddEdge={handleAddEdge}
           onUpdateEdge={handleUpdateEdge}
+          onOpenFlowEditor={(id) => setFlowEditorNodeId(id)}
+        />
+      )}
+
+      {/* WhatsApp Flow sub-editor (modal full-screen) */}
+      {flowEditorNodeId && (
+        <FlowSubEditor
+          node={nodes.find((n) => n.id === flowEditorNodeId) ?? null}
+          onClose={() => setFlowEditorNodeId(null)}
+          onUpdate={(patch) => {
+            setNodes((prev) =>
+              prev.map((n) =>
+                n.id === flowEditorNodeId
+                  ? { ...n, data: { ...n.data, ...patch } }
+                  : n
+              )
+            );
+          }}
         />
       )}
 

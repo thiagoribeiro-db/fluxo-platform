@@ -26,8 +26,8 @@ export interface AIBlock {
     | 'bot'             // bubble-bot (mensagem do bot)
     | 'user'            // bubble-user (input do usuário)
     | 'menu'            // menu modal (4+ opções)
-    | 'buttons'         // 2-3 botões curtos lado a lado (após uma pergunta)
-    | 'btn-long'        // 1 botão longo (uma única opção/CTA)
+    | 'buttons'         // 2-3 quick-replies curtos lado a lado (após uma pergunta)
+    | 'btn-long'        // 1 quick-reply largo (uma única opção/CTA) — mesmo limite Meta de 20 chars
     | 'media'           // mídia (imagem/documento/vídeo) do bot ou user
     | 'link'            // card de link externo (URL)
     | 'direcionamento'  // direcionamento clicável pra outro frame ou destino
@@ -55,7 +55,7 @@ export interface AIBlock {
   label?: string;
 
   /** Tipo de mídia (kind = 'media') */
-  media_kind?: 'imagem' | 'documento' | 'video';
+  media_kind?: 'imagem' | 'documento' | 'video' | 'audio';
 
   /** Sender da mídia (kind = 'media'): bot envia ou user envia */
   sender?: 'bot' | 'user';
@@ -242,7 +242,7 @@ export const SUBMIT_FLOW_TOOL_SCHEMA = {
                 },
                 media_kind: {
                   type: 'string',
-                  enum: ['imagem', 'documento', 'video'],
+                  enum: ['imagem', 'documento', 'video', 'audio'],
                   description: 'Tipo de mídia (apenas para kind=media).',
                 },
                 sender: {

@@ -319,6 +319,8 @@ export function reorganizeCodes(nodes: FluxoNode[]): FluxoNode[] {
     'midia-documento-user',
     'midia-video-bot',
     'midia-video-user',
+    'midia-audio-bot',
+    'midia-audio-user',
   ]);
 
   for (const node of nodes) {
@@ -429,6 +431,9 @@ export const MAIN_FLOW_TYPES = new Set<FluxoNodeType>([
   'midia-documento-user',
   'midia-video-bot',
   'midia-video-user',
+  'midia-audio-bot',
+  'midia-audio-user',
+  'whatsapp-flow',
   'integracao-api',
   'integracao-planilha',
   'iag-entrada',

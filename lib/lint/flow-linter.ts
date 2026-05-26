@@ -43,7 +43,14 @@ export type ProblemCode =
   | 'btn-short-too-long'
   | 'btn-long-too-long'
   | 'menu-header-too-long'
+  | 'menu-footer-too-long'
   | 'menu-option-too-long'
+  | 'menu-too-many-items'
+  | 'bubble-bot-too-long'
+  | 'quick-reply-too-many'
+  | 'media-caption-too-long'
+  | 'document-no-filename'
+  | 'media-mime-suspicious'
   | 'infinite-loop';
 
 export interface Problem {
@@ -255,6 +262,8 @@ function checkFrameEmpty(state: LintState, push: Pusher): void {
     'midia-imagem-bot', 'midia-imagem-user',
     'midia-documento-bot', 'midia-documento-user',
     'midia-video-bot', 'midia-video-user',
+    'midia-audio-bot', 'midia-audio-user',
+    'whatsapp-flow',
     'link', 'direcionamento', 'condicional', 'atendimento-humano',
     'integracao-api', 'integracao-planilha',
     'iag-entrada', 'iag-reentrada', 'iag-saida',
@@ -316,6 +325,8 @@ function checkFrameNoEntryPoint(state: LintState, push: Pusher): void {
     'midia-imagem-bot', 'midia-imagem-user',
     'midia-documento-bot', 'midia-documento-user',
     'midia-video-bot', 'midia-video-user',
+    'midia-audio-bot', 'midia-audio-user',
+    'whatsapp-flow',
     'link', 'direcionamento', 'condicional', 'atendimento-humano',
     'integracao-api', 'integracao-planilha',
     'iag-entrada', 'iag-reentrada', 'iag-saida',
@@ -400,7 +411,7 @@ function checkLink(state: LintState, push: Pusher): void {
 function checkUnreachable(state: LintState, push: Pusher): void {
   const MAIN_TYPES = new Set<string>([
     'bubble-bot', 'bubble-user', 'menu',
-    'midia-imagem-bot', 'midia-documento-bot', 'midia-video-bot',
+    'midia-imagem-bot', 'midia-documento-bot', 'midia-video-bot', 'midia-audio-bot',
   ]);
 
   // 1. Coleta entry-points explícitos (preferencial).
@@ -546,65 +557,184 @@ function checkBrokenVariables(state: LintState, push: Pusher): void {
 }
 
 // =============================================================================
-// Pré-validação Blip: limites de chars/items que a plataforma impõe
+// Pré-validação WhatsApp Cloud API + Blip: limites de chars/count/mime
 // =============================================================================
-// Limites baseados na documentação Blip + UX WhatsApp Business:
-//   - btn-short label: até 20 chars (botão lista)
-//   - btn-long label:  até 72 chars (texto livre/long)
-//   - menu header:     até 60 chars (cabeçalho da lista interativa)
-//   - menu option:     até 24 chars (limite do título de cada item de lista)
-const BLIP_LIMITS = {
-  btnShort: 20,
-  btnLong: 72,
+// Limites baseados em docs oficial Meta (Cloud API) + Blip:
+//   - bubble-bot body:    até 4096 chars
+//   - quick-reply label:  até 20 chars (vale pra btn-short E btn-long —
+//                          ambos mapeiam pro `interactive.button` do Cloud
+//                          API; btn-long é só variação VISUAL de largura
+//                          no canvas, não é CTA URL nem texto livre)
+//   - quick-reply count:  até 3 botões por mensagem (soma de btn-short + btn-long)
+//   - menu header:        até 60 chars (cabeçalho da lista interativa)
+//   - menu footer:        até 60 chars (texto abaixo da lista)
+//   - menu option label:  até 24 chars
+//   - menu items total:   até 10 itens
+//   - mídia caption:      até 1024 chars (não suportada em áudio/sticker)
+const WHATSAPP_LIMITS = {
+  bubbleBotBody: 4096,
+  quickReplyLabel: 20,
+  quickReplyCount: 3,
   menuHeader: 60,
+  menuFooter: 60,
   menuOption: 24,
+  menuItemsTotal: 10,
+  mediaCaption: 1024,
+};
+
+/** Tipos do Fluxo que mapeiam pro `interactive.button` quick-reply do Cloud API. */
+const QUICK_REPLY_TYPES = new Set<string>(['btn-short', 'btn-long']);
+
+// Mime types aceitos no WhatsApp Cloud API (extensões comuns).
+const WHATSAPP_MIME_PATTERNS: Record<string, RegExp> = {
+  imagem: /\.(jpe?g|png)$/i,
+  video: /\.(mp4|3gpp?)$/i,
+  audio: /\.(aac|amr|m4a|mp3|mp4|ogg|opus)$/i,
+  documento: /\.(pdf|docx?|xlsx?|pptx?|txt)$/i,
 };
 
 function checkBlipLimits(state: LintState, push: Pusher): void {
+  // Conta quick-reply buttons (btn-short + btn-long combinados) por source.
+  // Ambos mapeiam pro mesmo `interactive.button` — variam só na render visual
+  // (btn-short em row horizontal, btn-long ocupando largura inteira).
+  const quickReplyBySource = new Map<string, number>();
+  for (const e of state.edges) {
+    const targetNode = state.nodes.find((n) => n.id === e.target);
+    if (targetNode?.type && QUICK_REPLY_TYPES.has(targetNode.type)) {
+      quickReplyBySource.set(e.source, (quickReplyBySource.get(e.source) ?? 0) + 1);
+    }
+  }
+  for (const [sourceId, count] of quickReplyBySource.entries()) {
+    if (count > WHATSAPP_LIMITS.quickReplyCount) {
+      push({
+        code: 'quick-reply-too-many',
+        severity: 'error',
+        nodeId: sourceId,
+        message: `${count} botões de quick-reply saindo deste bloco (WhatsApp aceita no máximo ${WHATSAPP_LIMITS.quickReplyCount}, somando curtos + longos)`,
+        hint: 'WhatsApp Cloud API limita a 3 quick-reply buttons por mensagem (interactive.button). Use Menu (List) pra mais opções, ou CTA URL pra link externo.',
+      });
+    }
+  }
+
   for (const n of state.nodes) {
-    if (n.type === 'btn-short') {
-      const label = (n.data?.label as string | undefined)?.trim() ?? '';
-      if (label.length > BLIP_LIMITS.btnShort) {
+    if (n.type === 'bubble-bot') {
+      const text = (n.data?.text as string | undefined) ?? '';
+      if (text.length > WHATSAPP_LIMITS.bubbleBotBody) {
         push({
-          code: 'btn-short-too-long',
+          code: 'bubble-bot-too-long',
           severity: 'warning',
           nodeId: n.id,
-          message: `Botão curto com ${label.length} chars (limite ${BLIP_LIMITS.btnShort})`,
-          hint: 'Encurte o texto ou troque pra "Botão longo" se precisar de mais espaço.',
+          message: `Mensagem do bot com ${text.length} chars (limite ${WHATSAPP_LIMITS.bubbleBotBody})`,
+          hint: 'WhatsApp aceita até 4096 chars no body. Quebre em mensagens menores.',
         });
       }
-    } else if (n.type === 'btn-long') {
+    } else if (n.type === 'btn-short' || n.type === 'btn-long') {
+      // btn-short e btn-long compartilham o limite de 20 chars (Meta) porque
+      // ambos viram interactive.button no Cloud API. A diferença é só visual.
       const label = (n.data?.label as string | undefined)?.trim() ?? '';
-      if (label.length > BLIP_LIMITS.btnLong) {
+      if (label.length > WHATSAPP_LIMITS.quickReplyLabel) {
         push({
-          code: 'btn-long-too-long',
+          code: n.type === 'btn-short' ? 'btn-short-too-long' : 'btn-long-too-long',
           severity: 'warning',
           nodeId: n.id,
-          message: `Botão longo com ${label.length} chars (limite ${BLIP_LIMITS.btnLong})`,
-          hint: 'WhatsApp trunca textos longos. Reduza pra caber.',
+          message: `Quick-reply ${n.type === 'btn-short' ? 'curto' : 'longo'} com ${label.length} chars (limite Meta ${WHATSAPP_LIMITS.quickReplyLabel})`,
+          hint: 'WhatsApp trunca títulos de quick-reply maiores que 20 chars. Pra link externo use CTA URL; pra mais espaço, use Menu (List) com description.',
         });
       }
     } else if (n.type === 'menu') {
       const header = (n.data?.header as string | undefined)?.trim() ?? '';
-      if (header.length > BLIP_LIMITS.menuHeader) {
+      if (header.length > WHATSAPP_LIMITS.menuHeader) {
         push({
           code: 'menu-header-too-long',
           severity: 'warning',
           nodeId: n.id,
-          message: `Header do menu com ${header.length} chars (limite ${BLIP_LIMITS.menuHeader})`,
+          message: `Header do menu com ${header.length} chars (limite ${WHATSAPP_LIMITS.menuHeader})`,
           hint: 'Mova parte do texto pro bubble-bot anterior, deixe o header como prompt curto.',
         });
       }
+      const footer = (n.data?.footer as string | undefined)?.trim() ?? '';
+      if (footer.length > WHATSAPP_LIMITS.menuFooter) {
+        push({
+          code: 'menu-footer-too-long',
+          severity: 'warning',
+          nodeId: n.id,
+          message: `Texto do botão do menu com ${footer.length} chars (limite ${WHATSAPP_LIMITS.menuFooter})`,
+          hint: 'WhatsApp limita o button text da list message a 60 chars.',
+        });
+      }
       const options = (n.data?.options as string[] | undefined) ?? [];
+      if (options.length > WHATSAPP_LIMITS.menuItemsTotal) {
+        push({
+          code: 'menu-too-many-items',
+          severity: 'error',
+          nodeId: n.id,
+          message: `Menu com ${options.length} opções (WhatsApp aceita no máximo ${WHATSAPP_LIMITS.menuItemsTotal})`,
+          hint: 'Divida o menu em sub-menus ou use Flow pra coletas mais complexas.',
+        });
+      }
       for (let i = 0; i < options.length; i++) {
         const opt = options[i]?.trim() ?? '';
-        if (opt.length > BLIP_LIMITS.menuOption) {
+        if (opt.length > WHATSAPP_LIMITS.menuOption) {
           push({
             code: 'menu-option-too-long',
             severity: 'warning',
             nodeId: n.id,
-            message: `Opção #${i + 1} do menu com ${opt.length} chars (limite ${BLIP_LIMITS.menuOption})`,
+            message: `Opção #${i + 1} do menu com ${opt.length} chars (limite ${WHATSAPP_LIMITS.menuOption})`,
             hint: 'WhatsApp lista trunca títulos longos. Encurte o texto da opção.',
+          });
+        }
+      }
+    } else if (
+      n.type === 'midia-imagem-bot' ||
+      n.type === 'midia-imagem-user' ||
+      n.type === 'midia-video-bot' ||
+      n.type === 'midia-video-user' ||
+      n.type === 'midia-documento-bot' ||
+      n.type === 'midia-documento-user' ||
+      n.type === 'midia-audio-bot' ||
+      n.type === 'midia-audio-user'
+    ) {
+      const caption = (n.data?.caption as string | undefined) ?? '';
+      const isAudio = n.type.startsWith('midia-audio');
+      const isDoc = n.type.startsWith('midia-documento');
+
+      // Áudio não suporta caption no Cloud API — só warning informativo.
+      if (caption.length > WHATSAPP_LIMITS.mediaCaption && !isAudio) {
+        push({
+          code: 'media-caption-too-long',
+          severity: 'warning',
+          nodeId: n.id,
+          message: `Legenda da mídia com ${caption.length} chars (limite ${WHATSAPP_LIMITS.mediaCaption})`,
+          hint: 'WhatsApp Cloud API trunca captions longas. Encurte ou mova pro bubble-bot anterior.',
+        });
+      }
+
+      // Documento sem filename é falha funcional no WhatsApp.
+      if (isDoc) {
+        const filename = (n.data?.filename as string | undefined)?.trim() ?? '';
+        if (!filename) {
+          push({
+            code: 'document-no-filename',
+            severity: 'warning',
+            nodeId: n.id,
+            message: 'Documento sem filename',
+            hint: 'WhatsApp Cloud API exige filename pra exibir nome do arquivo (ex: "Encarte_2026.pdf").',
+          });
+        }
+      }
+
+      // Se url tá preenchido, validar extensão por tipo.
+      const url = (n.data?.url as string | undefined) ?? (n.data?.uri as string | undefined) ?? '';
+      if (url) {
+        const kind = (n.data?.mediaKind as keyof typeof WHATSAPP_MIME_PATTERNS | undefined) ?? 'imagem';
+        const pattern = WHATSAPP_MIME_PATTERNS[kind];
+        if (pattern && !pattern.test(url)) {
+          push({
+            code: 'media-mime-suspicious',
+            severity: 'info',
+            nodeId: n.id,
+            message: `URL com extensão não-padrão pra ${kind}`,
+            hint: `WhatsApp aceita: ${pattern.source.replace(/[\\.()?:$|]/g, '').replace(/i$/, '')}. Confirme o mime do arquivo antes de publicar.`,
           });
         }
       }

@@ -220,6 +220,8 @@ class BuildContext {
       'midia-documento-user',
       'midia-video-bot',
       'midia-video-user',
+      'midia-audio-bot',
+      'midia-audio-user',
       'link',
       'btn-short',
       'btn-long',
@@ -950,19 +952,28 @@ class BuildContext {
     return map;
   }
 
-  /** Cria action de mídia (imagem/documento/vídeo) a partir de um node FP. */
+  /** Cria action de mídia (imagem/documento/vídeo/áudio) a partir de um node FP. */
   private mediaActionFromNode(node: FluxoNode): BlipContentAction {
     const t = node.type ?? '';
     const isImage = t.includes('imagem');
     const isVideo = t.includes('video');
+    const isAudio = t.includes('audio');
     const isDoc = t.includes('documento');
-    const mediaType = isImage ? 'image/jpeg' : isVideo ? 'video/mp4' : 'application/pdf';
+    const mediaType = isImage
+      ? 'image/jpeg'
+      : isVideo
+        ? 'video/mp4'
+        : isAudio
+          ? 'audio/ogg'
+          : 'application/pdf';
     const uri =
       (node.data?.url as string | undefined) ??
       (node.data?.uri as string | undefined) ??
       (isDoc
         ? 'https://blip-community.s3-sa-east-1.amazonaws.com/documento-padrao-blip.pdf'
-        : 'http://limeprotocol.org/content-types.html#media-link');
+        : isAudio
+          ? 'http://limeprotocol.org/content-types.html#audio-link'
+          : 'http://limeprotocol.org/content-types.html#media-link');
     const caption =
       (node.data?.caption as string | undefined) ??
       (node.data?.filename as string | undefined) ??
@@ -970,6 +981,8 @@ class BuildContext {
     return mediaMessageAction({
       mediaType,
       uri,
+      // WhatsApp Cloud API não suporta caption em áudio — title só serve de
+      // referência interna; o Blip ignora no envio.
       title: caption || 'Mídia',
       text: isImage ? '' : undefined,
       aspectRatio: isImage ? '1:1' : undefined,

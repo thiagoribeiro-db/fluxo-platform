@@ -389,6 +389,224 @@ describe('lintFlow — limites Blip', () => {
 });
 
 // ============================================================================
+// Pré-validação WhatsApp (limites Cloud API extras)
+// ============================================================================
+
+describe('lintFlow — limites WhatsApp', () => {
+  it('reporta bubble-bot com mais de 4096 chars', () => {
+    const longText = 'A'.repeat(5000);
+    const nodes = [frame('f', 'x'), bot('b1', longText)];
+    const problems = lintFlow({ nodes, edges: [] });
+    expect(problems).toContainEqual(
+      expect.objectContaining({ code: 'bubble-bot-too-long', nodeId: 'b1' })
+    );
+  });
+
+  it('NÃO reporta bubble-bot dentro do limite', () => {
+    const text = 'A'.repeat(100);
+    const nodes = [frame('f', 'x'), bot('b1', text)];
+    const problems = lintFlow({ nodes, edges: [] });
+    expect(problems.filter((p) => p.code === 'bubble-bot-too-long')).toHaveLength(0);
+  });
+
+  it('reporta mais de 3 quick-reply buttons saindo do mesmo source', () => {
+    const nodes = [
+      frame('f', 'x'),
+      bot('b1', 'Olá'),
+      btn('btn1', 'Opção 1'),
+      btn('btn2', 'Opção 2'),
+      btn('btn3', 'Opção 3'),
+      btn('btn4', 'Opção 4'),
+    ];
+    const edges = [
+      edge('e1', 'b1', 'btn1'),
+      edge('e2', 'b1', 'btn2'),
+      edge('e3', 'b1', 'btn3'),
+      edge('e4', 'b1', 'btn4'),
+    ];
+    const problems = lintFlow({ nodes, edges });
+    expect(problems).toContainEqual(
+      expect.objectContaining({
+        code: 'quick-reply-too-many',
+        severity: 'error',
+        nodeId: 'b1',
+      })
+    );
+  });
+
+  it('NÃO reporta com exatamente 3 quick-reply buttons', () => {
+    const nodes = [
+      frame('f', 'x'),
+      bot('b1', 'Olá'),
+      btn('btn1', 'Opção 1'),
+      btn('btn2', 'Opção 2'),
+      btn('btn3', 'Opção 3'),
+    ];
+    const edges = [
+      edge('e1', 'b1', 'btn1'),
+      edge('e2', 'b1', 'btn2'),
+      edge('e3', 'b1', 'btn3'),
+    ];
+    const problems = lintFlow({ nodes, edges });
+    expect(problems.filter((p) => p.code === 'quick-reply-too-many')).toHaveLength(0);
+  });
+
+  it('soma btn-short + btn-long na contagem (ambos são quick-reply)', () => {
+    // 2 btn-short + 2 btn-long no mesmo source = 4 quick-replies (excede 3).
+    const btnLong = (id: string, label: string): FluxoNode => ({
+      id,
+      type: 'btn-long',
+      position: { x: 0, y: 0 },
+      data: { label },
+    } as FluxoNode);
+    const nodes = [
+      frame('f', 'x'),
+      bot('b1', 'Olá'),
+      btn('s1', 'Sim'),
+      btn('s2', 'Não'),
+      btnLong('l1', 'Continuar'),
+      btnLong('l2', 'Aceitar'),
+    ];
+    const edges = [
+      edge('e1', 'b1', 's1'),
+      edge('e2', 'b1', 's2'),
+      edge('e3', 'b1', 'l1'),
+      edge('e4', 'b1', 'l2'),
+    ];
+    const problems = lintFlow({ nodes, edges });
+    expect(problems).toContainEqual(
+      expect.objectContaining({
+        code: 'quick-reply-too-many',
+        nodeId: 'b1',
+      })
+    );
+  });
+
+  it('btn-long com mais de 20 chars dispara warning (mesmo limite Meta do btn-short)', () => {
+    const longLabel = 'Aceitar termos e condições do uso';
+    const btnLong: FluxoNode = {
+      id: 'l1',
+      type: 'btn-long',
+      position: { x: 0, y: 0 },
+      data: { label: longLabel },
+    } as FluxoNode;
+    const problems = lintFlow({ nodes: [frame('f', 'x'), btnLong], edges: [] });
+    expect(problems).toContainEqual(
+      expect.objectContaining({
+        code: 'btn-long-too-long',
+        severity: 'warning',
+        nodeId: 'l1',
+      })
+    );
+  });
+
+  it('btn-long com 20 chars exatos passa', () => {
+    const btnLong: FluxoNode = {
+      id: 'l1',
+      type: 'btn-long',
+      position: { x: 0, y: 0 },
+      data: { label: 'A'.repeat(20) },
+    } as FluxoNode;
+    const problems = lintFlow({ nodes: [frame('f', 'x'), btnLong], edges: [] });
+    expect(problems.filter((p) => p.code === 'btn-long-too-long')).toHaveLength(0);
+  });
+
+  it('reporta menu com mais de 10 itens totais', () => {
+    const options = Array.from({ length: 11 }, (_, i) => `Op ${i + 1}`);
+    const nodes = [frame('f', 'x'), menu('m1', 'Header', options)];
+    const problems = lintFlow({ nodes, edges: [] });
+    expect(problems).toContainEqual(
+      expect.objectContaining({
+        code: 'menu-too-many-items',
+        severity: 'error',
+        nodeId: 'm1',
+      })
+    );
+  });
+
+  it('reporta menu footer com mais de 60 chars', () => {
+    const longFooter = 'Esse texto do botão da lista é tão longo que não cabe no WhatsApp';
+    const m: FluxoNode = {
+      id: 'm1',
+      type: 'menu',
+      position: { x: 0, y: 0 },
+      data: { header: 'h', footer: longFooter, options: ['a'] },
+    } as FluxoNode;
+    const problems = lintFlow({ nodes: [frame('f', 'x'), m], edges: [] });
+    expect(problems).toContainEqual(
+      expect.objectContaining({ code: 'menu-footer-too-long', nodeId: 'm1' })
+    );
+  });
+
+  it('reporta caption de mídia com mais de 1024 chars', () => {
+    const longCaption = 'A'.repeat(1100);
+    const media: FluxoNode = {
+      id: 'mid1',
+      type: 'midia-imagem-bot',
+      position: { x: 0, y: 0 },
+      data: { sender: 'bot', mediaKind: 'imagem', caption: longCaption },
+    } as FluxoNode;
+    const problems = lintFlow({ nodes: [frame('f', 'x'), media], edges: [] });
+    expect(problems).toContainEqual(
+      expect.objectContaining({ code: 'media-caption-too-long', nodeId: 'mid1' })
+    );
+  });
+
+  it('NÃO reporta caption longa em áudio (não tem caption)', () => {
+    const longCaption = 'A'.repeat(1100);
+    const media: FluxoNode = {
+      id: 'mid1',
+      type: 'midia-audio-bot',
+      position: { x: 0, y: 0 },
+      data: { sender: 'bot', mediaKind: 'audio', caption: longCaption },
+    } as FluxoNode;
+    const problems = lintFlow({ nodes: [frame('f', 'x'), media], edges: [] });
+    expect(problems.filter((p) => p.code === 'media-caption-too-long')).toHaveLength(0);
+  });
+
+  it('reporta documento sem filename', () => {
+    const doc: FluxoNode = {
+      id: 'd1',
+      type: 'midia-documento-bot',
+      position: { x: 0, y: 0 },
+      data: { sender: 'bot', mediaKind: 'documento', filename: '' },
+    } as FluxoNode;
+    const problems = lintFlow({ nodes: [frame('f', 'x'), doc], edges: [] });
+    expect(problems).toContainEqual(
+      expect.objectContaining({ code: 'document-no-filename', nodeId: 'd1' })
+    );
+  });
+
+  it('reporta URL de imagem com extensão suspeita', () => {
+    const media: FluxoNode = {
+      id: 'mid1',
+      type: 'midia-imagem-bot',
+      position: { x: 0, y: 0 },
+      data: { sender: 'bot', mediaKind: 'imagem', url: 'https://x.com/image.webp' },
+    } as FluxoNode;
+    const problems = lintFlow({ nodes: [frame('f', 'x'), media], edges: [] });
+    expect(problems).toContainEqual(
+      expect.objectContaining({
+        code: 'media-mime-suspicious',
+        severity: 'info',
+        nodeId: 'mid1',
+      })
+    );
+  });
+
+  it('NÃO reporta URL de imagem com extensão válida', () => {
+    const media: FluxoNode = {
+      id: 'mid1',
+      type: 'midia-imagem-bot',
+      position: { x: 0, y: 0 },
+      data: { sender: 'bot', mediaKind: 'imagem', url: 'https://x.com/foto.jpg' },
+    } as FluxoNode;
+    const problems = lintFlow({ nodes: [frame('f', 'x'), media], edges: [] });
+    expect(problems.filter((p) => p.code === 'media-mime-suspicious')).toHaveLength(0);
+  });
+});
+
+// ============================================================================
 // Loops infinitos
 // ============================================================================
 

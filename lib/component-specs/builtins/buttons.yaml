@@ -6,11 +6,16 @@ nodeType: btn-short
 flowControl: parallel
 
 description: |
-  Linha de 2 ou 3 botões curtos dispostos LADO A LADO. Renderiza como
-  Reply Buttons do WhatsApp Business (limite de 3 botões).
+  Linha de 2 ou 3 botões curtos dispostos LADO A LADO. Cada botão é um
+  quick-reply (`interactive.button`) do WhatsApp Cloud API.
 
-  Diferente do `menu` (modal com lista vertical), `buttons` é uma row horizontal
-  e cria BRANCHES PARALELOS no fluxo — cada botão leva a um caminho diferente.
+  ⚠️ O limite oficial Meta é **3 quick-replies por mensagem TOTAL**, somando
+  btn-short + btn-long (ambos são `interactive.button`, diferem só na
+  render visual do canvas).
+
+  Diferente do `menu` (modal com lista vertical), `buttons` é uma row
+  horizontal e cria BRANCHES PARALELOS no fluxo — cada botão leva a um
+  caminho diferente.
 
 detectionCues:
   - 'Lista de 2 ou 3 itens, geralmente precedida por uma pergunta'
@@ -19,6 +24,7 @@ detectionCues:
 
 usageRules:
   - 'Use APENAS quando há 2 OU 3 opções. Pra 4+ é `menu`. Pra 1 é `btn-long`.'
+  - 'Limite Meta: cada label até **20 chars**; **máximo 3 quick-replies por mensagem** (soma btn-short + btn-long).'
   - 'A `question` é opcional: se preenchida, gera UM bubble-bot ANTES da row de botões. Use quando a pergunta é curta e cabe inline.'
   - 'Se a pergunta é longa ou tem várias frases, separe: 1 bloco `bot` (pergunta) + 1 bloco `buttons` (sem question, só options)'
   - 'Os botões NÃO atualizam o cursor de fluxo (são branches paralelos). O próximo bloco semântico vai conectar via `direcionamento` ou re-convergir.'
@@ -39,7 +45,7 @@ fields:
     itemType: string
     required: true
     description: Lista de 2 ou 3 labels de botão
-    aiHint: 'Mantenha labels CURTOS (max ~20 chars). Preserve texto e ordem do documento.'
+    aiHint: 'Mantenha labels CURTOS (máximo 20 chars — limite oficial WhatsApp). Preserve texto e ordem do documento.'
 
 builderRules:
   edgeFromPrevious: true  # cada botão recebe edge do bloco anterior

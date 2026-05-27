@@ -7,6 +7,7 @@ import type { Node, Edge, Viewport } from '@xyflow/react';
 // ============== DOMAIN ENTITIES (matches Supabase tables) ==============
 
 export type MemberRole = 'admin' | 'editor' | 'viewer';
+export type PlatformRole = 'editor' | 'admin' | 'superAdmin';
 export type ProjectVisibility = 'private' | 'org' | 'public';
 export type SharePermission = 'view' | 'comment' | 'edit';
 
@@ -142,7 +143,13 @@ export interface FluxoNodeData extends Record<string, unknown> {
 
   // menu (novo formato — usado pelos nodes atuais)
   header?: string;
-  options?: string[];          // labels das opções
+  options?: string[];                // labels das opções (modo flat)
+  optionDescriptions?: string[];     // descrição por opção (modo flat, mesma indexação)
+  sections?: Array<{
+    title: string;
+    options: string[];
+    descriptions?: string[];         // descrição por opção dentro da seção
+  }>;
   footer?: string;             // texto do botão final, ex. "Enviar"
 
   // menu (formato antigo — mantido p/ compat.)
@@ -164,6 +171,8 @@ export interface FluxoNodeData extends Record<string, unknown> {
   destination?: string;        // (compat.) ID de outro node/frame
   destinationLabel?: string;
   external?: boolean;          // (compat.) se aponta pra outro card
+  createdForMenuId?: string;   // ID do menu que gerou este direcionamento (auto-criado por opção)
+  createdForOptionLabel?: string; // label da opção correspondente (para re-sync)
 
   // block (composto)
   blockId?: string;            // ex: "S.0.0.4"

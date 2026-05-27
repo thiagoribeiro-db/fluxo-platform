@@ -1,7 +1,8 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { HelpCircle } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
 import { signOut } from '@/lib/actions/auth';
+import { getMyProfile } from '@/lib/auth/roles';
 import DashboardTabs from './DashboardTabs';
 import HelpHotkey from './HelpHotkey';
 
@@ -9,16 +10,17 @@ import HelpHotkey from './HelpHotkey';
  * Layout compartilhado entre /dashboard (projetos) e /dashboard/components.
  *
  * Topbar + Nav de abas ficam aqui — só o conteúdo central muda por rota.
+ * A nav filtra as abas de acordo com o platform_role do usuário.
  */
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const profile = await getMyProfile();
+  const role = profile?.platform_role ?? 'editor';
+  const avatarUrl = profile?.avatar_url ?? null;
+  const displayName = profile?.display_name ?? profile?.email ?? '';
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -37,11 +39,31 @@ export default async function DashboardLayout({
               <HelpCircle size={16} />
               <span className="hidden sm:inline">Ajuda</span>
             </Link>
-            <span className="text-sm text-gray-600">{user?.email}</span>
+
+            {/* Avatar + nome */}
+            <div className="flex items-center gap-2">
+              {avatarUrl ? (
+                <Image
+                  src={avatarUrl}
+                  alt={displayName}
+                  width={28}
+                  height={28}
+                  className="rounded-full border border-gray-200"
+                />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-blip-purple/10 flex items-center justify-center text-xs font-semibold text-blip-purple">
+                  {(displayName[0] ?? '?').toUpperCase()}
+                </div>
+              )}
+              <span className="text-sm text-gray-600 hidden sm:block max-w-[160px] truncate">
+                {displayName}
+              </span>
+            </div>
+
             <form action={signOut}>
               <button
                 type="submit"
-                className="text-sm text-gray-600 hover:text-blip-purple"
+                className="text-sm text-gray-500 hover:text-blip-purple transition-colors"
               >
                 Sair
               </button>
@@ -49,9 +71,9 @@ export default async function DashboardLayout({
           </div>
         </div>
 
-        {/* Nav de abas — destaca a rota atual */}
+        {/* Nav de abas — filtra por role */}
         <div className="max-w-6xl mx-auto px-6">
-          <DashboardTabs />
+          <DashboardTabs role={role} />
         </div>
       </header>
 

@@ -84,10 +84,10 @@
     @apply flex items-center justify-center px-3 py-3.5 border-b border-gray-100 relative;
   }
   .menu-row {
-    @apply flex items-center gap-2.5 px-4 py-3.5 border-b border-gray-50 cursor-pointer text-sm last:border-b-0;
+    @apply flex items-start gap-2.5 px-4 py-3 border-b border-gray-50 cursor-pointer text-sm last:border-b-0;
   }
   .menu-row-radio {
-    @apply w-5 h-5 border-2 border-gray-300 rounded-full flex-shrink-0 ml-auto relative;
+    @apply w-5 h-5 border-2 border-gray-300 rounded-full flex-shrink-0 ml-auto relative mt-0.5;
   }
   .menu-row.selected .menu-row-radio {
     @apply border-wpp-menu-green bg-wpp-menu-green;
@@ -110,7 +110,18 @@
     @apply text-sm text-gray-900;
   }
 
-  /* Tracking — pílula roxa */
+  /* Menu — descrição opcional abaixo do label da opção */
+  .menu-row-description {
+    @apply text-[11px] text-gray-400 leading-snug mt-0.5;
+  }
+
+  /* Menu — cabeçalho de seção (negrito + separador acima) */
+  .menu-section-title {
+    @apply px-4 pt-3 pb-1.5 text-[11px] font-bold text-gray-500 uppercase tracking-wide bg-gray-50 border-b border-gray-100;
+  }
+
+  /* Tracking — pílula. Cor padrão = roxo (label custom). Sufixos conhecidos
+     (exibicao/selecao/input/inesperado) trocam de cor via [data-kind] abaixo. */
   .tracking {
     @apply inline-flex items-center gap-1.5 bg-blip-purple/10 border border-blip-purple/30 rounded-full px-3 py-1.5 shadow-sm;
   }
@@ -125,6 +136,45 @@
   }
   .tracking-sub {
     @apply text-[10px] text-blip-orange leading-snug;
+  }
+
+  /* Variantes por tipo — match com TRACKING_SUFFIXES em
+     lib/codes/tracking-labels.ts. Cada variante substitui o fundo/borda da
+     pílula e a cor do label/icon/text. */
+  .tracking[data-kind="exibicao"] {
+    @apply bg-blue-50 border-blue-300/60;
+  }
+  .tracking[data-kind="exibicao"] .tracking-icon,
+  .tracking[data-kind="exibicao"] .tracking-label,
+  .tracking[data-kind="exibicao"] .tracking-text {
+    @apply text-blue-700;
+  }
+
+  .tracking[data-kind="selecao"] {
+    @apply bg-emerald-50 border-emerald-300/60;
+  }
+  .tracking[data-kind="selecao"] .tracking-icon,
+  .tracking[data-kind="selecao"] .tracking-label,
+  .tracking[data-kind="selecao"] .tracking-text {
+    @apply text-emerald-700;
+  }
+
+  .tracking[data-kind="input"] {
+    @apply bg-amber-50 border-amber-300/60;
+  }
+  .tracking[data-kind="input"] .tracking-icon,
+  .tracking[data-kind="input"] .tracking-label,
+  .tracking[data-kind="input"] .tracking-text {
+    @apply text-amber-700;
+  }
+
+  .tracking[data-kind="inesperado"] {
+    @apply bg-red-50 border-red-300/60;
+  }
+  .tracking[data-kind="inesperado"] .tracking-icon,
+  .tracking[data-kind="inesperado"] .tracking-label,
+  .tracking[data-kind="inesperado"] .tracking-text {
+    @apply text-red-700;
   }
 
   /* Exceção — bloco vermelho */

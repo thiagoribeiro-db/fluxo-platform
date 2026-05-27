@@ -1,5 +1,5 @@
 import type { Edge } from '@xyflow/react';
-import type { FluxoNode, FluxoNodeType } from '@/lib/types';
+import type { FluxoNode, FluxoNodeData, FluxoNodeType } from '@/lib/types';
 import { devLog, devWarn } from '@/lib/utils/logger';
 
 /**
@@ -401,6 +401,29 @@ export function getRelativePositionLeft(stackIdx = 0): { x: number; y: number } 
     x: -TRACKING_WIDTH_APPROX - TRACKING_GAP_X,
     y: stackIdx * (TRACKING_HEIGHT + 8),
   };
+}
+
+// =============================================================================
+// MENU — extração de opções
+// =============================================================================
+/**
+ * Extrai todas as opções de um menu node como array flat de strings.
+ * Suporta:
+ *   - modo flat:    data.options: string[]
+ *   - modo seções:  data.sections: { title, options[] }[]
+ *
+ * Usado para criar/sincronizar direcionamentos automáticos por opção.
+ */
+export function getMenuFlatOptions(data: FluxoNodeData): string[] {
+  const sections = data.sections as Array<{ title: string; options: string[] }> | undefined;
+  if (Array.isArray(sections) && sections.length > 0) {
+    return sections
+      .flatMap((s) => (Array.isArray(s.options) ? s.options : []))
+      .filter(Boolean);
+  }
+  const options = data.options as string[] | undefined;
+  if (Array.isArray(options)) return options.filter(Boolean);
+  return [];
 }
 
 // =============================================================================
@@ -1495,16 +1518,51 @@ export function organizeLayoutByFrame(
         if (excChild) {
           const excBox = measuredBox(excChild);
           const pairW = compBox.w + EXCECAO_GAP_X + excBox.w;
-          next[i] = {
-            ...next[i],
-            position: { x: rightEdge - pairW, y: currentY },
-          };
-          const ei = idxById.get(excChild.id);
-          if (ei !== undefined) {
-            next[ei] = {
-              ...next[ei],
-              position: { x: compBox.w + EXCECAO_GAP_X, y: 0 },
+
+          // Checa se a dupla horizontal user+exceção cabe na faixa de
+          // conteúdo (entre o tracking à esquerda e a margem direita do
+          // frame). Quando um vizinho à direita trunca o frame
+          // (newWidth = Math.min(desiredWidth, maxAllowedW), L1305), a
+          // dupla pode estourar a borda esquerda do conteúdo, fazendo o
+          // user vazar pra fora do frame. Fallback elegante: empilha a
+          // exceção ABAIXO do user em vez de ao lado.
+          const trackingReserveW = trackingMaxW + TRACKING_GAP_X;
+          const contentLeft = fbox.x + 24 + trackingReserveW;
+          const pairFitsHorizontal = rightEdge - pairW >= contentLeft;
+
+          if (pairFitsHorizontal) {
+            // Caso normal — dupla horizontal lado a lado, encostada na
+            // borda direita do frame.
+            next[i] = {
+              ...next[i],
+              position: { x: rightEdge - pairW, y: currentY },
             };
+            const ei = idxById.get(excChild.id);
+            if (ei !== undefined) {
+              next[ei] = {
+                ...next[ei],
+                position: { x: compBox.w + EXCECAO_GAP_X, y: 0 },
+              };
+            }
+          } else {
+            // Fallback empilhado — user à direita como single, exceção
+            // CENTRALIZADA abaixo dele (posição relativa ao parent).
+            next[i] = {
+              ...next[i],
+              position: { x: rightEdge - compBox.w, y: currentY },
+            };
+            const ei = idxById.get(excChild.id);
+            if (ei !== undefined) {
+              next[ei] = {
+                ...next[ei],
+                position: {
+                  x: Math.max(0, (compBox.w - excBox.w) / 2),
+                  y: compBox.h + EXCECAO_GAP_X,
+                },
+              };
+            }
+            // Avança Y pela altura adicional da exceção empilhada
+            currentY += excBox.h + EXCECAO_GAP_X;
           }
         } else {
           next[i] = {

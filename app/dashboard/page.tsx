@@ -1,8 +1,12 @@
-import Link from 'next/link';
 import { listProjects } from '@/lib/actions/projects';
+import { listProjectCollaborators } from '@/lib/actions/project-collaborators';
+import { getMyProfile } from '@/lib/auth/roles';
+import { createClient } from '@/lib/supabase/server';
 import NewProjectButton from './NewProjectButton';
 import DeleteProjectButton from './DeleteProjectButton';
 import EstimatedHoursInput from './EstimatedHoursInput';
+import ProjectCard from './ProjectCard';
+import Link from 'next/link';
 import type { ProjectStatus } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -20,11 +24,17 @@ const STATUS_FILTERS: Array<{ key: ProjectStatus | 'all'; label: string; icon: s
 ];
 
 /**
- * Aba PROJETOS da dashboard. Topbar e nav vivem em `layout.tsx`.
+ * Aba PROJETOS da dashboard.
+ * - editor/admin: projetos do próprio usuário + compartilhados
+ * - superAdmin: todos os projetos da plataforma
  */
 export default async function DashboardProjetosPage({ searchParams }: PageProps) {
+  const me = await getMyProfile();
+  const isSuperAdmin = me?.platform_role === 'superAdmin';
+
   const allProjects = await listProjects();
-  // Filtro por status — `all` (ou ausente) mostra tudo
+
+  // Filtra por status
   const rawStatus = searchParams.status;
   const activeFilter: ProjectStatus | 'all' =
     rawStatus === 'draft' ||
@@ -38,30 +48,41 @@ export default async function DashboardProjetosPage({ searchParams }: PageProps)
       ? allProjects
       : allProjects.filter((p) => (p.status ?? 'draft') === activeFilter);
 
-  // Contagem por status — exibida em cada pill do filtro
+  // Contagem por status
   const counts: Record<string, number> = { all: allProjects.length };
   for (const p of allProjects) {
     const s = p.status ?? 'draft';
     counts[s] = (counts[s] ?? 0) + 1;
   }
 
+  // Busca colaboradores de todos os projetos em paralelo
+  const collaboratorsMap: Record<string, Awaited<ReturnType<typeof listProjectCollaborators>>> = {};
+  await Promise.all(
+    allProjects.map(async (p) => {
+      collaboratorsMap[p.id] = await listProjectCollaborators(p.id);
+    })
+  );
+
+  const myId = me?.id ?? '';
+  const pageTitle = isSuperAdmin ? 'Todos os projetos' : 'Meus projetos';
+
   return (
     <>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Meus projetos</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{pageTitle}</h1>
           <p className="text-sm text-gray-500 mt-1">
             {projects.length === 0
               ? activeFilter === 'all'
                 ? 'Nenhum projeto ainda'
                 : `Nenhum projeto com status "${activeFilter}"`
-              : `${projects.length} projeto${projects.length === 1 ? '' : 's'}${activeFilter !== 'all' ? ` (${activeFilter})` : ''}`}
+              : `${projects.length} projeto${projects.length === 1 ? '' : 's'}${activeFilter !== 'all' ? ` (${activeFilter})` : ''}${isSuperAdmin ? ' (todos os usuários)' : ''}`}
           </p>
         </div>
         <NewProjectButton />
       </div>
 
-      {/* Filtro por status — pills clicáveis com contadores */}
+      {/* Filtro por status */}
       <div className="flex flex-wrap gap-1 mb-4">
         {STATUS_FILTERS.map((f) => {
           const isActive = activeFilter === f.key;
@@ -100,96 +121,34 @@ export default async function DashboardProjetosPage({ searchParams }: PageProps)
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {projects.map((project) => (
-            <div
-              key={project.id}
-              className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md transition group"
-            >
-              <Link href={`/editor/${project.id}`} className="block">
-                <h3 className="font-semibold text-gray-900 group-hover:text-blip-purple">
-                  {project.name}
-                </h3>
-                {project.description && (
-                  <p className="text-sm text-gray-500 mt-1 line-clamp-2">
-                    {project.description}
-                  </p>
+          {projects.map((project) => {
+            const isOwner = project.created_by === myId;
+            const collabs = collaboratorsMap[project.id] ?? [];
+            return (
+              <div key={project.id} className="relative">
+                {/* Tag "Compartilhado" para projetos que não são do usuário */}
+                {!isOwner && !isSuperAdmin && (
+                  <div className="absolute -top-2 left-4 z-10">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide bg-blip-purple text-white rounded-full px-2 py-0.5">
+                      🔗 Compartilhado
+                    </span>
+                  </div>
                 )}
-                <div className="flex flex-wrap items-center gap-2 mt-3 text-xs text-gray-400">
-                  {/* Status badge — pill colorido */}
-                  <span
-                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                      project.status === 'approved'
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : project.status === 'review'
-                          ? 'bg-amber-100 text-amber-700'
-                          : project.status === 'archived'
-                            ? 'bg-gray-200 text-gray-500'
-                            : 'bg-slate-100 text-slate-600'
-                    }`}
-                  >
-                    {project.status === 'approved'
-                      ? '✓ Aprovado'
-                      : project.status === 'review'
-                        ? '👀 Em revisão'
-                        : project.status === 'archived'
-                          ? '📦 Arquivado'
-                          : '✏️ Rascunho'}
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        project.visibility === 'public'
-                          ? 'bg-green-500'
-                          : project.visibility === 'org'
-                          ? 'bg-blue-500'
-                          : 'bg-gray-400'
-                      }`}
-                    />
-                    {project.visibility === 'public'
-                      ? 'Público'
-                      : project.visibility === 'org'
-                      ? 'Organização'
-                      : 'Privado'}
-                  </span>
-                  <span>·</span>
-                  <span>
-                    Atualizado {new Date(project.updated_at).toLocaleDateString('pt-BR')}
-                  </span>
-                </div>
-              </Link>
-              <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Link
-                    href={`/editor/${project.id}`}
-                    className="text-xs font-medium text-blip-purple hover:underline"
-                  >
-                    Abrir editor →
-                  </Link>
-                  <Link
-                    href={`/dashboard/audit/${project.id}`}
-                    className="text-[11px] text-gray-400 hover:text-gray-700"
-                    title="Histórico de ações (templates, shares, mudanças de status)"
-                  >
-                    📜 Histórico
-                  </Link>
-                  <Link
-                    href={`/dashboard/ia-usage/${project.id}`}
-                    className="text-[11px] text-gray-400 hover:text-gray-700"
-                    title="Custo de uso da IA (tokens + USD por dia/feature)"
-                  >
-                    🤖 Uso IA
-                  </Link>
-                </div>
-                <div className="flex items-center gap-1">
-                  <EstimatedHoursInput
-                    projectId={project.id}
-                    initialHours={project.estimated_hours ?? null}
-                  />
-                  <DeleteProjectButton projectId={project.id} projectName={project.name} />
-                </div>
+                {isSuperAdmin && !isOwner && (
+                  <div className="absolute -top-2 left-4 z-10">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide bg-gray-700 text-white rounded-full px-2 py-0.5">
+                      👁 Outro usuário
+                    </span>
+                  </div>
+                )}
+                <ProjectCard
+                  project={project}
+                  collaborators={collabs}
+                  isOwner={isOwner || isSuperAdmin}
+                />
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </>

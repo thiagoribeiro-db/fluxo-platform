@@ -10,7 +10,8 @@
  *  - FrameTargetSelect: dropdown de frames pro direcionamento
  *  - BlockTargetSelect: dropdown de blocos do frame alvo
  *  - FieldsListEditor: editor de array { label, key, value } (Notification)
- *  - OptionsListEditor: editor de array de strings (Menu)
+ *  - OptionsListEditor: editor de array de strings (Menu flat)
+ *  - SectionsEditor: editor de seções (title + options[]) pra Menu com categorias
  *
  * Separado pra que o NodeFields.tsx fique só com a lógica de switch
  * por tipo, sem o ruído dos helpers de UI.
@@ -360,90 +361,105 @@ export function BlockTargetSelect({
 // ---- Editor de lista de opções (menu) -------------------------------------
 export function OptionsListEditor({
   options,
+  descriptions,
   onChange,
   variables,
 }: {
   options: string[];
-  onChange: (next: string[]) => void;
+  descriptions?: string[];
+  onChange: (opts: string[], descs: string[]) => void;
   variables?: FlowVariable[];
 }) {
   const [newOpt, setNewOpt] = useState('');
 
-  function update(idx: number, value: string) {
-    const next = [...options];
-    next[idx] = value;
-    onChange(next);
+  // Normaliza descriptions pra sempre ter o mesmo tamanho que options
+  const descs = options.map((_, i) => descriptions?.[i] ?? '');
+
+  function updateLabel(idx: number, value: string) {
+    const nextOpts = [...options];
+    nextOpts[idx] = value;
+    onChange(nextOpts, descs);
+  }
+  function updateDesc(idx: number, value: string) {
+    const nextDescs = [...descs];
+    nextDescs[idx] = value;
+    onChange(options, nextDescs);
   }
   function remove(idx: number) {
-    onChange(options.filter((_, i) => i !== idx));
+    onChange(
+      options.filter((_, i) => i !== idx),
+      descs.filter((_, i) => i !== idx)
+    );
   }
   function move(idx: number, dir: -1 | 1) {
     const target = idx + dir;
     if (target < 0 || target >= options.length) return;
-    const next = [...options];
-    [next[idx], next[target]] = [next[target], next[idx]];
-    onChange(next);
+    const nextOpts  = [...options];
+    const nextDescs = [...descs];
+    [nextOpts[idx],  nextOpts[target]]  = [nextOpts[target],  nextOpts[idx]];
+    [nextDescs[idx], nextDescs[target]] = [nextDescs[target], nextDescs[idx]];
+    onChange(nextOpts, nextDescs);
   }
   function add() {
     if (!newOpt.trim()) return;
-    onChange([...options, newOpt.trim()]);
+    onChange([...options, newOpt.trim()], [...descs, '']);
     setNewOpt('');
   }
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {options.map((opt, idx) => (
-        <div key={idx} className="flex items-start gap-1">
-          <div className="flex-1">
-            {/* Plain input — WhatsApp lista não suporta markdown nos itens,
-                então não faz sentido oferecer toolbar de bold/italic/cor/etc. */}
+        <div key={idx} className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/30 overflow-hidden">
+          {/* Linha principal: label + controles */}
+          <div className="flex items-center gap-1 px-2 pt-1.5 pb-1">
             <input
               type="text"
               value={opt}
-              onChange={(e) => update(idx, e.target.value)}
+              onChange={(e) => updateLabel(idx, e.target.value)}
               placeholder="Texto da opção"
-              className={inputCls}
+              className={`${inputCls} flex-1`}
+            />
+            <button
+              type="button"
+              onClick={() => move(idx, -1)}
+              disabled={idx === 0}
+              className="text-gray-400 dark:text-gray-500 hover:text-blip-purple px-1 disabled:opacity-30"
+              title="Subir"
+            >↑</button>
+            <button
+              type="button"
+              onClick={() => move(idx, 1)}
+              disabled={idx === options.length - 1}
+              className="text-gray-400 dark:text-gray-500 hover:text-blip-purple px-1 disabled:opacity-30"
+              title="Descer"
+            >↓</button>
+            <button
+              type="button"
+              onClick={() => remove(idx)}
+              className="text-gray-400 dark:text-gray-500 hover:text-red-600 px-1"
+              title="Remover"
+            >✕</button>
+          </div>
+          {/* Descrição opcional */}
+          <div className="px-2 pb-1.5">
+            <input
+              type="text"
+              value={descs[idx]}
+              onChange={(e) => updateDesc(idx, e.target.value)}
+              placeholder="Descrição opcional…"
+              className="w-full px-2 py-1 text-xs border border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 placeholder:text-gray-300 dark:placeholder:text-gray-600 rounded focus:border-blip-purple focus:outline-none focus:ring-1 focus:ring-blip-purple/20"
             />
           </div>
-          <button
-            type="button"
-            onClick={() => move(idx, -1)}
-            disabled={idx === 0}
-            className="text-gray-400 dark:text-gray-500 hover:text-blip-purple px-1 disabled:opacity-30"
-            title="Subir"
-          >
-            ↑
-          </button>
-          <button
-            type="button"
-            onClick={() => move(idx, 1)}
-            disabled={idx === options.length - 1}
-            className="text-gray-400 dark:text-gray-500 hover:text-blip-purple px-1 disabled:opacity-30"
-            title="Descer"
-          >
-            ↓
-          </button>
-          <button
-            type="button"
-            onClick={() => remove(idx)}
-            className="text-gray-400 dark:text-gray-500 hover:text-red-600 px-1"
-            title="Remover"
-          >
-            ✕
-          </button>
         </div>
       ))}
 
-      <div className="flex items-center gap-1 pt-1">
+      <div className="flex items-center gap-1 pt-0.5">
         <input
           type="text"
           value={newOpt}
           onChange={(e) => setNewOpt(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              add();
-            }
+            if (e.key === 'Enter') { e.preventDefault(); add(); }
           }}
           placeholder="Nova opção…"
           className={`${inputCls} flex-1`}
@@ -455,6 +471,128 @@ export function OptionsListEditor({
           className="px-2 py-1 bg-blip-purple text-white text-sm rounded-md hover:bg-blip-purple-dark disabled:opacity-30"
         >
           +
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SectionsEditor — editor de menu com seções (grupos de opções com título)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MenuSection {
+  title: string;
+  options: string[];
+  descriptions?: string[];
+}
+
+/**
+ * Editor de seções para o Menu Modal com categorias.
+ * Cada seção tem um título e uma lista de opções editáveis.
+ */
+export function SectionsEditor({
+  sections,
+  onChange,
+}: {
+  sections: MenuSection[];
+  onChange: (next: MenuSection[]) => void;
+}) {
+  const [newSectionTitle, setNewSectionTitle] = useState('');
+
+  function updateSection(idx: number, patch: Partial<MenuSection>) {
+    const next = sections.map((s, i) => (i === idx ? { ...s, ...patch } : s));
+    onChange(next);
+  }
+
+  function removeSection(idx: number) {
+    onChange(sections.filter((_, i) => i !== idx));
+  }
+
+  function moveSection(idx: number, dir: -1 | 1) {
+    const target = idx + dir;
+    if (target < 0 || target >= sections.length) return;
+    const next = [...sections];
+    [next[idx], next[target]] = [next[target], next[idx]];
+    onChange(next);
+  }
+
+  function addSection() {
+    if (!newSectionTitle.trim()) return;
+    onChange([...sections, { title: newSectionTitle.trim(), options: [] }]);
+    setNewSectionTitle('');
+  }
+
+  return (
+    <div className="space-y-3">
+      {sections.map((section, si) => (
+        <div
+          key={si}
+          className="border border-gray-200 rounded-lg overflow-hidden"
+        >
+          {/* Section header row */}
+          <div className="flex items-center gap-1 bg-gray-50 px-2 py-1.5 border-b border-gray-200">
+            <input
+              type="text"
+              value={section.title}
+              onChange={(e) => updateSection(si, { title: e.target.value })}
+              placeholder="Título da seção"
+              className="flex-1 text-xs font-semibold bg-transparent outline-none text-gray-700 placeholder-gray-400"
+            />
+            <button
+              type="button"
+              onClick={() => moveSection(si, -1)}
+              disabled={si === 0}
+              className="text-gray-400 hover:text-blip-purple px-0.5 text-xs disabled:opacity-30"
+              title="Mover seção para cima"
+            >↑</button>
+            <button
+              type="button"
+              onClick={() => moveSection(si, 1)}
+              disabled={si === sections.length - 1}
+              className="text-gray-400 hover:text-blip-purple px-0.5 text-xs disabled:opacity-30"
+              title="Mover seção para baixo"
+            >↓</button>
+            <button
+              type="button"
+              onClick={() => removeSection(si)}
+              className="text-gray-400 hover:text-red-500 px-0.5 text-xs"
+              title="Remover seção"
+            >✕</button>
+          </div>
+
+          {/* Options within this section */}
+          <div className="p-2">
+            <OptionsListEditor
+              options={section.options}
+              descriptions={section.descriptions}
+              onChange={(opts, descs) =>
+                updateSection(si, { options: opts, descriptions: descs })
+              }
+            />
+          </div>
+        </div>
+      ))}
+
+      {/* Add new section */}
+      <div className="flex items-center gap-1">
+        <input
+          type="text"
+          value={newSectionTitle}
+          onChange={(e) => setNewSectionTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); addSection(); }
+          }}
+          placeholder="Nome da nova seção…"
+          className={`${inputCls} flex-1 text-xs`}
+        />
+        <button
+          type="button"
+          onClick={addSection}
+          disabled={!newSectionTitle.trim()}
+          className="px-2 py-1 bg-blip-purple text-white text-xs rounded-md hover:bg-blip-purple-dark disabled:opacity-30 shrink-0"
+        >
+          + Seção
         </button>
       </div>
     </div>

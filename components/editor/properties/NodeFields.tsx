@@ -27,6 +27,8 @@ import {
   BlockTargetSelect,
   FieldsListEditor,
   OptionsListEditor,
+  SectionsEditor,
+  type MenuSection,
 } from './shared';
 import { FLOW_CATEGORIES, FLOW_LIMITS } from '@/lib/whatsapp-flows/constants';
 import type { WhatsAppFlowCategory } from '@/lib/types';
@@ -187,36 +189,103 @@ export function NodeFields({
         </Field>
       )}
 
-      {node.type === 'menu' && (
-        <>
-          <Field label="Header">
-            <RichTextEditor
-              value={(data.header as string | undefined) ?? ''}
-              onChange={(header) => onUpdate({ header })}
-              placeholder="Texto do cabeçalho do menu"
-              minHeight={50}
-              singleLine
-              variables={variables}
-            />
-          </Field>
-          <Field label="Opções">
-            <OptionsListEditor
-              options={data.options ?? []}
-              onChange={(options) => onUpdate({ options })}
-              variables={variables}
-            />
-          </Field>
-          <Field label="Footer (texto do botão)">
-            <input
-              type="text"
-              value={data.footer ?? ''}
-              onChange={(e) => onUpdate({ footer: e.target.value })}
-              placeholder="Enviar"
-              className={inputCls}
-            />
-          </Field>
-        </>
-      )}
+      {node.type === 'menu' && (() => {
+        const hasSections =
+          Array.isArray(data.sections) && (data.sections as MenuSection[]).length > 0;
+        const currentMode: 'flat' | 'sections' = hasSections ? 'sections' : 'flat';
+
+        function switchToSections() {
+          // Migra as opções flat (+ descrições) para uma única seção
+          const flatOpts  = (data.options as string[] | undefined) ?? [];
+          const flatDescs = (data.optionDescriptions as string[] | undefined) ?? [];
+          onUpdate({
+            sections: [{ title: 'Seção 1', options: flatOpts, descriptions: flatDescs }],
+            options: undefined,
+            optionDescriptions: undefined,
+          });
+        }
+
+        function switchToFlat() {
+          // Achata todas as seções (+ descrições) em lista plana
+          const secs      = (data.sections as MenuSection[] | undefined) ?? [];
+          const flatOpts  = secs.flatMap((s) => s.options);
+          const flatDescs = secs.flatMap((s) => (s.descriptions ?? s.options.map(() => '')));
+          onUpdate({ options: flatOpts, optionDescriptions: flatDescs, sections: undefined });
+        }
+
+        return (
+          <>
+            <Field label="Header">
+              <RichTextEditor
+                value={(data.header as string | undefined) ?? ''}
+                onChange={(header) => onUpdate({ header })}
+                placeholder="Texto do cabeçalho do menu"
+                minHeight={50}
+                singleLine
+                variables={variables}
+              />
+            </Field>
+
+            {/* Toggle de modo */}
+            <Field label="Modo de opções">
+              <div className="flex bg-gray-100 rounded-md p-0.5 gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => currentMode !== 'flat' && switchToFlat()}
+                  className={`flex-1 text-xs py-1.5 px-2 rounded font-medium transition-colors ${
+                    currentMode === 'flat'
+                      ? 'bg-white text-blip-purple shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  Lista simples
+                </button>
+                <button
+                  type="button"
+                  onClick={() => currentMode !== 'sections' && switchToSections()}
+                  className={`flex-1 text-xs py-1.5 px-2 rounded font-medium transition-colors ${
+                    currentMode === 'sections'
+                      ? 'bg-white text-blip-purple shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  Com seções
+                </button>
+              </div>
+            </Field>
+
+            {currentMode === 'flat' ? (
+              <Field label="Opções">
+                <OptionsListEditor
+                  options={(data.options as string[] | undefined) ?? []}
+                  descriptions={(data.optionDescriptions as string[] | undefined) ?? []}
+                  onChange={(options, descs) =>
+                    onUpdate({ options, optionDescriptions: descs })
+                  }
+                  variables={variables}
+                />
+              </Field>
+            ) : (
+              <Field label="Seções e opções">
+                <SectionsEditor
+                  sections={(data.sections as MenuSection[] | undefined) ?? []}
+                  onChange={(sections) => onUpdate({ sections })}
+                />
+              </Field>
+            )}
+
+            <Field label="Footer (texto do botão)">
+              <input
+                type="text"
+                value={(data.footer as string | undefined) ?? ''}
+                onChange={(e) => onUpdate({ footer: e.target.value })}
+                placeholder="Enviar"
+                className={inputCls}
+              />
+            </Field>
+          </>
+        );
+      })()}
 
       {node.type === 'direcionamento' && (
         <>

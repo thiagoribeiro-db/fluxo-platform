@@ -2,24 +2,26 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { ROLE_TABS, type PlatformRole } from '@/lib/auth/role-constants';
 
-const TABS = [
-  { href: '/dashboard', label: 'Projetos', icon: '📋' },
-  { href: '/dashboard/components', label: 'Componentes', icon: '🧩' },
-  { href: '/dashboard/settings', label: 'Configurações', icon: '⚙️' },
-] as const;
+interface DashboardTabsProps {
+  role: PlatformRole;
+}
 
 /**
- * Nav horizontal de abas exibido abaixo do topbar. Visualmente parece com
- * abas de pasta — borda inferior contínua, aba ativa "elevada" com cor
- * blip-purple.
+ * Nav horizontal de abas exibido abaixo do topbar.
+ * As abas visíveis dependem do platform_role do usuário:
+ *   editor     → só "Projetos"
+ *   admin      → Projetos + Componentes + Configurações
+ *   superAdmin → igual a admin
  */
-export default function DashboardTabs() {
+export default function DashboardTabs({ role }: DashboardTabsProps) {
   const pathname = usePathname();
+  const tabs = ROLE_TABS[role];
 
   return (
     <nav className="flex items-center gap-1 -mb-px">
-      {TABS.map((tab) => {
+      {tabs.map((tab) => {
         const isActive =
           tab.href === '/dashboard'
             ? pathname === '/dashboard'

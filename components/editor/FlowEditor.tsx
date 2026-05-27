@@ -47,6 +47,8 @@ import {
   APPROX_HEIGHT_BY_TYPE,
   EXCECAO_REL_X,
   EXCECAO_REL_Y,
+  GAP,
+  getMenuFlatOptions,
 } from '@/lib/components/nodes/helpers';
 import type { FluxoNode, FluxoNodeData, FluxoNodeType, ProjectState, ProjectStatus } from '@/lib/types';
 import { saveProjectState } from '@/lib/actions/projects';
@@ -580,6 +582,50 @@ function FlowEditorInner({
           });
         }
 
+        // 4b) Direcionamento por opção — um nó "→ Ir para frame..." por opção do menu,
+        //     posicionados HORIZONTALMENTE centrados abaixo do menu.
+        if (type === 'menu') {
+          const flatOpts = getMenuFlatOptions(newNode.data);
+          if (flatOpts.length > 0) {
+            // header+footer≈110 + 46px/opção + 60px de margem de segurança
+            const menuH = 110 + flatOpts.length * 46 + 60;
+            const menuW = APPROX_WIDTH_BY_TYPE['menu']  ?? 320;
+            // Usa largura visual real (~120px) em vez do APPROX global (240px)
+            // para evitar que as pílulas fiquem muito espaçadas
+            const DIR_VISUAL_W = 120;
+            const ITEM_GAP = 16;
+            const N = flatOpts.length;
+            const totalW = N * DIR_VISUAL_W + Math.max(0, N - 1) * ITEM_GAP;
+            const menuCenterX = newNode.position.x + menuW / 2;
+            const startX = menuCenterX - totalW / 2;
+            const baseY  = newNode.position.y + menuH + GAP;
+
+            flatOpts.forEach((optionLabel, idx) => {
+              const dId = `direcionamento-${nanoid(6)}`;
+              nextNodes = [
+                ...nextNodes,
+                {
+                  id: dId,
+                  type: 'direcionamento',
+                  position: {
+                    x: startX + idx * (DIR_VISUAL_W + ITEM_GAP),
+                    y: baseY,
+                  },
+                  zIndex: 1,
+                  data: {
+                    label: optionLabel,
+                    createdForMenuId: id,
+                    createdForOptionLabel: optionLabel,
+                    clickable: false,
+                    targetFrameId: '',
+                  },
+                },
+              ];
+              edgesToCreate.push({ id: `e-${id}-${dId}`, source: id, target: dId });
+            });
+          }
+        }
+
         // 5) Quando criar um nó tipo "USER input" (bubble-user OU mídia-user):
         //    a) Tracking _input no nó anterior do fluxo (child dele, empilhado)
         //    b) Exceção como child desse nó (à direita, sem code)
@@ -684,6 +730,12 @@ function FlowEditorInner({
     (patch: Partial<FluxoNodeData>) => {
       if (!selectedId) return;
       pushHistory();
+
+      // Acumula edges a adicionar/remover quando opções do menu mudam.
+      // Preenchido DENTRO do setNodes e consumido DEPOIS (mesmo padrão do createNode).
+      const edgesToAdd: Array<{ id: string; source: string; target: string }> = [];
+      const edgeTargetsToRemove = new Set<string>();
+
       setNodes((prev) => {
         const selected = prev.find((n) => n.id === selectedId);
         if (!selected) return prev;
@@ -723,30 +775,139 @@ function FlowEditorInner({
           newSource !== undefined &&
           extractTrackingName(oldSource) !== newName;
 
-        return prev.map((n) => {
-          if (n.id === selectedId) {
-            return { ...n, data: { ...n.data, ...patch } };
-          }
-          // Tracking auto-gerado filho do node alterado → re-slug
-          if (
-            shouldResync &&
-            n.type === 'tracking' &&
-            n.parentId === selectedId
-          ) {
-            const currentLabel = n.data.label as string | undefined;
-            if (!currentLabel) return n;
-            const parsed = parseTrackingLabel(currentLabel);
-            if (!parsed) return n; // não casa com formato auto — customizado
-            return {
-              ...n,
-              data: { ...n.data, label: `${newName} ${parsed.suffix}` },
-            };
-          }
-          return n;
-        });
+        // ----- RE-SYNC de direcionamentos por opção (menu) -----
+        // Quando options[] ou sections[] mudam → recalcula layout horizontal completo:
+        //  • Remove dirs de opções deletadas
+        //  • Cria dirs para novas opções
+        //  • Reposiciona TODOS os dirs (kept + novos) centrados abaixo do menu
+        const dirNodesToAdd: FluxoNode[] = [];
+        const dirNodeIdsToRemove = new Set<string>();
+        // map: nodeId → nova posição (para dirs que continuam existindo)
+        const keptDirRepos = new Map<string, { x: number; y: number }>();
+
+        if (type === 'menu' && (patch.options !== undefined || patch.sections !== undefined)) {
+          const newMenuData = { ...selected.data, ...patch };
+          const newOptions = getMenuFlatOptions(newMenuData as FluxoNodeData);
+
+          const autoDirs = prev.filter(
+            (n) => n.type === 'direcionamento' && n.data.createdForMenuId === selectedId
+          );
+
+          // Quais remover (opção foi deletada)
+          const newOptionSet = new Set(newOptions);
+          autoDirs
+            .filter((n) => !newOptionSet.has(n.data.createdForOptionLabel as string))
+            .forEach((n) => {
+              dirNodeIdsToRemove.add(n.id);
+              edgeTargetsToRemove.add(n.id);
+            });
+
+          // Mapa label → dir existente (só os que ficam)
+          const keptByLabel = new Map(
+            autoDirs
+              .filter((n) => !dirNodeIdsToRemove.has(n.id))
+              .map((n) => [n.data.createdForOptionLabel as string, n])
+          );
+
+          // Opções que precisam de dir novo
+          const optionsToAdd = newOptions.filter((opt) => !keptByLabel.has(opt));
+
+          // Calcular layout horizontal centrado abaixo do menu
+          const DIR_VISUAL_W = 120; // largura visual da pílula (~real renderizado)
+          const ITEM_GAP = 16;
+          const N = newOptions.length;
+          // Altura dinâmica — inclui seções quando em modo "Com seções"
+          // (measured reflete estado ANTERIOR; calcula pelo novo estado)
+          const newSects = newMenuData.sections as Array<{ title: string }> | undefined;
+          const sectionCount = Array.isArray(newSects) ? newSects.length : 0;
+          const menuH = 110 + sectionCount * 40 + N * 46 + 60;
+          const menuW =
+            (selected.measured as { width?: number } | undefined)?.width ??
+            APPROX_WIDTH_BY_TYPE['menu'] ?? 320;
+          const totalW = N * DIR_VISUAL_W + Math.max(0, N - 1) * ITEM_GAP;
+          const menuCenterX = selected.position.x + menuW / 2;
+          const startX = menuCenterX - totalW / 2;
+          const baseY  = selected.position.y + menuH + GAP;
+
+          // Posição desejada para cada opção (na ordem final)
+          const desiredPos = new Map(
+            newOptions.map((opt, idx) => [
+              opt,
+              { x: startX + idx * (DIR_VISUAL_W + ITEM_GAP), y: baseY },
+            ])
+          );
+
+          // Reposicionar dirs existentes
+          keptByLabel.forEach((dirNode, label) => {
+            const pos = desiredPos.get(label);
+            if (pos) keptDirRepos.set(dirNode.id, pos);
+          });
+
+          // Criar dirs novos
+          optionsToAdd.forEach((optionLabel) => {
+            const dId = `direcionamento-${nanoid(6)}`;
+            const pos = desiredPos.get(optionLabel) ?? { x: selected.position.x, y: baseY };
+            dirNodesToAdd.push({
+              id: dId,
+              type: 'direcionamento',
+              position: pos,
+              zIndex: 1,
+              data: {
+                label: optionLabel,
+                createdForMenuId: selectedId,
+                createdForOptionLabel: optionLabel,
+                clickable: false,
+                targetFrameId: '',
+              },
+            });
+            edgesToAdd.push({ id: `e-${selectedId}-${dId}`, source: selectedId, target: dId });
+          });
+        }
+
+        const mapped = prev
+          .filter((n) => !dirNodeIdsToRemove.has(n.id))
+          .map((n) => {
+            if (n.id === selectedId) {
+              return { ...n, data: { ...n.data, ...patch } };
+            }
+            // Reposicionar dir existente que ficou (layout horizontal recalculado)
+            const newPos = keptDirRepos.get(n.id);
+            if (newPos) return { ...n, position: newPos };
+            // Tracking auto-gerado filho do node alterado → re-slug
+            if (
+              shouldResync &&
+              n.type === 'tracking' &&
+              n.parentId === selectedId
+            ) {
+              const currentLabel = n.data.label as string | undefined;
+              if (!currentLabel) return n;
+              const parsed = parseTrackingLabel(currentLabel);
+              if (!parsed) return n; // não casa com formato auto — customizado
+              return {
+                ...n,
+                data: { ...n.data, label: `${newName} ${parsed.suffix}` },
+              };
+            }
+            return n;
+          });
+
+        return dirNodesToAdd.length > 0 ? [...mapped, ...dirNodesToAdd] : mapped;
       });
+
+      // Sincroniza edges após o setNodes (mesmo padrão do createNode)
+      if (edgesToAdd.length > 0 || edgeTargetsToRemove.size > 0) {
+        setEdges((prevEdges) => {
+          const filtered =
+            edgeTargetsToRemove.size > 0
+              ? prevEdges.filter((e) => !edgeTargetsToRemove.has(e.target))
+              : prevEdges;
+          return edgesToAdd.length > 0
+            ? [...filtered, ...edgesToAdd.map((e) => ({ ...e, animated: true }))]
+            : filtered;
+        });
+      }
     },
-    [selectedId, setNodes, pushHistory]
+    [selectedId, setNodes, setEdges, pushHistory]
   );
 
   // Duplica os nodes selecionados (1 ou N) com offset fixo (40, 40).
@@ -1393,6 +1554,7 @@ function FlowEditorInner({
             collapsed={paletteCollapsed}
             onToggle={togglePaletteCollapsed}
             onAddNode={createNode}
+            projectId={projectId}
           />
         </ResizableSidebar>
       )}

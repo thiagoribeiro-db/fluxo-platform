@@ -19,7 +19,9 @@ detectionCues:
 usageRules:
   - 'Use APENAS quando há 4 OU MAIS opções. Para 2-3 opções, use `buttons`. Para 1, use `btn-long`.'
   - 'O `header` deve ser CURTO (cabeçalho do menu, max ~60 chars). Se a pergunta original era longa, divida: 1 bloco `bot` com a pergunta longa + 1 `menu` com header sintético'
-  - 'As `options` devem ser as opções LITERAIS do documento, na MESMA ordem'
+  - 'Use `sections` (em vez de `options`) quando as opções forem agrupadas por categorias distintas. Cada seção tem um `title` e suas `options`.'
+  - 'Quando o escopo agrupa opções com títulos/categorias visíveis, SEMPRE use `sections`. Ex: "Solicitar documentos / Suporte / Falar com IA".'
+  - 'Não misture `options` e `sections` no mesmo nó — use um ou outro.'
   - 'Default do `footer`: "Enviar" (texto do botão final)'
   - 'APÓS o menu, geralmente vêm `direcionamento`s — um por opção, apontando pro `target_frame_id` correspondente'
 
@@ -37,9 +39,24 @@ fields:
   options:
     type: array
     itemType: string
-    required: true
-    description: Lista de opções (mínimo 4 itens)
-    aiHint: 'Preserve o texto LITERAL e a ORDEM do documento original'
+    required: false
+    description: Lista de opções FLAT (sem categorias). Use quando NÃO há agrupamento por seção.
+    aiHint: 'Preserve o texto LITERAL e a ORDEM do documento original. Mínimo 4 itens.'
+  sections:
+    type: array
+    required: false
+    description: |
+      Lista de seções (grupos de opções com título). Use quando o escopo agrupa as opções
+      por categorias visíveis. Cada seção tem `title` (string) e `options` (string[]).
+    aiHint: |
+      Exemplo:
+        sections:
+          - title: "Solicitar documentos"
+            options: ["Holerite", "Informe de Rendimentos", "Outros Documentos"]
+          - title: "Suporte/Atualizações"
+            options: ["Endereço", "E-mail", "Número de Telefone", "Cadastro e acessos"]
+          - title: "Falar com nossa IA"
+            options: ["Dúvidas de RH"]
   footer:
     type: string
     default: "Enviar"
@@ -94,7 +111,29 @@ examples:
         header: "Avaliação"
         options: ["Muito satisfeito", "Satisfeito", "Pouco satisfeito", "Insatisfeito"]
 
+examples:
+  - description: Menu com seções (Holerite / Suporte / IA)
+    input: |
+      Bot: Como eu posso te ajudar?
+      Solicitar documentos: Holerite, Informe de Rendimentos, Outros Documentos
+      Suporte/Atualizações: Endereço, E-mail, Número de Telefone, Cadastro e acessos
+      Falar com nossa IA: Dúvidas de RH
+    output:
+      - kind: menu
+        header: "Como eu posso te ajudar?"
+        sections:
+          - title: "Solicitar documentos"
+            options: ["Holerite", "Informe de Rendimentos", "Outros Documentos"]
+          - title: "Suporte/Atualizações"
+            options: ["Endereço", "E-mail", "Número de Telefone", "Cadastro e acessos"]
+          - title: "Falar com nossa IA"
+            options: ["Dúvidas de RH"]
+        footer: "Enviar"
+
 aiInstructions: |
   IMPORTANTE: depois de um menu, emita um bloco `direcionamento` PARA CADA opção,
   apontando pro frame correspondente (use `target_frame_id` = slug do frame
   destino). Sem isso, o fluxo fica desconectado.
+
+  Quando as opções do menu estiverem agrupadas por categoria no escopo original,
+  use `sections` em vez de `options`. Nunca use ambos no mesmo nó.

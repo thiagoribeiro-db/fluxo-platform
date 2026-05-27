@@ -7,6 +7,11 @@ interface LoginFormProps {
   next?: string;
 }
 
+/**
+ * Formulário de login temporário — magic link por e-mail.
+ * Google OAuth está preparado em lib/actions/auth.ts (signInWithGoogle)
+ * mas aguarda credenciais da organização para ser ativado.
+ */
 export default function LoginForm({ next }: LoginFormProps) {
   const [email, setEmail] = useState('');
   const [isPending, startTransition] = useTransition();

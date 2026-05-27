@@ -24,6 +24,8 @@ export function tokenize(text: string): ParsedSection[] {
   const sections: ParsedSection[] = [];
   let current: ParsedSection | null = null;
   let pendingList: string[] = [];
+  /** true quando a próxima linha não-vazia deve virar título de seção (após ________________) */
+  let nextIsSection = false;
 
   const pushList = () => {
     if (pendingList.length > 0 && current) {
@@ -46,6 +48,21 @@ export function tokenize(text: string): ParsedSection[] {
     const line = rawLine.trim();
     if (!line) {
       pushList();
+      continue;
+    }
+
+    // Separador horizontal (________________ → ===SECTION_BREAK=== via normalize).
+    // A PRÓXIMA linha não-vazia vira título da nova seção.
+    if (line === '===SECTION_BREAK===') {
+      pushList();
+      nextIsSection = true;
+      continue;
+    }
+
+    // Linha logo após separador → força nova seção independente do padrão
+    if (nextIsSection) {
+      nextIsSection = false;
+      ensureSection(line.replace(/^#{1,3}\s+/, '').trim());
       continue;
     }
 

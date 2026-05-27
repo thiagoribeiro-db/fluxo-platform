@@ -5,13 +5,16 @@
  *
  * Layout: agrupado por categoria em dropdowns (padrão Linear/Figma/Notion):
  *
- *  [Compartilhar] | [✨ IA] | [Editar ▾] [Visualizar ▾] [Exportar ▾] | [Tracking auto] | [? ] [🐛]
+ *  [Compartilhar] | [✨ IA] [🌱 Template] [Comentários] [Problemas] | [Editar ▾] [Visualizar ▾] [Exportar ▾] | [Tracking auto] | [? ] [🐛]
  *
  * Compartilhar  → CTA primário, sempre visível
- * IA            → atalho rápido pro Chat IA (resolve "muito escondido")
+ * IA            → atalho rápido pro Chat IA
+ * Template      → Carregar escopo/template (amber, destaque)
+ * Comentários   → painel de revisão
+ * Problemas     → linter com badges
  * Editar ▾      → Buscar/substituir, Organizar layout, Reordenar IDs, Resetar
- * Visualizar ▾  → Comentários, Problemas, Testar, Versões (com badges/active states)
- * Exportar ▾    → Blip, Imagem, Template
+ * Visualizar ▾  → Testar, Versões, Outline
+ * Exportar ▾    → Blip, Imagem
  * Tracking auto → Toggle visível (setting, fica em destaque)
  * ?             → Cheatsheet de atalhos
  * 🐛            → Dump JSON (dev only)
@@ -156,6 +159,15 @@ export default function EditorToolbar(props: EditorToolbarProps) {
           title="Chat IA — pergunte sobre o fluxo, peça sugestões"
         />
       )}
+
+      {/* Carregar template — standalone entre IA e Comentários */}
+      <IconButton
+        icon={<Sprout size={15} />}
+        label="Template"
+        tone="amber"
+        onClick={onLoadTemplate}
+        title="Carregar template — subir escopo, colar texto ou usar exemplo"
+      />
 
       {/* Comentários — standalone (alta frequência de uso) */}
       <IconButton
@@ -307,7 +319,7 @@ export default function EditorToolbar(props: EditorToolbarProps) {
       {canExport && (
         <DropdownButton
           label="Exportar"
-          title="Exportações e templates"
+          title="Exportar fluxo"
           items={[
             {
               key: 'blip',
@@ -323,15 +335,6 @@ export default function EditorToolbar(props: EditorToolbarProps) {
               label: 'Imagem',
               description: 'PNG, PDF ou HTML do canvas',
               onClick: onExportVisual,
-            },
-            { key: '__sep2' },
-            {
-              key: 'template',
-              icon: <Sprout size={15} />,
-              label: 'Carregar template',
-              description: 'Subir escopo, colar texto ou usar exemplo',
-              tone: 'amber' as const,
-              onClick: onLoadTemplate,
             },
           ]}
         />

@@ -81,6 +81,65 @@ describe('organizeLayoutByFrame — agrupamento por code prefix', () => {
   });
 });
 
+describe('organizeLayoutByFrame — bubble-user com exceção (dupla horizontal vs empilhada)', () => {
+  function user(id: string, code: string, x = 0, y = 0): FluxoNode {
+    return {
+      id,
+      type: 'bubble-user',
+      position: { x, y },
+      data: { code, text: `u-${code}` },
+    };
+  }
+  function exc(id: string, parentId: string): FluxoNode {
+    return {
+      id,
+      type: 'excecao',
+      position: { x: 0, y: 0 },
+      parentId,
+      data: { text: 'Não entendi…' },
+    };
+  }
+
+  it('frame folgado: dupla horizontal — exceção fica à DIREITA do user (mesma linha)', () => {
+    // Frame com largura confortável (900px) — cabe bubble (380) + GAP + excecao (240) sem stress
+    const f = frame('f1', 'S', { x: 0, y: 0 }, 900, 400);
+    const u = user('u1', 'S001', 0, 100);
+    const e = exc('e1', 'u1');
+    const result = organizeLayoutByFrame([f, u, e], []);
+    const newU = result.find((n) => n.id === 'u1')!;
+    const newE = result.find((n) => n.id === 'e1')!;
+    // Exceção é filha (parentId) → position relativa ao user
+    // Horizontal = x > 0 (à direita) e y ≈ 0 (mesma linha)
+    expect(newE.position.x).toBeGreaterThan(0);
+    expect(newE.position.y).toBe(0);
+    // A "dupla" deve estar dentro do frame: borda direita não passa do frame.
+    // Exceção tem position relativa ao user (parentId), então absoluta =
+    // user.x + e.x + e.w.
+    const newFrame = result.find((n) => n.id === 'f1')!;
+    const frameRight = newFrame.position.x + (newFrame.data!.width as number);
+    const excAbsRight = newU.position.x + newE.position.x + 240;
+    expect(excAbsRight).toBeLessThanOrEqual(frameRight + 1);
+  });
+
+  it('frame truncado por vizinho: fallback EMPILHADO — exceção fica ABAIXO do user', () => {
+    // Frame f1 começa em x=0, vizinho f2 em x=420 → cap por vizinho força f1 estreito.
+    // Sem cap, f1 cresceria pra ~660+ pra caber dupla horizontal. Com cap, fica ~400.
+    const f1 = frame('f1', 'S', { x: 0, y: 0 }, 400, 400);
+    const f2 = frame('f2', 'T', { x: 420, y: 0 }, 400, 400);
+    const u = user('u1', 'S001', 0, 100);
+    const e = exc('e1', 'u1');
+    const result = organizeLayoutByFrame([f1, f2, u, e], []);
+    const newU = result.find((n) => n.id === 'u1')!;
+    const newE = result.find((n) => n.id === 'e1')!;
+    // Fallback: exceção tem y > 0 (abaixo) — NÃO mais y=0 (lado a lado)
+    expect(newE.position.y).toBeGreaterThan(0);
+    // User não vaza pra esquerda do frame (x relativo >= 0)
+    expect(newU.position.x).toBeGreaterThanOrEqual(0);
+    // E continua dentro do frame f1 (não invade f2 em x=420)
+    expect(newU.position.x + 380).toBeLessThanOrEqual(420);
+  });
+});
+
 describe('organizeLayoutByFrame — modo diamante (branches)', () => {
   it('ativa diamond quando há branch real (>1 sucessor main via btn)', () => {
     const f = frame('f', 'X', { x: 0, y: 0 }, 1500, 1000);

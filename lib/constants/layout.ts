@@ -90,8 +90,10 @@ export const GAP = {
   LAYOUT_BOTTOM_PADDING: 40,
   /** Espaço entre tracking e o bubble pai */
   TRACKING_GAP_X: 16,
-  /** Espaço entre bubble-user e exceção (dupla horizontal) */
-  EXCECAO_GAP_X: 16,
+  /** Espaço entre bubble-user e exceção (dupla horizontal). Tem que bater
+   *  com `EXCECAO_GAP_X` em `lib/components/nodes/helpers.ts` — o organize
+   *  usa a constante de lá. Se quiser mudar, atualize OS DOIS. */
+  EXCECAO_GAP_X: 8,
   /** Distância horizontal entre colunas no layout em DIAMANTE */
   DIAMOND_COLUMN_SPACING: 420,
 } as const;

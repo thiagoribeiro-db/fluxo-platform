@@ -1,15 +1,21 @@
 'use client';
 
-import { memo, useState } from 'react';
-import { ChevronsRight } from 'lucide-react';
+import { memo, useEffect, useState } from 'react';
+import { ChevronsRight, Zap } from 'lucide-react';
 import { PALETTE_GROUPS, type PaletteItem } from '@/lib/components/nodes/defaults';
 import type { FluxoNodeType } from '@/lib/types';
+import {
+  getProjectIaUsageSummary,
+  type IaUsageSummary,
+} from '@/lib/actions/ia-usage';
 
 interface PaletteProps {
   collapsed?: boolean;
   onToggle?: () => void;
   /** Chamado em duplo clique — adiciona o node abaixo do último/selecionado. */
   onAddNode: (type: FluxoNodeType) => void;
+  /** ID do projeto — usado para exibir consumo de tokens de IA no rodapé. */
+  projectId?: string;
 }
 
 /**
@@ -22,11 +28,18 @@ interface PaletteProps {
  * callbacks forem estáveis no FlowEditor (useCallback), evita re-render
  * a cada mudança de nodes/edges.
  */
-function PaletteImpl({ collapsed, onToggle, onAddNode }: PaletteProps) {
+function PaletteImpl({ collapsed, onToggle, onAddNode, projectId }: PaletteProps) {
   // Acordeão exclusivo: só um grupo aberto por vez. null = todos fechados.
   const [openGroup, setOpenGroup] = useState<string | null>(
     PALETTE_GROUPS[1]?.id ?? null // começa em "Mensagens" aberto
   );
+
+  const [usage, setUsage] = useState<IaUsageSummary | null>(null);
+
+  useEffect(() => {
+    if (!projectId) return;
+    getProjectIaUsageSummary(projectId).then(setUsage).catch(() => undefined);
+  }, [projectId]);
 
   function handleDragStart(event: React.DragEvent, type: FluxoNodeType) {
     event.dataTransfer.setData('application/fluxo-node-type', type);
@@ -105,8 +118,39 @@ function PaletteImpl({ collapsed, onToggle, onAddNode }: PaletteProps) {
         })}
       </div>
 
-      <footer className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 text-xs text-gray-400 space-y-1">
-        <div>
+      <footer className="border-t border-gray-100 dark:border-gray-700 text-xs text-gray-400">
+        {/* Consumo de tokens IA do projeto */}
+        {usage !== null && (
+          <div className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-700">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Zap size={11} className="text-amber-400 flex-shrink-0" />
+              <span className="font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide text-[10px]">
+                Tokens IA
+              </span>
+            </div>
+            {usage.callCount === 0 ? (
+              <p className="text-[11px] text-gray-400 dark:text-gray-500">Sem uso neste projeto</p>
+            ) : (
+              <div className="flex items-baseline justify-between">
+                <span className="text-[13px] font-semibold text-gray-700 dark:text-gray-200">
+                  {fmtTokens(usage.totalTokens)}
+                </span>
+                <span className="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums">
+                  ${usage.costUsd.toFixed(4)}
+                </span>
+              </div>
+            )}
+            {usage.callCount > 0 && (
+              <div className="flex gap-2 mt-1 text-[10px] text-gray-400 dark:text-gray-500">
+                <span>↑ {fmtTokens(usage.inputTokens)} in</span>
+                <span>↓ {fmtTokens(usage.outputTokens)} out</span>
+                <span className="ml-auto">{usage.callCount} chamadas</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="px-4 py-3">
           💡 <kbd className="bg-gray-100 dark:bg-gray-800 rounded px-1">Del</kbd> apaga ·{' '}
           <kbd className="bg-gray-100 dark:bg-gray-800 rounded px-1">Ctrl+D</kbd> duplica
         </div>
@@ -117,6 +161,13 @@ function PaletteImpl({ collapsed, onToggle, onAddNode }: PaletteProps) {
 
 const Palette = memo(PaletteImpl);
 export default Palette;
+
+/** Formata número de tokens de forma legível: 1234 → "1.2k", 1200000 → "1.2M" */
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
 
 function PaletteCard({
   item,

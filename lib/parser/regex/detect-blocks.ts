@@ -230,6 +230,39 @@ export function detectBlock(line: string): ParsedBlock | null {
     }
   }
 
+  // 11. Inferência de mensagem do bot (prosa sem marcador "Bot:")
+  //  Documentos de escopo descrevem ações do bot em 3ª pessoa:
+  //  "O usuário receberá uma mensagem informando que..."
+  //  "Será enviada uma mensagem..."
+  //  "Será informado que..." / "Será questionado se..."
+  //  Criamos um bubble-bot com a mensagem extraída (confidence 0.6 = inferida).
+  if (P.PROSE_BOT_MESSAGE.test(trimmed)) {
+    const msgContent = trimmed
+      // "O usuário receberá/recebe uma mensagem informando/solicitando que, X" → X
+      .replace(
+        /^(?:o\s+)?usuário\s+(?:receberá?|recebe|recebeu)\s+uma\s+mensagem\s+(?:informando|solicitando|perguntando|dizendo)\s+(?:que[,\s]?|a\s+)?/i,
+        ''
+      )
+      // "Será enviada uma mensagem informando que X" → X
+      .replace(
+        /^ser[aá]\s+enviada?\s+(?:uma\s+)?mensagem\s+(?:informando|dizendo)\s+(?:que[,\s]?)?/i,
+        ''
+      )
+      // "O bot enviará/informa/pergunta X" → X
+      .replace(
+        /^(?:o\s+)?bot\s+(?:enviará?|envia|enviou|informa(?:rá)?|pergunta(?:rá)?|exibirá?|exibe)\s+(?:(?:o|a|um|uma|os|as)\s+)?/i,
+        ''
+      )
+      // "Será informado que X" / "Será questionado se X" → X
+      .replace(/^ser[aá]\s+(?:informado|questionado|perguntado)\s+(?:se|que|sobre|a)\s*/i, '')
+      .trim();
+    return {
+      kind: 'bot',
+      text: msgContent || trimmed,
+      confidence: 0.6,
+    };
+  }
+
   // Fallback: nota
   return { kind: 'note', text: trimmed, confidence: 0.3 };
 }

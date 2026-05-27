@@ -67,6 +67,63 @@ export async function logIaUsage(input: LogIaUsageInput): Promise<void> {
   }
 }
 
+export interface IaUsageSummary {
+  callCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+}
+
+/**
+ * Totais acumulados de uso de IA para um projeto específico (all-time).
+ * Usado no rodapé da Palette pra dar visibilidade de consumo pro usuário.
+ */
+export async function getProjectIaUsageSummary(
+  projectId: string
+): Promise<IaUsageSummary> {
+  const empty: IaUsageSummary = {
+    callCount: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    costUsd: 0,
+  };
+  if (!projectId) return empty;
+
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('ia_usage')
+      .select('input_tokens, output_tokens, cost_usd')
+      .eq('project_id', projectId);
+
+    if (error || !data) return empty;
+
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let costUsd = 0;
+    for (const r of data as Array<{
+      input_tokens: number;
+      output_tokens: number;
+      cost_usd: number;
+    }>) {
+      inputTokens += r.input_tokens ?? 0;
+      outputTokens += r.output_tokens ?? 0;
+      costUsd += Number(r.cost_usd ?? 0);
+    }
+    return {
+      callCount: data.length,
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+      costUsd,
+    };
+  } catch {
+    return empty;
+  }
+}
+
 export interface IaUsageDailyRow {
   day: string; // YYYY-MM-DD
   feature: IaFeature | string;

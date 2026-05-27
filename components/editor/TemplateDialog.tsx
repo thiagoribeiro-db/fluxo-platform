@@ -12,6 +12,7 @@ import { toast } from '@/lib/utils/errors';
 import { confirmDialog } from '@/lib/utils/dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { track } from '@/lib/analytics/posthog';
+import SystemPromptViewerDialog from '@/components/editor/SystemPromptViewerDialog';
 
 interface TemplateDialogProps {
   projectId: string;
@@ -47,6 +48,7 @@ export default function TemplateDialog({
   const [extracting, setExtracting] = useState(false);
   // Modo de parsing: 'ai' (default, recomendado) ou 'regex' (fallback legado)
   const [parseMode, setParseMode] = useState<ParseMode>('ai');
+  const [promptViewerOpen, setPromptViewerOpen] = useState(false);
 
   if (!open) return null;
 
@@ -281,10 +283,19 @@ export default function TemplateDialog({
               </div>
             </div>
             {parseMode === 'ai' && (
-              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-2">
-                ⏱️ Demora 30s-2min. Requer <code className="text-[10px]">ANTHROPIC_API_KEY</code>{' '}
-                configurada no servidor.
-              </p>
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 flex-1">
+                  ⏱️ Demora 30s-2min. Requer <code className="text-[10px]">ANTHROPIC_API_KEY</code>{' '}
+                  configurada no servidor.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setPromptViewerOpen(true)}
+                  className="text-xs text-blip-purple underline underline-offset-2 hover:text-blip-purple-dark shrink-0 whitespace-nowrap"
+                >
+                  ⓘ Ver prompt
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -493,6 +504,12 @@ Bot: Em qual estado?
           </div>
         )}
       </div>
+
+      {/* Viewer do system prompt do parser IA */}
+      <SystemPromptViewerDialog
+        open={promptViewerOpen}
+        onClose={() => setPromptViewerOpen(false)}
+      />
     </div>
   );
 }

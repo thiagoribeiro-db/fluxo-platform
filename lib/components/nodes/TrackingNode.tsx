@@ -3,10 +3,11 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { FluxoNode } from '@/lib/types';
+import { parseTrackingLabel, type TrackingSuffix } from '@/lib/codes/tracking-labels';
 import CodeBadge from './CodeBadge';
 
 /**
- * Tracking — pílula azul que registra um evento analítico no fluxo.
+ * Tracking — pílula que registra um evento analítico no fluxo.
  *
  * Inputs: data.label (string — nome do evento)
  *
@@ -23,8 +24,29 @@ import CodeBadge from './CodeBadge';
  * vazariam pra DIREITA, invadindo o bubble.
  *
  * O valor 240 TEM que bater com TRACKING_WIDTH_APPROX em helpers.ts.
+ *
+ * CORES POR TIPO:
+ * O sufixo do label define o tipo do evento e a cor da pílula (CSS via
+ * `data-kind` em globals.css). Labels customizados (sem sufixo conhecido)
+ * mantêm o roxo padrão.
+ *   - exibicao  → azul     (mensagem foi exibida)
+ *   - selecao   → verde    (usuário selecionou opção)
+ *   - input     → âmbar    (input do usuário foi recebido)
+ *   - inesperado → vermelho (resposta fora do fluxo esperado)
  */
+const ICON_BY_KIND: Record<TrackingSuffix, string> = {
+  exibicao: '👁️',
+  selecao: '✅',
+  input: '⌨️',
+  inesperado: '⚠️',
+};
+
 function TrackingNode({ data, selected }: NodeProps<FluxoNode>) {
+  const label = data.label || 'Tracking';
+  const parsed = parseTrackingLabel(label);
+  const kind = parsed?.suffix;
+  const icon = kind ? ICON_BY_KIND[kind] : '📊';
+
   return (
     <div
       className={`relative ${selected ? 'ring-2 ring-blip-purple ring-offset-2 rounded-lg' : ''}`}
@@ -33,9 +55,9 @@ function TrackingNode({ data, selected }: NodeProps<FluxoNode>) {
       <CodeBadge code={data.code} />
       <Handle type="target" position={Position.Top} className="!bg-blip-purple" />
 
-      <div className="tracking">
-        <span className="tracking-icon">📊</span>
-        <span className="tracking-label">{data.label || 'Tracking'}</span>
+      <div className="tracking" data-kind={kind}>
+        <span className="tracking-icon">{icon}</span>
+        <span className="tracking-label">{label}</span>
       </div>
 
       <Handle type="source" position={Position.Bottom} className="!bg-blip-purple" />

@@ -21,7 +21,11 @@
  *  - `Frame: Saudação` / `Frame Saudação`
  *  - `Abertura padrão` / `Encerramento padrão`
  *  - `Menu principal padronizado`
- *  - `1. Saudação` / `01. Saudação` (numerado em início, capitalizado)
+ *  - `BLOCO SAUDAÇÃO` / `BLOCO HOLERITE` (maiúsculas, estilo Marelli)
+ *
+ * NOTA: itens numerados `1. X` foram REMOVIDOS desta lista porque criam
+ * falsos-positivos em listas como "1. Uma mensagem de boas-vindas;".
+ * Documentos que usam seções numeradas devem usar `Cenário N:` em vez disso.
  */
 export const SECTION_HEADER = new RegExp(
   // # / ## / ###
@@ -35,8 +39,8 @@ export const SECTION_HEADER = new RegExp(
     '|encerramento\\s+padrão\\b' +
     // Menu principal
     '|menu\\s+principal\\b' +
-    // Numerado tipo "1. Algo" (tolerante a 1) e 01.)
-    '|\\d{1,2}[.)]\\s+(?=[A-ZÁÀÂÃÉÊÍÓÔÕÚÇ])' +
+    // BLOCO em maiúsculas (ex: BLOCO SAUDAÇÃO, BLOCO HOLERITE, BLOCO EX FUNCIONÁRIO)
+    '|bloco\\s+[A-ZÁÀÂÃÉÊÍÓÔÕÚÇ]' +
     ')',
   'i'
 );
@@ -295,7 +299,25 @@ export const SKILL_OPTIN =
  *  - "Pula pra X"
  */
 export const NAVIGATE_VERB =
-  /\b(?:volta(?:r)?\s+(?:ao|pro|para\s+o|para\s+a|pra)|vai\s+(?:para|pra)|v[áa]\s+(?:para|pra)|direciona\s+(?:para|pra)|continua\s+em|encaminha\s+(?:para|pra)|pula\s+(?:para|pra)|navega\s+(?:para|pra)|segue\s+(?:para|pra))\s+(?:o\s+|a\s+|os\s+|as\s+)?(?:frame\s+|cen[áa]rio\s+|escopo\s+)?[\"\'\[]?([^.\n\]\"\']+?)[\"\'\]]?\s*(?:[.\n]|$)/i;
+  /\b(?:volta(?:r)?\s+(?:ao|pro|para\s+o|para\s+a|pra)|vai\s+(?:para|pra)|v[áa]\s+(?:para|pra)|direciona\s+(?:para|pra)|continua\s+em|encaminha\s+(?:para|pra)|pula\s+(?:para|pra)|navega\s+(?:para|pra)|segue\s+(?:para|pra)|ser[aá]\s+direcionado[as]?\s+(?:para|pra)|ser[aá]\s+encaminhado[as]?\s+(?:para|pra)|ser[aá]\s+redirecionado[as]?\s+(?:para|pra)|retornar[aá]\s+(?:para|pra|ao|à))\s+(?:o\s+|a\s+|os\s+|as\s+)?(?:frame\s+|cen[áa]rio\s+|escopo\s+|bloco\s+)?[\"\'\[]?([^.;\n\]\"\']+?)[\"\'\]]?\s*(?:[.;\n]|$)/i;
+
+// =============================================================================
+// INFERÊNCIA DE MENSAGEM DO BOT (prosa)
+// =============================================================================
+
+/**
+ * Detecta descrição em prosa de uma mensagem enviada pelo bot.
+ * Usado em documentos de escopo onde não há marcadores "Bot:" explícitos.
+ *
+ * Casa:
+ *  - "O usuário receberá uma mensagem informando que..."
+ *  - "O usuário recebe uma mensagem solicitando..."
+ *  - "Será enviada uma mensagem informando..."
+ *  - "O bot enviará uma mensagem..."
+ *  - "Será informado que..." / "Será questionado se..."
+ */
+export const PROSE_BOT_MESSAGE =
+  /\b(?:(?:o\s+)?usuário\s+(?:receberá?|recebe|recebeu)\s+uma\s+mensagem|ser[aá]\s+enviada?\s+(?:uma\s+)?mensagem|(?:o\s+)?bot\s+(?:enviará?|envia|enviou|informa(?:rá)?|pergunta(?:rá)?|exibirá?|exibe)|ser[aá]\s+(?:informado\s+que|questionado\s+se|perguntado\s+se))\b/i;
 
 // =============================================================================
 // ENTRY POINT

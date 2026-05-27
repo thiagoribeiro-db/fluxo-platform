@@ -99,6 +99,7 @@ function setup(opts: SetupOpts = {}) {
       setLastAddedId,
       pushHistory,
       lastAddedId: state.lastAddedId,
+      getViewport: () => ({ x: 0, y: 0, zoom: 1 }),
     })
   );
 

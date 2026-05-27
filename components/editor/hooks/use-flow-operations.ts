@@ -28,6 +28,14 @@ import {
 } from '@/lib/components/nodes/helpers';
 import { alignNodes, type AlignOp } from '@/lib/components/nodes/align';
 import { toast } from '@/lib/utils/errors';
+import { loadVersioned, saveVersioned } from '@/lib/utils/storage';
+
+/** Formato persistido no localStorage pra clipboard de nodes (cross-project). */
+interface NodeClipboard {
+  nodes: FluxoNode[];
+  edges: Edge[];
+  copiedAt: string;
+}
 
 export interface UseFlowOperationsInput {
   nodes: FluxoNode[];
@@ -39,6 +47,8 @@ export interface UseFlowOperationsInput {
   setLastAddedId: (id: string | null) => void;
   pushHistory: () => void;
   lastAddedId: string | null;
+  /** Retorna o viewport atual do React Flow — usado pra posicionar o paste no centro da tela. */
+  getViewport: () => { x: number; y: number; zoom: number };
 }
 
 export interface UseFlowOperationsResult {
@@ -46,6 +56,10 @@ export interface UseFlowOperationsResult {
   groupSelectedInFrame: () => void;
   alignSelected: (op: AlignOp) => void;
   deleteSelected: () => void;
+  /** Serializa nodes selecionados + edges internas pro clipboard de nodes (localStorage). */
+  copyNodesToClipboard: () => void;
+  /** Cola nodes do clipboard de nodes no canvas atual, centrando no viewport. */
+  pasteNodes: () => void;
 }
 
 export function useFlowOperations({
@@ -58,6 +72,7 @@ export function useFlowOperations({
   setLastAddedId,
   pushHistory,
   lastAddedId,
+  getViewport,
 }: UseFlowOperationsInput): UseFlowOperationsResult {
   // -------------------------------------------------------------------------
   // Duplicar nodes selecionados (1 ou N) com offset fixo (40, 40).
@@ -280,5 +295,105 @@ export function useFlowOperations({
     pushHistory,
   ]);
 
-  return { duplicateNode, groupSelectedInFrame, alignSelected, deleteSelected };
+  // -------------------------------------------------------------------------
+  // Copiar nodes selecionados pro clipboard de nodes (localStorage).
+  // Persiste a estrutura completa (nodes + edges internas) pra colar
+  // em qualquer projeto — mesmo após fechar a aba.
+  // -------------------------------------------------------------------------
+  const copyNodesToClipboard = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    const selectedSet = new Set(selectedIds);
+    const selectedNodes = nodes.filter((n) => selectedSet.has(n.id));
+    const internalEdges = edges.filter(
+      (e) => selectedSet.has(e.source) && selectedSet.has(e.target)
+    );
+    saveVersioned('node-clipboard', 1, {
+      nodes: selectedNodes,
+      edges: internalEdges,
+      copiedAt: new Date().toISOString(),
+    } satisfies NodeClipboard);
+  }, [nodes, edges, selectedIds]);
+
+  // -------------------------------------------------------------------------
+  // Colar nodes do clipboard de nodes no canvas atual.
+  //  - Remapeia todos os IDs (novos nanoids)
+  //  - Preserva parentId somente se o parent também estava no clipboard
+  //  - Posiciona no centro do viewport atual (não nas coordenadas originais)
+  //  - Deseleciona tudo antes e seleciona os novos nodes
+  //  - Não regenera codes — usuário pode rodar "Reordenar IDs" depois
+  // -------------------------------------------------------------------------
+  const pasteNodes = useCallback(() => {
+    const clipboard = loadVersioned<NodeClipboard | null>('node-clipboard', 1, {
+      defaultValue: null,
+    });
+    if (!clipboard || clipboard.nodes.length === 0) return;
+
+    pushHistory();
+
+    // 1. Mapa de IDs: id original → novo id
+    const idMap = new Map<string, string>();
+    for (const n of clipboard.nodes) {
+      idMap.set(n.id, `${n.type}-${nanoid(6)}`);
+    }
+
+    // 2. Bounding box dos nodes copiados
+    const xs = clipboard.nodes.map((n) => n.position.x);
+    const ys = clipboard.nodes.map((n) => n.position.y);
+    const clipCX = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const clipCY = (Math.min(...ys) + Math.max(...ys)) / 2;
+
+    // 3. Centro do viewport atual em coordenadas do flow
+    const vp = getViewport();
+    const flowCX = (-vp.x + window.innerWidth / 2) / vp.zoom;
+    const flowCY = (-vp.y + window.innerHeight / 2) / vp.zoom;
+
+    const dx = flowCX - clipCX;
+    const dy = flowCY - clipCY;
+
+    // 4. Clonar nodes com novos IDs e posições
+    const newNodes: FluxoNode[] = clipboard.nodes.map((n) => ({
+      ...n,
+      id: idMap.get(n.id)!,
+      // Preserva parentId só se o parent também veio no clipboard
+      parentId:
+        n.parentId && idMap.has(n.parentId) ? idMap.get(n.parentId) : undefined,
+      selected: true,
+      position: { x: n.position.x + dx, y: n.position.y + dy },
+      data: { ...n.data },
+    }));
+
+    // 5. Remap edges internas
+    const newEdges: Edge[] = clipboard.edges.map((e) => ({
+      ...e,
+      id: `e-${nanoid(6)}`,
+      source: idMap.get(e.source) ?? e.source,
+      target: idMap.get(e.target) ?? e.target,
+    }));
+
+    // 6. Atualiza canvas
+    setNodes((prev) => [
+      ...prev.map((n) => ({ ...n, selected: false })),
+      ...newNodes,
+    ]);
+    if (newEdges.length > 0) setEdges((prev) => [...prev, ...newEdges]);
+
+    const newIds = newNodes.map((n) => n.id);
+    setSelectedIds(newIds);
+    setLastAddedId(newIds[newIds.length - 1] ?? null);
+
+    const count = newNodes.length;
+    toast({
+      level: 'info',
+      message: `📋 ${count} nó${count !== 1 ? 's' : ''} colado${count !== 1 ? 's' : ''}`,
+    });
+  }, [getViewport, setNodes, setEdges, setSelectedIds, setLastAddedId, pushHistory]);
+
+  return {
+    duplicateNode,
+    groupSelectedInFrame,
+    alignSelected,
+    deleteSelected,
+    copyNodesToClipboard,
+    pasteNodes,
+  };
 }

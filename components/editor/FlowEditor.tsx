@@ -920,7 +920,7 @@ function FlowEditorInner({
   // Operações em nodes (duplicate, group, align, delete) — extraídas pra
   // `hooks/use-flow-operations.ts`. Reduz o god-component e isola a lógica
   // pra eventual teste em isolamento.
-  const { duplicateNode, groupSelectedInFrame, alignSelected, deleteSelected } =
+  const { duplicateNode, groupSelectedInFrame, alignSelected, deleteSelected, copyNodesToClipboard, pasteNodes } =
     useFlowOperations({
       nodes,
       edges,
@@ -931,6 +931,7 @@ function FlowEditorInner({
       setLastAddedId,
       pushHistory,
       lastAddedId,
+      getViewport,
     });
 
   // =========================================================================
@@ -958,6 +959,14 @@ function FlowEditorInner({
         return;
       }
 
+      // Ctrl/Cmd + V → cola nodes do clipboard de nodes (cross-project).
+      // Só ativa quando fora de inputs (guard no topo do handler).
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        pasteNodes();
+        return;
+      }
+
       // Ctrl/Cmd + C → copia o texto principal do(s) node(s) selecionado(s)
       // pra área de transferência. Resolve o "campo principal" por tipo:
       //  - bot/user: data.text
@@ -970,11 +979,14 @@ function FlowEditorInner({
       //  - integracao/iag: data.title
       //  - atendimento-humano: data.label
       // Múltiplos selecionados → junta com newline.
+      // Também serializa a estrutura dos nodes pro localStorage (Ctrl+V cross-project).
       if (
         (e.ctrlKey || e.metaKey) &&
         e.key.toLowerCase() === 'c' &&
         selectedIds.length > 0
       ) {
+        // Serializa nodes + edges internas pro clipboard de nodes (cross-project)
+        copyNodesToClipboard();
         const lines: string[] = [];
         for (const id of selectedIds) {
           const n = nodes.find((nn) => nn.id === id);
@@ -1060,6 +1072,8 @@ function FlowEditorInner({
     duplicateNode,
     groupSelectedInFrame,
     handleUndo,
+    copyNodesToClipboard,
+    pasteNodes,
   ]);
 
   // =========================================================================

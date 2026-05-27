@@ -73,6 +73,7 @@ export default async function HelpPage() {
             <a href="#versoes-diff" className="text-blip-purple hover:underline">🕰️ Versões + Diff</a>
             <a href="#colaboracao" className="text-blip-purple hover:underline">👥 Colaboração (Realtime)</a>
             <a href="#configuracoes" className="text-blip-purple hover:underline">⚙️ Configurações globais</a>
+            <a href="#autenticacao" className="text-blip-purple hover:underline">🔐 Autenticação e perfis</a>
             <a href="#tour" className="text-blip-purple hover:underline">🎓 Tour de boas-vindas</a>
           </div>
         </nav>
@@ -163,10 +164,33 @@ export default async function HelpPage() {
             <FeatureCard emoji="✨" title="IA" desc="Abre o Chat IA contextual — pergunte sobre seu fluxo, peça explicações de frames ou sugestões de blocos." />
             <FeatureCard emoji="✏️" title="Editar ▾" desc="Inserir Skill · Voice & Tone · Buscar e substituir · Organizar layout · Reordenar IDs · Resetar página" />
             <FeatureCard emoji="👁️" title="Visualizar ▾" desc="Outline · Tabela de conteúdo · Comentários · Problemas (linter) · Testar fluxo · Versões" />
-            <FeatureCard emoji="📤" title="Exportar ▾" desc="Exportar Blip (.zip de JSONs) · Imagem (PNG/PDF/HTML) · Carregar template" />
-            <FeatureCard emoji="📊" title="Tracking auto" desc="Toggle: cria automaticamente trackings nos bots/menus ao adicionar (recomendado ON)." />
+            <FeatureCard emoji="📤" title="Exportar ▾" desc="Exportar Blip (.zip de JSONs) · Imagem (PNG/PDF/HTML, escopo frame/página/viewport, escala 1×–3×) · Carregar template" />
+            <FeatureCard emoji="📊" title="Tracking auto" desc="Toggle: cria automaticamente trackings nos bots/menus ao adicionar (recomendado ON). Cores por tipo: 👁️ azul = exibição · ✅ verde = seleção · ⌨️ âmbar = input · ⚠️ vermelho = inesperado." />
             <FeatureCard emoji="⌨️" title="Atalhos" desc="Ícone teclado — abre o cheatsheet (mesmo que apertar ?)" />
           </FeatureGrid>
+
+          <Subsection title="Exportar fluxo — opções detalhadas">
+            <p>
+              Em <strong>Toolbar → 📤 Exportar ▾</strong> tem dois caminhos:
+            </p>
+            <ul>
+              <li>
+                <strong>Exportar Blip</strong> — gera um <code>.zip</code> com um JSON por frame, pronto pra importar no Blip Builder / Digitalbot. O modal lista todas as páginas do projeto com checkbox (por padrão só a página ativa fica marcada) e mostra warnings de validação antes do download (frames vazios, direcionamentos sem destino, etc.).
+              </li>
+              <li>
+                <strong>Imagem (PNG / PDF / HTML)</strong> — captura visual do canvas. Três escopos disponíveis:
+                <ul>
+                  <li><strong>Frame por frame (recomendado)</strong> — cada frame vira UMA captura. PDF = uma página por frame · PNG = um arquivo por frame · HTML = uma seção por frame.</li>
+                  <li><strong>Página inteira</strong> — UMA captura abraçando todos os frames (ajusta a vista automaticamente).</li>
+                  <li><strong>Visível na tela</strong> — captura o que está no viewport atual (zoom/pan respeitados).</li>
+                </ul>
+                Escala <strong>1×</strong> (rápido) · <strong>2×</strong> (recomendado) · <strong>3×</strong> (alta resolução, mais lento). O HTML é auto-contido (imagem embedada em base64), compartilhável por email ou URL.
+              </li>
+            </ul>
+            <p className="text-sm text-gray-600">
+              💡 O botão Exportar só aparece em projetos salvos (não disponível em modo demo).
+            </p>
+          </Subsection>
         </Section>
 
         {/* ────────── 4. PAINÉIS LATERAIS ────────── */}
@@ -175,6 +199,9 @@ export default async function HelpPage() {
             <FeatureCard emoji="🎨" title="Paleta (esquerda)" desc="Lista de componentes arrastáveis: Frame, Bubble Bot/User, Menu, Botões, Direcionamento, Condicional, Mídia (Imagem/Documento/Vídeo/Áudio), Link, IA generativa, Integração API/Planilha, WhatsApp Flow (mini-app multi-screen com 14 componentes Meta + preview interativo + export JSON)." />
             <FeatureCard emoji="📄" title="Páginas (esquerda)" desc="Lista das páginas do projeto (dev, hmg, prd). Clica pra trocar, + Nova pra criar, ⎘ pra duplicar." />
             <FeatureCard emoji="⚙️" title="Propriedades (direita)" desc="Quando seleciona um bloco, mostra campos editáveis. Sem seleção, lista todos os frames com link de navegação." />
+            <FeatureCard emoji="📋" title="Menu com seções" desc="No painel Propriedades de um nó Menu, alterne entre «Lista simples» e «Com seções» para agrupar opções em categorias (ex: Solicitar documentos / Suporte / Falar com IA). Cada seção tem título editável, opções reordenáveis e botão + Seção para adicionar grupos." />
+            <FeatureCard emoji="📝" title="Descrição de opções" desc="Cada opção de Menu tem um campo de descrição opcional — uma linha secundária exibida em cinza claro abaixo do texto principal, exatamente como no WhatsApp. Edite no painel Propriedades clicando no campo abaixo da opção. Funciona tanto no modo «Lista simples» quanto em «Com seções»." />
+            <FeatureCard emoji="🔀" title="Auto-direcionamentos" desc="Ao criar um Menu, um nó Direcionamento é gerado automaticamente para cada opção, posicionado em linha horizontal abaixo do bloco. Ao adicionar ou remover opções no painel Propriedades, os direcionamentos são sincronizados em tempo real: novos aparecem, os removidos somem, e todos são realinhados automaticamente." />
             <FeatureCard emoji="✋" title="Modos H / V (inferior)" desc="Toggle Mover (H — pan no drag) vs Selecionar (V — retângulo de seleção)." />
           </FeatureGrid>
         </Section>
@@ -477,9 +504,66 @@ export default async function HelpPage() {
             Acesse via <Link href="/dashboard/settings" className="text-blip-purple hover:underline">Dashboard → Configurações</Link>. Preferências aplicadas a todos seus projetos novos.
           </p>
           <ul>
+            <li>
+              <strong>👥 Gerenciamento de Acessos</strong> — visível para <em>Admin</em> e <em>Super Admin</em>.
+              Lista todos os usuários cadastrados com seu perfil de acesso. Super Admins podem alterar o perfil de qualquer usuário
+              (Edição / Admin / Super Admin) via dropdown na tabela.
+              Novos usuários entram pelo link de login com Google e chegam com perfil <em>Edição</em> por padrão.
+            </li>
             <li><strong>Voice &amp; Tone padrão</strong> — define o tom default que projetos novos usam (override individual no editor de cada projeto)</li>
-            <li>(em breve) idioma default, tema preferido, etc.</li>
+            <li>
+              <strong>🤖 Parser IA — Prompt do sistema</strong> — visualize o prompt completo enviado ao Claude durante o parse IA de escopos.
+              Mostra modelo, tamanho, seções do prompt (framework + vocabulário YAML) e permite copiar.
+              Acesso também via botão <em>ⓘ Ver prompt</em> no dialog <em>Carregar Template → modo 🤖 IA</em>.
+            </li>
           </ul>
+        </Section>
+
+        {/* ────────── AUTH ────────── */}
+        <Section id="autenticacao" emoji="🔐" title="Autenticação e perfis de acesso">
+          <p>
+            Login via <strong>Google OAuth</strong> — clique em &quot;Entrar com Google&quot; na tela de login.
+            Nenhuma senha é necessária.
+          </p>
+          <Subsection title="Perfis de acesso">
+            <table className="text-sm w-full border-collapse mt-2">
+              <thead>
+                <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
+                  <th className="pb-1.5 pr-4 font-medium">Perfil</th>
+                  <th className="pb-1.5 pr-4 font-medium">Abas visíveis</th>
+                  <th className="pb-1.5 font-medium">Projetos visíveis</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 text-xs text-gray-700">
+                <tr>
+                  <td className="py-2 pr-4 font-semibold">Edição</td>
+                  <td className="py-2 pr-4">Projetos</td>
+                  <td className="py-2">Próprios + compartilhados com você</td>
+                </tr>
+                <tr>
+                  <td className="py-2 pr-4 font-semibold">Admin</td>
+                  <td className="py-2 pr-4">Projetos · Componentes · Configurações</td>
+                  <td className="py-2">Próprios + compartilhados com você</td>
+                </tr>
+                <tr>
+                  <td className="py-2 pr-4 font-semibold text-blip-purple">Super Admin</td>
+                  <td className="py-2 pr-4">Projetos · Componentes · Configurações</td>
+                  <td className="py-2">Todos os projetos de todos os usuários</td>
+                </tr>
+              </tbody>
+            </table>
+          </Subsection>
+          <Subsection title="Compartilhar projeto por e-mail">
+            <p>
+              No dashboard, cada card de projeto tem um botão <strong>🔗 Compartilhar</strong>.
+              Digite o e-mail de outro usuário da plataforma e escolha a permissão
+              (<em>Pode editar</em> ou <em>Só visualizar</em>).
+              O projeto aparece no dashboard da outra pessoa com a tag <strong>🔗 Compartilhado</strong>.
+            </p>
+            <p className="mt-1 text-xs text-gray-500">
+              O usuário precisa ter feito login ao menos uma vez para que seu e-mail conste na base.
+            </p>
+          </Subsection>
         </Section>
 
         {/* ────────── 12. TOUR ────────── */}

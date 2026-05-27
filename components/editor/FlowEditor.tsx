@@ -1362,14 +1362,15 @@ function FlowEditorInner({
     const params = new URLSearchParams(window.location.search);
     if (params.get('autoOrganize') !== '1') return;
 
-    // Aguarda nodes renderizarem pra getInternalNode().measured ficar disponível
+    // Aguarda nodes renderizarem pra getInternalNode().measured ficar disponível.
+    // 600ms é suficiente pra React Flow medir todos os nodes numa página típica.
     const t = setTimeout(() => {
       handleOrganizeLayout(true);
       // Remove o query param sem causar reload
       const url = new URL(window.location.href);
       url.searchParams.delete('autoOrganize');
       window.history.replaceState({}, '', url.toString());
-    }, 1500);
+    }, 600);
 
     return () => clearTimeout(t);
   }, [isDemo, isReadOnly, handleOrganizeLayout]);

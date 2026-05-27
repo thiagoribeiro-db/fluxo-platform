@@ -1715,5 +1715,112 @@ export function organizeLayoutByFrame(
     }
   }
 
-  return next;
+  return reflowFrameGrid(next);
+}
+
+// =============================================================================
+// REFLOW FRAME GRID — elimina sobreposições verticais entre frames
+// =============================================================================
+/**
+ * Passo pós-organize: detecta colisões reais entre frames (overlap em X **e** Y)
+ * e empurra os frames colidentes para baixo junto com todo o seu conteúdo.
+ *
+ * Contexto: `organizeLayoutByFrame` redimensiona frames (height cresce para
+ * conter o conteúdo) mas não move as posições dos frames. Quando um frame
+ * cresce além do espaço reservado na grade (ROW_HEIGHT_RESERVE do ai-builder),
+ * ele passa a sobrepor o frame da linha seguinte — e o organize ao ser rodado
+ * piora a situação ao crescer os frames sem reposicioná-los.
+ *
+ * Algoritmo:
+ *  1. Ordena frames por Y (depois X como desempate)
+ *  2. Para cada frame, verifica colisão com todos os frames anteriores
+ *     (só considera colisão se há overlap em X — colunas diferentes não afetam)
+ *  3. Se colidiu, acumula deltaY necessário pra garantir `PUSH_GAP` de folga
+ *  4. Move frames e todos os nodes raiz que pertencem a cada frame
+ *
+ * Nodes com `parentId` (trackings, exceções) não são movidos — são relativos.
+ */
+export function reflowFrameGrid(nodes: FluxoNode[]): FluxoNode[] {
+  const frames = nodes.filter((n) => n.type === 'frame');
+  if (frames.length <= 1) return nodes;
+
+  type FB = { id: string; x: number; y: number; w: number; h: number };
+
+  // Snapshot das caixas dos frames (pós-organize: posições originais, tamanhos atualizados)
+  const frameBoxes: FB[] = frames.map((f) => ({
+    id: f.id,
+    x: f.position.x,
+    y: f.position.y,
+    w: (f.data?.width as number | undefined) ?? getNodeBox(f).w,
+    h: (f.data?.height as number | undefined) ?? getNodeBox(f).h,
+  }));
+
+  // Ordena: cima→baixo, depois esquerda→direita
+  const sorted = [...frameBoxes].sort((a, b) => a.y - b.y || a.x - b.x);
+
+  const PUSH_GAP = 200; // folga mínima vertical entre frames (px)
+  const deltaById = new Map<string, number>(); // delta Y acumulado por frame
+
+  for (let i = 0; i < sorted.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const prev = sorted[j];
+      const curr = sorted[i];
+
+      // Frames em colunas distintas (sem overlap em X) não interferem verticalmente
+      const xOverlap = !(
+        curr.x + curr.w <= prev.x || curr.x >= prev.x + prev.w
+      );
+      if (!xOverlap) continue;
+
+      const prevAdjY = prev.y + (deltaById.get(prev.id) ?? 0);
+      const prevBottom = prevAdjY + prev.h;
+      const currAdjY = curr.y + (deltaById.get(curr.id) ?? 0);
+
+      // Já tem folga suficiente → ok
+      if (currAdjY >= prevBottom + PUSH_GAP) continue;
+
+      // Precisa empurrar curr pra baixo
+      const extra = prevBottom + PUSH_GAP - currAdjY;
+      deltaById.set(curr.id, (deltaById.get(curr.id) ?? 0) + extra);
+    }
+  }
+
+  // Se nenhum frame precisa mover, evita criar novo array (perf)
+  const hasChanges = [...deltaById.values()].some((d) => Math.abs(d) > 0.5);
+  if (!hasChanges) return nodes;
+
+  // Determina deltaY do frame "dono" de um node raiz sem parentId
+  function nodeOwnerDelta(n: FluxoNode): number {
+    // 1. Por code prefix (mais confiável)
+    const owner = findOwnerFrame(n, nodes);
+    if (owner) {
+      const d = deltaById.get(owner.id);
+      if (d !== undefined) return d;
+    }
+    // 2. Fallback: containment espacial (centróide dentro do bbox do frame)
+    const nb = getNodeBox(n);
+    const cx = nb.x + nb.w / 2;
+    const cy = nb.y + nb.h / 2;
+    for (const fb of frameBoxes) {
+      if (cx >= fb.x && cx <= fb.x + fb.w && cy >= fb.y && cy <= fb.y + fb.h) {
+        const d = deltaById.get(fb.id);
+        if (d !== undefined) return d;
+      }
+    }
+    return 0;
+  }
+
+  return nodes.map((n) => {
+    if (n.type === 'frame') {
+      const d = deltaById.get(n.id) ?? 0;
+      if (Math.abs(d) < 0.5) return n;
+      return { ...n, position: { x: n.position.x, y: n.position.y + d } };
+    }
+    // Nodes com parentId (tracking, exceção, entry-point): posição relativa → não mover
+    if (n.parentId) return n;
+    // Nodes raiz: mover pelo delta do frame dono
+    const d = nodeOwnerDelta(n);
+    if (Math.abs(d) < 0.5) return n;
+    return { ...n, position: { x: n.position.x, y: n.position.y + d } };
+  });
 }

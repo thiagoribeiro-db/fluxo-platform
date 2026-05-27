@@ -656,10 +656,11 @@ export function buildStateFromAIResult(result: AIParseResult): ProjectState {
   // Grid positions: 4 colunas, com gap entre rows considerando altura máx
   // estimada. ROW_HEIGHT_RESERVE = "altura máxima esperada" pra cada linha.
   //
-  // 1500px cobre o caso pior (frame com 5+ bots + menu + 9 direcionamentos),
-  // garantindo que a próxima linha não sobreponha. Frames menores deixam
-  // espaço em branco abaixo — usuário re-arranja se quiser.
-  const ROW_HEIGHT_RESERVE = 1500;
+  // 2500px cobre frames grandes (cascata de condicionais, menu com muitas
+  // opções, múltiplos bots). Após o load, `autoOrganize` roda e o
+  // `reflowFrameGrid` corrige sobreposições remanescentes com precisão.
+  // Valor alto é preferível a sobreposições na carga inicial.
+  const ROW_HEIGHT_RESERVE = 2500;
 
   frameLayouts.forEach(({ aiFrame, idx, width }) => {
     const col = idx % COLS;

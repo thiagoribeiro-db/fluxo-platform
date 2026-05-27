@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Edge } from '@xyflow/react';
 import type { FluxoNode } from '@/lib/types';
-import { organizeLayoutByFrame } from './helpers';
+import { organizeLayoutByFrame, reflowFrameGrid } from './helpers';
 
 // Helpers
 function frame(
@@ -174,5 +174,93 @@ describe('organizeLayoutByFrame — modo diamante (branches)', () => {
     expect(newA.position.x).not.toBe(newB.position.x);
     // E mesma depth (Y igual ou próximo)
     expect(Math.abs(newA.position.y - newB.position.y)).toBeLessThan(20);
+  });
+});
+
+// =============================================================================
+// reflowFrameGrid
+// =============================================================================
+describe('reflowFrameGrid — elimina sobreposições verticais entre frames', () => {
+  it('não muda nada se só há 1 frame', () => {
+    const f = frame('f1', 'S', { x: 0, y: 0 }, 656, 800);
+    const b = bot('b1', 'S001', 200, 100);
+    const nodes = [f, b];
+    const result = reflowFrameGrid(nodes);
+    expect(result).toBe(nodes); // mesma referência (sem mudanças)
+  });
+
+  it('não muda nada se frames não se sobrepõem', () => {
+    const f1 = frame('f1', 'S', { x: 0, y: 0 }, 656, 500);
+    const f2 = frame('f2', 'O', { x: 0, y: 800 }, 656, 500); // y=800 > 500+200=700 (folga ok)
+    const nodes = [f1, f2];
+    const result = reflowFrameGrid(nodes);
+    const newF2 = result.find((n) => n.id === 'f2')!;
+    expect(newF2.position.y).toBe(800); // sem mudança
+  });
+
+  it('empurra frame que está sobreposto pro baixo', () => {
+    // f1: y=0, h=2000 — cresce além do reservado
+    // f2: y=1700 — posição original (colisão: f1 termina em y=2000)
+    const f1 = frame('f1', 'S', { x: 0, y: 0 }, 656, 2000);
+    const f2 = frame('f2', 'O', { x: 0, y: 1700 }, 656, 500);
+    const b1 = bot('b1', 'S001', 200, 100);
+    const b2 = bot('b2', 'O001', 200, 1800);
+    const nodes = [f1, f2, b1, b2];
+    const result = reflowFrameGrid(nodes);
+
+    const newF1 = result.find((n) => n.id === 'f1')!;
+    const newF2 = result.find((n) => n.id === 'f2')!;
+    const newB2 = result.find((n) => n.id === 'b2')!;
+
+    // f1 não se move (é o primeiro)
+    expect(newF1.position.y).toBe(0);
+    // f2 é empurrado pra baixo de f1 + PUSH_GAP(200)
+    expect(newF2.position.y).toBe(2200); // 2000 + 200
+    // b2 (conteúdo de f2) também se move
+    expect(newB2.position.y).toBe(1800 + 500); // 1800 + (2200 - 1700)
+  });
+
+  it('frames em colunas diferentes (sem X overlap) não se empurram', () => {
+    // col 0: x=0, col 1: x=900 — sem overlap horizontal
+    const f1 = frame('f1', 'S', { x: 0, y: 0 }, 656, 2000);   // col 0, alta
+    const f2 = frame('f2', 'O', { x: 900, y: 1700 }, 656, 500); // col 1 — não deve mover
+    const nodes = [f1, f2];
+    const result = reflowFrameGrid(nodes);
+    const newF2 = result.find((n) => n.id === 'f2')!;
+    expect(newF2.position.y).toBe(1700); // col diferente → sem mudança
+  });
+
+  it('empurra em cascata: 3 frames sobrepostos na mesma coluna', () => {
+    const f1 = frame('f1', 'S', { x: 0, y: 0 }, 656, 2000);    // termina em 2000
+    const f2 = frame('f2', 'O', { x: 0, y: 1700 }, 656, 2000); // colisão → vai pra 2200, termina em 4200
+    const f3 = frame('f3', 'T', { x: 0, y: 3400 }, 656, 500);  // colisão com f2 ajustado → vai pra 4400
+    const nodes = [f1, f2, f3];
+    const result = reflowFrameGrid(nodes);
+
+    const newF2 = result.find((n) => n.id === 'f2')!;
+    const newF3 = result.find((n) => n.id === 'f3')!;
+
+    expect(newF2.position.y).toBe(2200); // 2000 + 200
+    expect(newF3.position.y).toBe(4400); // 2200 + 2000 + 200
+  });
+
+  it('nodes com parentId não se movem (são relativos ao parent)', () => {
+    const f1 = frame('f1', 'S', { x: 0, y: 0 }, 656, 2000);
+    const f2 = frame('f2', 'O', { x: 0, y: 1700 }, 656, 500);
+    const b2 = bot('b2', 'O001', 200, 1800);
+    const tracking: FluxoNode = {
+      id: 'trk1',
+      type: 'tracking',
+      parentId: 'b2',
+      position: { x: -256, y: 0 }, // relativo ao b2
+      data: { label: 'tracking_exibicao' },
+    };
+    const nodes = [f1, f2, b2, tracking];
+    const result = reflowFrameGrid(nodes);
+
+    const newTrk = result.find((n) => n.id === 'trk1')!;
+    // Tracking tem parentId → posição NÃO deve mudar
+    expect(newTrk.position.x).toBe(-256);
+    expect(newTrk.position.y).toBe(0);
   });
 });

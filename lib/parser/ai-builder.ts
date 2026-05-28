@@ -104,6 +104,13 @@ interface BuildContext {
   prefix: string;
   seq: number;
   lastFlowId: string | null;
+  /**
+   * IDs dos btn-short da última row de `buttons` emitida.
+   * Quando o próximo grupo é `direcionamento`, conecta cada dir ao botão
+   * correspondente (1:1 por ordem) em vez de conectar ao lastFlowId.
+   * Zerado após consumir ou ao emitir qualquer bloco não-direcionamento.
+   */
+  lastButtonIds: string[] | null;
   framePos: { x: number; y: number };
   frameW: number; // largura do frame (656 ou 800)
   bx: number; // X base pra bot bubbles (= framePos.x + BOT_COL_X)
@@ -551,6 +558,70 @@ function emitDirecionamentoGrid(ctx: BuildContext, group: AIBlock[]): void {
   ctx.y = startY + (lastRow + 1) * (DIR_H_GRID + DIR_GAP_Y);
 }
 
+/**
+ * Emite N direcionamentos conectados 1:1 aos N botões de uma row anterior.
+ *
+ * Padrão: `buttons` com N opções → N `direcionamento` na mesma ordem.
+ * Cada btn-short[i] é o SOURCE da edge pro direcionamento[i].
+ *
+ * Se o número de dirs não bater com o de botões, os excedentes conectam
+ * do lastFlowId (fallback gracioso — não deixa edges penduradas).
+ */
+function emitDirecionamentosFromButtons(
+  ctx: BuildContext,
+  dirs: AIBlock[],
+  buttonIds: string[]
+): void {
+  const innerW = ctx.frameW - 2 * DIR_GRID_MARGIN;
+  const perRow = Math.max(1, Math.floor((innerW + DIR_GAP_X) / (DIR_W + DIR_GAP_X)));
+  const cols = Math.min(perRow, dirs.length);
+  const totalW = cols * DIR_W + (cols - 1) * DIR_GAP_X;
+  const startX = ctx.framePos.x + (ctx.frameW - totalW) / 2;
+  const startY = ctx.y;
+
+  let lastRow = 0;
+  dirs.forEach((block, idx) => {
+    const label = block.label?.trim();
+    if (!label) {
+      devWarn('[ai-builder] direcionamento sem label (buttons→dir)');
+      return;
+    }
+
+    const col = idx % perRow;
+    const row = Math.floor(idx / perRow);
+    lastRow = row;
+
+    const id = uid('dir');
+    ctx.nodes.push({
+      id,
+      type: 'direcionamento',
+      position: {
+        x: startX + col * (DIR_W + DIR_GAP_X),
+        y: startY + row * (DIR_H_GRID + DIR_GAP_Y),
+      },
+      data: {
+        code: nextCode(ctx),
+        label,
+        targetFrameId: block.target_frame_id?.trim() ?? '',
+        clickable: !!block.target_frame_id,
+      },
+    });
+
+    // Conecta do botão correspondente (1:1 por ordem) ou do lastFlowId como fallback
+    const sourceId = buttonIds[idx] ?? ctx.lastFlowId;
+    if (sourceId) {
+      ctx.edges.push({
+        id: uid('e'),
+        source: sourceId,
+        target: id,
+        animated: true,
+      });
+    }
+  });
+
+  ctx.y = startY + (lastRow + 1) * (DIR_H_GRID + DIR_GAP_Y);
+}
+
 function emitIntegracao(
   ctx: BuildContext,
   type: 'api' | 'planilha',
@@ -696,6 +767,7 @@ export function buildStateFromAIResult(result: AIParseResult): ProjectState {
       prefix: aiFrame.prefix,
       seq: 1,
       lastFlowId: null,
+      lastButtonIds: null,
       framePos,
       frameW: width,
       bx: framePos.x + BOT_COL_X,
@@ -706,6 +778,12 @@ export function buildStateFromAIResult(result: AIParseResult): ProjectState {
     // Padrão observado: após um menu, vêm N direcionamentos (1 por opção).
     // Se 2+, distribuímos em grid horizontal compacto (4 por row) — economiza
     // muito espaço vertical em frames como "Saudação" (9 direcionamentos).
+    //
+    // Lógica adicional:
+    //   - Se o bloco anterior foi `buttons`, os dirs consecutivos são conectados
+    //     1:1 aos botões (via ctx.lastButtonIds) em vez de ao lastFlowId.
+    //   - ctx.lastButtonIds é zerado sempre que encontramos qualquer bloco
+    //     que não seja `direcionamento`.
     let i = 0;
     while (i < aiFrame.blocks.length) {
       const block = aiFrame.blocks[i];
@@ -721,8 +799,15 @@ export function buildStateFromAIResult(result: AIParseResult): ProjectState {
           i++;
         }
 
+        // Captura e consome lastButtonIds antes de emitir
+        const btnIds = ctx.lastButtonIds;
+        ctx.lastButtonIds = null;
+
         try {
-          if (group.length === 1) {
+          if (btnIds && btnIds.length > 0) {
+            // Padrão buttons→dirs: conecta botão[i] → dir[i]
+            emitDirecionamentosFromButtons(ctx, group, btnIds);
+          } else if (group.length === 1) {
             emitBlock(ctx, group[0]);
           } else {
             emitDirecionamentoGrid(ctx, group);
@@ -735,6 +820,10 @@ export function buildStateFromAIResult(result: AIParseResult): ProjectState {
         }
         continue;
       }
+
+      // Qualquer bloco não-direcionamento limpa o contexto de botões
+      // (será re-setado se este bloco for `buttons`)
+      ctx.lastButtonIds = null;
 
       // Heurística cascata: ao encontrar um `condicional`, processa toda
       // a cadeia de cond→mensagem-de-corte→cond→...→atendimento-humano
@@ -894,6 +983,11 @@ function processCondicionalCascade(
   let i = startIdx;
   let prevCondId: string | null = null;
   let consumed = 0;
+  /** ID do cutoff TRUE da última cond — pra solo-cond, lastFlowId aponta aqui
+   *  após a cascata, permitindo que os blocos TRUE-path continuem em sequência. */
+  let lastCutoffId: string | null = null;
+  /** Número de condicionais processados — distingue solo-cond de cascata FA. */
+  let condCount = 0;
 
   const isCondOrAtend = (kind: AIBlock['kind']): boolean =>
     kind === 'condicional' || kind === 'atendimento-humano';
@@ -964,11 +1058,49 @@ function processCondicionalCascade(
           sourceHandle: cutoffHandle,
           animated: true,
         });
+        lastCutoffId = cutoffId;
       }
       i++;
       consumed++;
+
+      // ── Caminho FALSE explícito ─────────────────────────────────────────
+      // Após o cutoff TRUE, se o próximo bloco for um `direcionamento` E o
+      // bloco SEGUINTE a ele não for outro condicional (cascata normal), então
+      // esse direcionamento representa explicitamente o caminho FALSE (Não).
+      // O builder conecta ele à saída 'false' do condicional atual.
+      //
+      // Isso implementa a regra #13 do system prompt: para condicionais de
+      // bifurcação em cenários normais (fora da cascata FA), o dev/IA pode
+      // marcar o destino NÃO com um direcionamento logo após o cutoff SIM.
+      //
+      // Não aplica na última cond da cascata FA (isLastCond=true), pois lá
+      // o FALSE é uma mensagem-de-corte, não um direcionamento.
+      const nextBlock = i < blocks.length ? blocks[i] : null;
+      const blockAfterNext = i + 1 < blocks.length ? blocks[i + 1] : null;
+      if (
+        !isLastCond &&
+        nextBlock?.kind === 'direcionamento' &&
+        blockAfterNext?.kind !== 'condicional'
+      ) {
+        const savedLast2 = ctx.lastFlowId;
+        ctx.lastFlowId = null; // desliga auto-edge do emitDirecionamento
+        const falseId = emitBlock(ctx, nextBlock);
+        ctx.lastFlowId = savedLast2;
+        if (falseId) {
+          ctx.edges.push({
+            id: uid('e'),
+            source: condId,
+            target: falseId,
+            sourceHandle: 'false',
+            animated: true,
+          });
+        }
+        i++;
+        consumed++;
+      }
     }
 
+    condCount++;
     prevCondId = condId;
   }
 
@@ -1000,9 +1132,16 @@ function processCondicionalCascade(
     i++;
     consumed++;
   } else if (prevCondId) {
-    // Cascata termina sem transbordo: lastFlowId fica na última cond
-    // (saída FALSE em aberto pra blocos seguintes encadeados).
-    ctx.lastFlowId = prevCondId;
+    // Solo-cond (condCount=1) com cutoff: TRUE path continua a partir do
+    // cutoff, não da cond — evita edges sem sourceHandle saindo da cond.
+    //
+    // Multi-cond chain (cascata FA parcial): lastFlowId = última cond,
+    // saída FALSE em aberto pra blocos seguintes.
+    if (condCount === 1 && lastCutoffId) {
+      ctx.lastFlowId = lastCutoffId;
+    } else {
+      ctx.lastFlowId = prevCondId;
+    }
   }
 
   return consumed;
@@ -1040,7 +1179,8 @@ function emitBlock(ctx: BuildContext, block: AIBlock): string | undefined {
       if (block.question?.trim()) {
         emitBot(ctx, block.question.trim());
       }
-      emitButtonsRow(ctx, options, ctx.lastFlowId);
+      // Guarda IDs dos botões pra conectar 1:1 com direcionamentos consecutivos
+      ctx.lastButtonIds = emitButtonsRow(ctx, options, ctx.lastFlowId);
       return undefined; // row de botões: sem id "principal"
     }
     case 'btn-long': {

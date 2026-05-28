@@ -109,6 +109,7 @@ import { useSkillOperations } from './hooks/use-skill-operations';
 import { useLayoutEngine } from './hooks/use-layout-engine';
 import { useUndoHistory } from './hooks/use-undo-history';
 import { useAutoSave } from './hooks/use-auto-save';
+import { usePeriodicSnapshot } from './hooks/use-periodic-snapshot';
 import { usePages } from './hooks/use-pages';
 import { listComments, type Comment } from '@/lib/actions/comments';
 import { handleError, toast } from '@/lib/utils/errors';
@@ -354,7 +355,7 @@ function FlowEditorInner({
   });
 
   // ---- Autosave (extraído em hook) — usa activePageId do usePages ---------
-  const { saveStatus, cancelPending: cancelAutoSave } = useAutoSave({
+  const { saveStatus, cancelPending: cancelAutoSave, flushNow: flushAutoSave } = useAutoSave({
     nodes,
     edges,
     getViewport,
@@ -367,6 +368,15 @@ function FlowEditorInner({
   });
   // Mantém a ref atualizada pra usePages.onBeforeSwitch usar
   cancelAutoSaveRef.current = cancelAutoSave;
+
+  // ---- Snapshot periódico (a cada 5 min de edição ativa) ------------------
+  usePeriodicSnapshot({
+    pageId: activePageId,
+    nodes,
+    edges,
+    getViewport,
+    disabled: isDemo || isReadOnly || isSharedEdit,
+  });
 
   // -- Carrega comentários ao montar (refetch on-demand depois das mutações) -
   useEffect(() => {
@@ -1257,6 +1267,52 @@ function FlowEditorInner({
     [setEdges, pushHistory]
   );
 
+  // =========================================================================
+  // Muda o parentId de um tracking/excecao e reposiciona no novo parent.
+  // =========================================================================
+  const handleChangeTrackingParent = useCallback(
+    (trackingId: string, newParentId: string | undefined) => {
+      pushHistory();
+      setNodes((prev) => {
+        const tracking = prev.find((n) => n.id === trackingId);
+        if (!tracking) return prev;
+
+        if (!newParentId) {
+          // Sem vínculo: converte posição relativa → absoluta
+          const oldParent = tracking.parentId
+            ? prev.find((n) => n.id === tracking.parentId)
+            : undefined;
+          const absX = (oldParent?.position.x ?? 0) + tracking.position.x;
+          const absY = (oldParent?.position.y ?? 0) + tracking.position.y;
+          return prev.map((n) =>
+            n.id === trackingId
+              ? { ...n, parentId: undefined, position: { x: absX, y: absY } }
+              : n
+          );
+        }
+
+        // Conta trackings já vinculados ao novo parent (excluindo este)
+        const existingCount = prev.filter(
+          (n) =>
+            n.type === 'tracking' &&
+            n.parentId === newParentId &&
+            n.id !== trackingId
+        ).length;
+
+        return prev.map((n) =>
+          n.id === trackingId
+            ? {
+                ...n,
+                parentId: newParentId,
+                position: { x: -256, y: existingCount * 52 },
+              }
+            : n
+        );
+      });
+    },
+    [setNodes, pushHistory]
+  );
+
   // Layout engine — organize + reorganize codes extraídos pra
   // `hooks/use-layout-engine.ts`. Operações pesadas e isoladas.
   const { handleOrganizeLayout, handleReorganizeCodes } = useLayoutEngine({
@@ -2040,6 +2096,7 @@ function FlowEditorInner({
           onAddEdge={handleAddEdge}
           onUpdateEdge={handleUpdateEdge}
           onOpenFlowEditor={(id) => setFlowEditorNodeId(id)}
+          onChangeParent={handleChangeTrackingParent}
         />
       )}
 

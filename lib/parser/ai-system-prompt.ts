@@ -153,7 +153,91 @@ const FRAMEWORK_FIDELITY_RULES = `# Regras CRÍTICAS de fidelidade
 
     O frame "Algo Mais" já direciona pra Encerramento via opção "Finalizar" (ver exemplo na regra #9). Outros cenários que dão "saída final" também devem direcionar pra cá.
 
-    **Sempre crie esse frame EN quando o fluxo tem qualquer ponto de "encerrar atendimento" / "finalizar" / "avaliação"**, mesmo se o escopo só mencionar isso de forma genérica.`;
+    **Sempre crie esse frame EN quando o fluxo tem qualquer ponto de "encerrar atendimento" / "finalizar" / "avaliação"**, mesmo se o escopo só mencionar isso de forma genérica.
+
+12. **LEIA o documento como HIERARQUIA de marcadores, não como lista plana sequencial.**
+
+    Escopos costumam usar indentação (recuo) para representar sub-etapas e detalhes:
+    \`\`\`
+    - Saudação inicial
+      - Bot: "Olá! Sou o assistente da MarcaX."
+      - Bot: "Digite seu nome para começar."
+      - Cliente: {nome}
+      - Menu: [Ofertas, Suporte, Sair]
+        - Ofertas → cenário "Ofertas"
+        - Suporte → cenário "Suporte"
+    \`\`\`
+
+    Regra: sub-bullets com recuo **pertencem ao bullet pai** — são blocos DENTRO do mesmo frame, não frames novos e separados.
+
+    ❌ **ERRADO** — criar um frame separado pra cada nível de recuo:
+    \`\`\`json
+    // "- Saudação" → frame S, "-  - Bot: Olá" → frame S2 (ERRADO — é o mesmo frame!)
+    \`\`\`
+
+    ✅ **CERTO** — tudo no mesmo frame:
+    \`\`\`json
+    {
+      "title": "Saudação",
+      "prefix": "S",
+      "blocks": [
+        { "kind": "bot", "text": "Olá! Sou o assistente da MarcaX." },
+        { "kind": "bot", "text": "Digite seu nome para começar." },
+        { "kind": "user", "text": "{nome}" },
+        { "kind": "menu", "header": "Menu", "options": ["Ofertas", "Suporte", "Sair"] },
+        { "kind": "direcionamento", "label": "Ofertas", "target_frame_id": "ofertas" },
+        { "kind": "direcionamento", "label": "Suporte", "target_frame_id": "suporte" }
+      ]
+    }
+    \`\`\`
+
+    Sinal de alerta: se você está criando um frame com 1-2 blocos que "continua" outro frame logo acima, provavelmente você quebrou uma hierarquia erroneamente. Junte no frame pai.
+
+13. **CONDICIONAL fora da cascata FA: sempre emita o caminho FALSE explicitamente.**
+
+    Para condicionais que representam **bifurcação** em cenários normais (não a cascata de 4 do frame FA), siga esta convenção estrita:
+
+    - Bloco imediatamente APÓS o \`condicional\` no array → **saída TRUE (Sim)** — é o "cutoff" que leva ao caminho positivo.
+    - Após o cutoff TRUE, coloque um \`direcionamento\` para o destino do caminho **FALSE (Não)** — o builder vai conectá-lo à saída NÃO do condicional.
+    - Blocos seguintes ao direcionamento FALSE = continuação do caminho TRUE.
+
+    ✅ **Exemplo correto** — "Primeiro contato com o bot?":
+    \`\`\`json
+    { "kind": "condicional", "condition": "Primeiro contato com o bot?", "true_label": "Sim", "false_label": "Não" },
+    { "kind": "bot", "text": "Bem-vindo! Este é seu primeiro acesso ao assistente." },
+    { "kind": "direcionamento", "label": "Não - ir para FAQ", "target_frame_id": "faq" },
+    { "kind": "bot", "text": "Para começar, informe seu CPF." },
+    { "kind": "user", "text": "{CPF}" }
+    \`\`\`
+    Resultado: Sim → bot "Bem-vindo!" → bot "informe CPF" → user CPF. Não → direcionamento FAQ.
+
+    ❌ **ERRADO** — colocar todos os blocos em sequência linear após o condicional:
+    \`\`\`json
+    { "kind": "condicional", ... },
+    { "kind": "bot", "text": "Bem-vindo!" },
+    { "kind": "bot", "text": "Informe CPF." },
+    { "kind": "user", "text": "{CPF}" }
+    // ← saída NÃO nunca aparece → usuário fica preso!
+    \`\`\`
+
+    **Exceção**: a cascata do frame FA (4 condicionais aninhados) usa um padrão diferente — segue a regra #10, não essa.
+
+14. **BUTTONS → DIRECIONAMENTOS: correspondência 1:1 em ordem — os botões ligam ao direcionamento, não o nó pai.**
+
+    Quando \`buttons\` é seguido de \`direcionamento\`, os N botões mapeiam para os N direcionamentos na **mesma ordem**: botão[0] → dir[0], botão[1] → dir[1], etc.
+
+    - O array \`options\` do \`buttons\` DEVE ter a mesma ordem que os \`direcionamento\` subsequentes.
+    - A ligação é **botão → direcionamento** (cada btn-short conecta ao seu dir), não "nó pai (bot/menu) → direcionamento".
+
+    ✅ **Exemplo correto**:
+    \`\`\`json
+    { "kind": "buttons", "options": ["Sim, confirmar", "Não, cancelar"] },
+    { "kind": "direcionamento", "label": "Sim, confirmar", "target_frame_id": "confirmado" },
+    { "kind": "direcionamento", "label": "Não, cancelar", "target_frame_id": "cancelado" }
+    \`\`\`
+
+    ❌ **ERRADO** — conectar os direcionamentos ao bubble-bot anterior (TC001) em vez dos botões:
+    O builder reconhece o padrão buttons→dirs e faz a conexão botão-a-botão automaticamente — mas SOMENTE se a ordem das options bater com a ordem dos dirs.`;
 
 const FRAMEWORK_EDGE_CASES = `# Casos extremos
 

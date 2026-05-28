@@ -170,14 +170,13 @@ export async function restoreVersion(versionId: string): Promise<void> {
     throw new Error(`Versão não encontrada: ${vErr?.message}`);
   }
 
-  // Snapshot defensive do state atual (antes de sobrescrever)
+  // Snapshot defensive do state atual ANTES de sobrescrever.
+  // Se falhar, bloqueia o restore — melhor falhar ruidosamente do que
+  // permitir um restore destrutivo sem backup.
   await createVersion(
     version.page_id,
     `Antes do restore de "${version.label ?? new Date(version.id).toLocaleString()}"`
-  ).catch((err) => {
-    // Não bloqueia o restore — só loga
-    console.error('Falha ao criar snapshot defensive:', err);
-  });
+  );
 
   // Aplica o state da versão na página
   const { error: updErr, data: pageRow } = await supabase

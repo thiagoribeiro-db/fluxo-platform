@@ -92,6 +92,17 @@ export function useFlowOperations({
     const idMap = new Map<string, string>();
     for (const o of origs) idMap.set(o.id, `${o.type}-${nanoid(6)}`);
 
+    // Tipos que NUNCA recebem códigos sequenciais (mirrors NO_CODE_TYPES em helpers.ts)
+    const SKIP_CODE_TYPES = new Set([
+      'tracking', 'excecao', 'entry-point',
+      'bubble-user', 'btn-short', 'btn-long',
+      'atendimento-humano', 'link',
+      'midia-imagem-bot', 'midia-imagem-user',
+      'midia-documento-bot', 'midia-documento-user',
+      'midia-video-bot', 'midia-video-user',
+      'midia-audio-bot', 'midia-audio-user',
+    ]);
+
     let acc = [...nodes];
     const clones: FluxoNode[] = [];
     for (const orig of origs) {
@@ -106,8 +117,12 @@ export function useFlowOperations({
         acc
       );
       const prefix = resolveFramePrefix(containingFrame);
-      const code =
-        orig.type === 'frame' ? prefix : generateNextCodeForPrefix(prefix, acc);
+      // Tipos sem código: preserva o valor original (undefined/vazio para novos)
+      const code = orig.type === 'frame'
+        ? prefix
+        : SKIP_CODE_TYPES.has(orig.type ?? '')
+          ? (orig.data?.code as string | undefined)
+          : generateNextCodeForPrefix(prefix, acc);
       const newParentId =
         orig.parentId && idMap.has(orig.parentId)
           ? idMap.get(orig.parentId)

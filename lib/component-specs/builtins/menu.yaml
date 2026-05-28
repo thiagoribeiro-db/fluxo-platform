@@ -111,7 +111,6 @@ examples:
         header: "Avaliação"
         options: ["Muito satisfeito", "Satisfeito", "Pouco satisfeito", "Insatisfeito"]
 
-examples:
   - description: Menu com seções (Holerite / Suporte / IA)
     input: |
       Bot: Como eu posso te ajudar?

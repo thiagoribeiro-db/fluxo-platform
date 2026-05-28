@@ -33,11 +33,24 @@ import {
 import { FLOW_CATEGORIES, FLOW_LIMITS } from '@/lib/whatsapp-flows/constants';
 import type { WhatsAppFlowCategory } from '@/lib/types';
 
+// Tipos que nunca têm código sequencial — campo "ID do bloco" não é exibido
+const NO_CODE_NODE_TYPES = new Set([
+  'tracking', 'excecao', 'entry-point',
+  'bubble-user', 'btn-short', 'btn-long', 'atendimento-humano', 'link',
+  'midia-imagem-bot', 'midia-imagem-user', 'midia-documento-bot',
+  'midia-documento-user', 'midia-video-bot', 'midia-video-user',
+  'midia-audio-bot', 'midia-audio-user',
+]);
+
+// Tipos que podem ser "pais" de um tracking/excecao
+const TRACKING_PARENT_TYPES = new Set(['bubble-bot', 'menu', 'bubble-user']);
+
 export function NodeFields({
   node,
   onUpdate,
   allNodesForSelect,
   onOpenFlowEditor,
+  onChangeParent,
 }: {
   node: FluxoNode;
   onUpdate: (patch: Partial<FluxoNodeData>) => void;
@@ -45,6 +58,8 @@ export function NodeFields({
   allNodesForSelect: FluxoNode[];
   /** Callback pra abrir o sub-editor do WhatsApp Flow (só usado em whatsapp-flow). */
   onOpenFlowEditor?: (nodeId: string) => void;
+  /** Muda o parentId de um tracking/excecao e o reposiciona no novo parent. */
+  onChangeParent?: (nodeId: string, newParentId: string | undefined) => void;
 }) {
   const data = node.data;
   // Variáveis declaradas no fluxo — alimenta o popover `{{...}}` do RichTextEditor.
@@ -60,18 +75,69 @@ export function NodeFields({
         <StableIdField nodeId={node.id} />
       </div>
 
-      <Field label="ID do bloco (code)">
-        <input
-          type="text"
-          value={data.code ?? ''}
-          onChange={(e) => onUpdate({ code: e.target.value })}
-          placeholder="ex: B001"
-          className={`${inputCls} font-mono uppercase`}
-        />
-        <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">
-          Pode renomear sem perder as conexões — referências usam o ID estável.
-        </p>
-      </Field>
+      {/* Campo de código — oculto para tipos sem código sequencial */}
+      {!NO_CODE_NODE_TYPES.has(node.type ?? '') && (
+        <Field label="ID do bloco (code)">
+          <input
+            type="text"
+            value={data.code ?? ''}
+            onChange={(e) => onUpdate({ code: e.target.value })}
+            placeholder="ex: B001"
+            className={`${inputCls} font-mono uppercase`}
+          />
+          <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">
+            Pode renomear sem perder as conexões — referências usam o ID estável.
+          </p>
+        </Field>
+      )}
+
+      {/* Vinculado a — só para tracking e excecao (nodes child de outro node) */}
+      {(node.type === 'tracking' || node.type === 'excecao') && onChangeParent && (() => {
+        const currentParent = allNodesForSelect.find((n) => n.id === node.parentId);
+        const parentLabel = currentParent
+          ? `${currentParent.data?.code ? `[${currentParent.data.code}] ` : ''}${
+              (currentParent.data?.text as string | undefined) ??
+              (currentParent.data?.header as string | undefined) ??
+              (currentParent.data?.label as string | undefined) ??
+              currentParent.type
+            }`.slice(0, 60)
+          : '(sem vínculo)';
+
+        const candidates = allNodesForSelect.filter(
+          (n) => TRACKING_PARENT_TYPES.has(n.type ?? '') && n.id !== node.id
+        );
+
+        return (
+          <Field label="Vinculado a">
+            <select
+              value={node.parentId ?? ''}
+              onChange={(e) => onChangeParent(node.id, e.target.value || undefined)}
+              className={inputCls}
+            >
+              <option value="">(sem vínculo — node independente)</option>
+              {candidates.map((c) => {
+                const codePrefix = c.data?.code ? `[${c.data.code}] ` : '';
+                const text = (
+                  (c.data?.text as string | undefined) ??
+                  (c.data?.header as string | undefined) ??
+                  (c.data?.label as string | undefined) ??
+                  c.type
+                ).slice(0, 50);
+                return (
+                  <option key={c.id} value={c.id}>
+                    {codePrefix}{text}
+                  </option>
+                );
+              })}
+            </select>
+            {currentParent && (
+              <p className="text-[10px] text-gray-500 mt-1">
+                Atual: {parentLabel}
+              </p>
+            )}
+          </Field>
+        );
+      })()}
 
       {node.type === 'frame' && (
         <>

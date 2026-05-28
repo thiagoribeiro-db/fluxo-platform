@@ -18,6 +18,19 @@ import { toast } from '@/lib/utils/errors';
 import { confirmDialog } from '@/lib/utils/dialog';
 import { formatTimeAgo, isRecent } from '@/lib/utils/time-ago';
 import { hasUnseenUpdate, markSeen } from '@/lib/utils/seen-tracker';
+import {
+  renderBulletMarkdown,
+  bulletsToMarkdown,
+  markdownToBullets,
+} from '@/lib/utils/bullet-markdown';
+import {
+  MarkdownTextField,
+  SectionCard,
+  AutoGrowTextarea,
+  TONE_STYLES,
+  inputCls,
+  type Tone,
+} from '@/components/ui/markdown-fields';
 
 interface ComponentsSectionProps {
   specs: ListedSpec[];
@@ -672,19 +685,28 @@ function ComponentEditor({
     initialData?.category ?? 'messaging'
   );
   const [description, setDescription] = useState(initialData?.description ?? '');
-  const [usageRules, setUsageRules] = useState<string[]>(initialData?.usageRules ?? []);
-  const [detectionCues, setDetectionCues] = useState<string[]>(
-    initialData?.detectionCues ?? []
+  // Listas viram texto markdown corrido (`- item`) — convertemos no save.
+  const [usageRules, setUsageRules] = useState(
+    bulletsToMarkdown(initialData?.usageRules)
   );
-  const [commonMistakes, setCommonMistakes] = useState<string[]>(
-    initialData?.commonMistakes ?? []
+  const [detectionCues, setDetectionCues] = useState(
+    bulletsToMarkdown(initialData?.detectionCues)
+  );
+  const [commonMistakes, setCommonMistakes] = useState(
+    bulletsToMarkdown(initialData?.commonMistakes)
   );
   const [aiInstructions, setAiInstructions] = useState(initialData?.aiInstructions ?? '');
 
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // Modo global da modal: 'edit' (textareas + inputs) ou 'read' (markdown
+  // renderizado + inputs disabled). Builtins abrem em 'read' por default.
+  const [viewMode, setViewMode] = useState<'edit' | 'read'>(
+    spec?.source === 'builtin' ? 'read' : 'edit'
+  );
 
   const idLocked = spec?.source === 'builtin' || spec?.source === 'override';
+  const isReadOnly = viewMode === 'read';
 
   function handleSave() {
     setError(null);
@@ -706,9 +728,9 @@ function ComponentEditor({
       icon: icon.trim(),
       category,
       description: description.trim(),
-      usageRules: usageRules.filter((r) => r.trim()),
-      detectionCues: detectionCues.filter((c) => c.trim()),
-      commonMistakes: commonMistakes.filter((m) => m.trim()),
+      usageRules: markdownToBullets(usageRules),
+      detectionCues: markdownToBullets(detectionCues),
+      commonMistakes: markdownToBullets(commonMistakes),
       aiInstructions: aiInstructions.trim() || undefined,
       // Defaults pra customs novos sem esses campos
       nodeType: initialData?.nodeType ?? 'bubble-bot',
@@ -764,21 +786,27 @@ function ComponentEditor({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col"
+        className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <header className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <div className="flex items-center gap-3">
+        <header className="flex items-center justify-between px-6 py-4 border-b border-gray-200 gap-4">
+          <div className="flex items-center gap-3 min-w-0">
             <span className="text-3xl leading-none">{icon || '🧩'}</span>
-            <div>
-              <h2 className="text-lg font-bold text-gray-900">
-                {isEditing ? 'Editar componente' : 'Novo componente'}
+            <div className="min-w-0">
+              <h2 className="text-lg font-bold text-gray-900 truncate">
+                {isReadOnly
+                  ? displayName || (isEditing ? 'Visualizar componente' : 'Novo componente')
+                  : isEditing
+                    ? 'Editar componente'
+                    : 'Novo componente'}
               </h2>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 truncate">
                 {isEditing && spec
                   ? spec.source === 'builtin'
-                    ? 'Builtin — editar criará um override'
+                    ? isReadOnly
+                      ? 'Builtin — só-leitura. Clique em Editar pra criar override.'
+                      : 'Builtin — editar criará um override'
                     : spec.source === 'override'
                       ? 'Override de builtin'
                       : 'Customizado'
@@ -786,118 +814,210 @@ function ComponentEditor({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-700 text-xl leading-none"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Toggle global Editar / Visualizar */}
+            <div className="flex items-center gap-0.5 bg-gray-100 border border-gray-200 rounded-md p-0.5">
+              <button
+                type="button"
+                onClick={() => setViewMode('edit')}
+                className={`text-xs font-semibold px-2.5 py-1 rounded transition ${
+                  !isReadOnly
+                    ? 'bg-white text-blip-purple-dark shadow-sm'
+                    : 'text-gray-500 hover:text-gray-800'
+                }`}
+                title="Modo edição — modifique campos e bullets"
+              >
+                ✏️ Editar
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('read')}
+                className={`text-xs font-semibold px-2.5 py-1 rounded transition ${
+                  isReadOnly
+                    ? 'bg-white text-blip-purple-dark shadow-sm'
+                    : 'text-gray-500 hover:text-gray-800'
+                }`}
+                title="Modo leitura — markdown renderizado, sem edição"
+              >
+                👁️ Visualizar
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-700 text-xl leading-none ml-1"
+            >
+              ✕
+            </button>
+          </div>
         </header>
 
         {/* Body — scrollable */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6 bg-gray-50/40">
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm">
               {error}
             </div>
           )}
 
-          <div className="grid grid-cols-[1fr_1fr_70px_180px] gap-3">
-            <Field label="ID (slug)" hint={idLocked ? 'Builtin — não pode mudar' : 'kebab-case, único'}>
-              <input
-                type="text"
-                value={id}
-                onChange={(e) => setId(e.target.value)}
-                disabled={idLocked}
-                placeholder="meu-componente"
-                className={inputCls + ' font-mono ' + (idLocked ? 'opacity-60 cursor-not-allowed' : '')}
-              />
-            </Field>
-            <Field label="Nome exibido">
-              <input
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Mensagem do Bot"
-                className={inputCls}
-              />
-            </Field>
-            <Field label="Ícone">
-              <input
-                type="text"
-                value={icon}
-                onChange={(e) => setIcon(e.target.value)}
-                placeholder="🧩"
-                className={inputCls + ' text-center'}
-                maxLength={4}
-              />
-            </Field>
-            <Field label="Categoria">
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value as ComponentSpec['category'])}
-                className={inputCls}
+          {/* === SEÇÃO: Identidade === */}
+          <SectionCard
+            icon="🪪"
+            title="Identidade"
+            hint="Como o componente aparece na UI e é referenciado no código."
+          >
+            <div className="grid grid-cols-[1fr_1fr_70px_180px] gap-3">
+              <Field
+                label="ID (slug)"
+                hint={idLocked ? 'Builtin — não pode mudar' : 'kebab-case, único'}
               >
-                {CATEGORY_ORDER.map((c) => (
-                  <option key={c} value={c}>
-                    {CATEGORY_LABELS[c]}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
+                <input
+                  type="text"
+                  value={id}
+                  onChange={(e) => setId(e.target.value)}
+                  disabled={idLocked || isReadOnly}
+                  placeholder="meu-componente"
+                  className={
+                    inputCls +
+                    ' font-mono ' +
+                    (idLocked || isReadOnly ? 'opacity-60 cursor-not-allowed' : '')
+                  }
+                />
+              </Field>
+              <Field label="Nome exibido">
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  disabled={isReadOnly}
+                  placeholder="Mensagem do Bot"
+                  className={
+                    inputCls + (isReadOnly ? ' opacity-60 cursor-not-allowed' : '')
+                  }
+                />
+              </Field>
+              <Field label="Ícone">
+                <input
+                  type="text"
+                  value={icon}
+                  onChange={(e) => setIcon(e.target.value)}
+                  disabled={isReadOnly}
+                  placeholder="🧩"
+                  className={
+                    inputCls +
+                    ' text-center text-lg' +
+                    (isReadOnly ? ' opacity-60 cursor-not-allowed' : '')
+                  }
+                  maxLength={4}
+                />
+              </Field>
+              <Field label="Categoria">
+                <select
+                  value={category}
+                  onChange={(e) =>
+                    setCategory(e.target.value as ComponentSpec['category'])
+                  }
+                  disabled={isReadOnly}
+                  className={
+                    inputCls + (isReadOnly ? ' opacity-60 cursor-not-allowed' : '')
+                  }
+                >
+                  {CATEGORY_ORDER.map((c) => (
+                    <option key={c} value={c}>
+                      {CATEGORY_LABELS[c]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+          </SectionCard>
 
-          <Field label="Descrição" hint="O que é e quando usar. Aparece no prompt da IA.">
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={4}
-              placeholder="Descrição completa do componente..."
-              className={inputCls + ' resize-y'}
-            />
-          </Field>
+          {/* === SEÇÃO: Descrição === */}
+          <MarkdownTextField
+            icon="📝"
+            label="Descrição"
+            hint="O que é e quando usar. Aparece no prompt da IA."
+            kind="paragraph"
+            value={description}
+            onChange={setDescription}
+            forceMode={isReadOnly ? 'preview' : undefined}
+            placeholder={
+              'Descrição completa: o que faz, onde se encaixa no fluxo, constraints do canal...\n\n**Tópicos sugeridos:**\n- Onde aparece no fluxo (topologia)\n- Constraints WhatsApp\n- Quando NÃO usar'
+            }
+          />
 
-          <ListField
+          {/* === SEÇÃO: Regras de uso === */}
+          <MarkdownTextField
+            icon="✅"
             label="Regras de uso"
             hint="Bullets que a IA segue ao decidir o que emitir."
-            items={usageRules}
+            value={usageRules}
             onChange={setUsageRules}
-            placeholder="Ex: Cada parágrafo é uma bubble separada"
+            forceMode={isReadOnly ? 'preview' : undefined}
+            placeholder={
+              '- Cada parágrafo é uma bubble separada\n- Preserve EXATAMENTE o texto original'
+            }
+            tone="emerald"
           />
 
-          <ListField
+          {/* === SEÇÃO: Pistas pra detecção === */}
+          <MarkdownTextField
+            icon="🔍"
             label="Pistas pra detecção"
             hint="Padrões textuais que indicam que esse componente deve ser usado."
-            items={detectionCues}
+            value={detectionCues}
             onChange={setDetectionCues}
-            placeholder='Ex: Linhas começando com "Bot:"'
+            forceMode={isReadOnly ? 'preview' : undefined}
+            placeholder={
+              '- Linhas começando com "Bot:"\n- Frases terminando com `?` antes de uma lista'
+            }
+            tone="purple"
           />
 
-          <ListField
+          {/* === SEÇÃO: Erros comuns === */}
+          <MarkdownTextField
+            icon="⚠️"
             label="Erros comuns"
             hint="Coisas que a IA deve EVITAR."
-            items={commonMistakes}
+            value={commonMistakes}
             onChange={setCommonMistakes}
-            placeholder="Ex: Concatenar 2 bubbles numa só"
+            forceMode={isReadOnly ? 'preview' : undefined}
+            placeholder={
+              '- Concatenar 2 bubbles numa só\n- Adicionar emojis que não estavam no original'
+            }
+            tone="amber"
           />
 
-          <Field label="Instruções extras pra IA (opcional)" hint="Texto livre apêndice no prompt.">
-            <textarea
-              value={aiInstructions}
-              onChange={(e) => setAiInstructions(e.target.value)}
-              rows={3}
-              placeholder="Detalhes específicos sobre uso prioritário, casos especiais, etc."
-              className={inputCls + ' resize-y'}
-            />
-          </Field>
+          {/* === SEÇÃO: Instruções extras === */}
+          <MarkdownTextField
+            icon="🧠"
+            label="Instruções extras pra IA"
+            hint="Opcional — texto livre apêndice no prompt."
+            kind="paragraph"
+            value={aiInstructions}
+            onChange={setAiInstructions}
+            forceMode={isReadOnly ? 'preview' : undefined}
+            placeholder={
+              'Heurísticas, glossário, casos especiais, regras cross-componente...'
+            }
+            collapsibleDefaultOpen={Boolean(aiInstructions)}
+          />
 
           {/* Aviso pros campos não-editados aqui */}
           {isEditing && (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-600">
-              💡 Campos avançados não editáveis aqui (fields, builderRules,
-              examples, nodeType, flowControl) são preservados do spec original.
-              Pra editá-los, mexa direto no YAML do componente.
+            <div className="bg-blip-purple/5 border border-blip-purple/20 rounded-lg p-3 text-xs text-gray-700 flex items-start gap-2">
+              <span className="text-base leading-none">💡</span>
+              <div>
+                <strong className="text-blip-purple-dark">
+                  Campos avançados preservados:
+                </strong>{' '}
+                <code className="font-mono text-[10px]">fields</code>,{' '}
+                <code className="font-mono text-[10px]">builderRules</code>,{' '}
+                <code className="font-mono text-[10px]">examples</code>,{' '}
+                <code className="font-mono text-[10px]">nodeType</code>,{' '}
+                <code className="font-mono text-[10px]">flowControl</code>. Pra
+                editá-los, mexa direto no YAML do componente.
+              </div>
             </div>
           )}
         </div>
@@ -905,7 +1025,7 @@ function ComponentEditor({
         {/* Footer com ações */}
         <footer className="flex items-center justify-between px-6 py-3 border-t border-gray-200">
           <div className="flex items-center gap-2">
-            {isEditing && spec?.source !== 'builtin' && (
+            {!isReadOnly && isEditing && spec?.source !== 'builtin' && (
               <button
                 type="button"
                 onClick={handleDelete}
@@ -932,16 +1052,18 @@ function ComponentEditor({
               onClick={onClose}
               className="text-sm text-gray-600 hover:text-gray-900 px-3 py-1.5"
             >
-              Cancelar
+              {isReadOnly ? 'Fechar' : 'Cancelar'}
             </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={isPending}
-              className="bg-blip-purple hover:bg-blip-purple-dark text-white px-4 py-1.5 rounded-lg font-semibold text-sm disabled:opacity-50"
-            >
-              {isPending ? 'Salvando…' : 'Salvar'}
-            </button>
+            {!isReadOnly && (
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isPending}
+                className="bg-blip-purple hover:bg-blip-purple-dark text-white px-4 py-1.5 rounded-lg font-semibold text-sm disabled:opacity-50"
+              >
+                {isPending ? 'Salvando…' : 'Salvar'}
+              </button>
+            )}
           </div>
         </footer>
       </div>
@@ -952,9 +1074,6 @@ function ComponentEditor({
 // ============================================================================
 // Sub-componentes auxiliares
 // ============================================================================
-
-const inputCls =
-  'w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:border-blip-purple focus:outline-none focus:ring-1 focus:ring-blip-purple/30';
 
 function Field({
   label,
@@ -974,53 +1093,6 @@ function Field({
   );
 }
 
-function ListField({
-  label,
-  hint,
-  items,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  hint?: string;
-  items: string[];
-  onChange: (next: string[]) => void;
-  placeholder: string;
-}) {
-  return (
-    <Field label={label} hint={hint}>
-      <div className="space-y-1.5">
-        {items.map((item, idx) => (
-          <div key={idx} className="flex items-start gap-2">
-            <textarea
-              value={item}
-              onChange={(e) => {
-                const next = [...items];
-                next[idx] = e.target.value;
-                onChange(next);
-              }}
-              rows={1}
-              className={inputCls + ' resize-y text-xs'}
-              placeholder={placeholder}
-            />
-            <button
-              type="button"
-              onClick={() => onChange(items.filter((_, i) => i !== idx))}
-              className="text-gray-400 hover:text-red-600 text-sm leading-none px-1 mt-2"
-              title="Remover"
-            >
-              ✕
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          onClick={() => onChange([...items, ''])}
-          className="text-xs text-blip-purple hover:underline"
-        >
-          + Adicionar item
-        </button>
-      </div>
-    </Field>
-  );
-}
+// SectionCard, AutoGrowTextarea, MarkdownTextField, TONE_STYLES, inputCls
+// foram movidos pra @/components/ui/markdown-fields (compartilhados com
+// VoiceToneSettings). Imports no topo do arquivo.

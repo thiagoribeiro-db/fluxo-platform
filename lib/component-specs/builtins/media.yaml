@@ -15,76 +15,206 @@ nodeType:
 flowControl: linear
 
 description: |
-  Anexo de mídia trocado na conversa: imagem, documento (PDF/Word/etc), vídeo
-  ou áudio. Pode ser enviado pelo BOT (mais comum — ex: encartes, fotos de
-  produto, áudio explicativo) ou pelo USUÁRIO (ex: foto da NF, comprovante,
-  áudio com a dúvida).
+  Anexo de mídia rica trocado na conversa: **imagem** (foto, card, banner,
+  encarte gráfico), **documento** (PDF, DOCX, XLSX, contrato, política,
+  comprovante), **vídeo** (institucional, demonstrativo, tutorial) ou
+  **áudio** (voicenote, mensagem de voz, áudio de boas-vindas raro). Pode ser
+  enviado pelo **BOT** (caso dominante — encartes regionais, fotos de
+  produto, cards informativos, vídeos institucionais) ou pelo **USUÁRIO**
+  (foto de NF/comprovante, áudio com dúvida, documento de cadastro).
 
-  O tipo concreto do node é decidido pela combinação `media_kind` + `sender`:
-  midia-imagem-bot, midia-audio-user, etc.
+  O tipo concreto do nó (`nodeType`) é decidido pela combinação
+  `media_kind` + `sender`: `midia-imagem-bot`, `midia-documento-user`,
+  `midia-video-bot`, `midia-audio-user`, etc — 8 variantes no total.
 
-detectionCues:
-  - 'Texto entre `[...]` mencionando "encarte", "foto", "imagem", "PDF", "vídeo", "áudio", "voz", "card", "documento"'
-  - 'Frases como "o bot envia o encarte", "o bot mostra a imagem", "o cliente envia uma foto", "o cliente manda um áudio"'
-  - 'Listagens com nomes de arquivos: ".pdf", ".jpg", ".mp4", ".mp3", ".ogg"'
-  - 'Stand-alone entre colchetes: `[Encarte Pernambuco - PDF]`, `[Foto do produto]`, `[Áudio explicativo]`'
+  **Onde aparece no fluxo (topologia):**
+  - Vem normalmente DEPOIS de: `bot` (texto explicativo antes do anexo),
+    branch específico de `buttons`/`menu` (ex: opção "Pernambuco" → encarte
+    Pernambuco), saída TRUE/FALSE de `condicional`, retorno de `integracao`
+    (ex: integração retorna URL da NF e bot envia como documento).
+  - Vem ANTES de: `direcionamento` (cenário termina e salta pro AM/EN),
+    `bot` (mensagem complementando o anexo), `user` (quando bot pede
+    confirmação após enviar mídia).
+  - **Atualiza o cursor do fluxo** (`updatesLastFlowId: true`): a próxima
+    edge sai DESTE nó de mídia.
+  - **Caso COMUM: anexo como conteúdo de branch.** Em cenários "escolha
+    seu estado/produto/serviço", cada opção do `menu`/`buttons` leva a uma
+    mídia diferente — encarte por região, foto de cada produto, vídeo por
+    serviço. O builder conecta `options[i]` ao bloco de mídia subsequente
+    (regra #14 do parser IA: buttons→dirs pareiam 1:1 pelos botões).
+
+  **Constraints WhatsApp Cloud API (limites Meta oficiais):**
+  - **Imagem** (`image`): JPG ou PNG; **até 5 MB**; aspecto livre; caption
+    opcional (até 1024 chars).
+  - **Documento** (`document`): PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT,
+    CSV e outros; **até 100 MB**; caption opcional (até 1024 chars);
+    `filename` recomendado pra exibição correta no cliente.
+  - **Vídeo** (`video`): MP4 ou 3GPP (codec H.264 + AAC); **até 16 MB**;
+    duração prática até ~30s pra evitar timeout; caption opcional.
+  - **Áudio** (`audio`): AAC, M4A, AMR, MP3 ou OGG (OPUS); **até 16 MB**;
+    **NÃO suporta caption** — texto descritivo deve ir em bubble bot
+    SEPARADA antes/depois.
+  - **Upload**: mídia precisa ser enviada via `/media` upload (gera
+    `media_id`) OU referenciada por URL pública HTTPS. Em ambos os casos
+    a Meta valida MIME-type e tamanho antes de entregar.
+  - **Caption**: suporta a mesma formatação WhatsApp do bot (`*bold*`,
+    `_italic_`, `~strike~`, `` `mono` ``); placeholders `{var}` também
+    funcionam.
 
 usageRules:
-  - 'Identifique o `media_kind` pelo conteúdo:'
-  - '  - imagem: foto, card, figura, encarte gráfico, banner, gif, screenshot'
-  - '  - documento: PDF, Word, planilha, encarte em PDF, contrato, política, comprovante (a não ser que esteja claro que é imagem)'
-  - '  - video: vídeo, reel, animação, mp4, gif animado'
-  - '  - audio: áudio, voz, voicenote, gravação, mensagem de voz, mp3, ogg'
-  - 'Identifique o `sender` pelo contexto:'
-  - '  - bot: "o bot envia", "o bot mostra", encarte/material institucional'
-  - '  - user: "o cliente envia", "o usuário anexa", foto/comprovante/áudio do cliente'
-  - 'O `caption` deve descrever a mídia (vem do conteúdo entre colchetes ou da frase descritiva). Áudio NÃO suporta caption no WhatsApp Cloud API, mas mantemos como descrição interna para documentação.'
+  - '**Identifique o `media_kind` pelo conteúdo concreto, não pelo formato superficial:**'
+  - '  - **imagem**: foto, card visual, banner, encarte gráfico, GIF estático, screenshot, figura, ilustração. Limite: **JPG/PNG até 5 MB**.'
+  - '  - **documento**: PDF (mesmo que seja um encarte/folder visual), DOCX, XLSX, contrato, política, comprovante quando explicitamente PDF/Word. Limite: **até 100 MB**. Se o doc diz "encarte em PDF", é DOCUMENTO mesmo sendo visual.'
+  - '  - **video**: vídeo institucional, reel, animação, demonstração de produto, tutorial, gif ANIMADO (mp4 disfarçado). Limite: **MP4/3GPP até 16 MB**.'
+  - '  - **audio**: voicenote, gravação de voz, áudio explicativo, mp3, ogg, mensagem de áudio. Limite: **AAC/M4A/AMR/MP3/OGG até 16 MB**.'
+  - '**Identifique o `sender` pelo contexto da frase:**'
+  - '  - **bot**: "o bot envia/mostra/exibe/manda", encarte institucional, material da marca, retorno de integração com arquivo da empresa.'
+  - '  - **user**: "o cliente envia/anexa/manda/encaminha", foto de NF, comprovante de pagamento, áudio com dúvida, documento de cadastro.'
+  - '**`caption` é OBRIGATÓRIO no nosso schema** mesmo quando a Meta o trata como opcional. Use texto entre colchetes ou descreva o conteúdo ("Encarte Pernambuco", "Foto do produto com defeito"). Para `audio`, o `caption` é APENAS descrição interna (Meta NÃO renderiza caption em áudio) — texto pro usuário precisa vir em `bot` SEPARADO antes/depois.'
+  - '**Imagem vs Documento — desambiguação crítica:** "encarte em PDF" → DOCUMENTO. "encarte" sem qualificador → IMAGEM (default visual). "comprovante" → DOCUMENTO (presume PDF/print formal). "foto" / "card" / "screenshot" → IMAGEM. Em dúvida absoluta sobre encarte, prefira DOCUMENTO se o canal típico for PDF na marca.'
+  - '**Mídia como anexo a uma escolha** (padrão "encarte por estado"): cada opção do `buttons`/`menu` leva a UMA mídia diferente. Emita as mídias na ORDEM dos botões — o builder pareia `options[i]` → mídia[i] (regra #14 parser IA). Não conecte a mídia ao bubble bot pai do menu, conecte ao botão correspondente.'
+  - '**Mídia NÃO pode ser bloco final solto em cenário ativo.** Depois da mídia, conecte com `direcionamento` pro próximo frame (`algo-mais`, `encerramento`) — mídia solta no fim = fluxo morto, igual bot solto.'
+  - '**Áudio do bot é raro e quase sempre um anti-padrão** em UX de chatbot — voz humaniza, mas exige que o cliente esteja em local que permita escuta. Use só quando o escopo explicita ("áudio de boas-vindas do CEO", "voicenote da gerente"). Caso contrário, prefira bubble bot texto.'
+
+detectionCues:
+  - '**Texto entre colchetes** mencionando conteúdo visual/sonoro: `[Encarte Pernambuco - PDF]`, `[Foto do produto com defeito]`, `[Áudio explicativo]`, `[Vídeo institucional]`, `[Card de benefícios]`, `[Comprovante de pagamento]`.'
+  - '**Frases descritivas com verbos de envio**: "o bot envia o encarte", "o bot mostra a imagem", "o bot exibe um vídeo", "o cliente envia uma foto", "o cliente manda um áudio", "o cliente encaminha o comprovante".'
+  - '**Nomes/extensões de arquivo**: `.pdf`, `.jpg`, `.png`, `.mp4`, `.mp3`, `.ogg`, `.docx`, `.xlsx` — mesmo sem colchetes, sinalizam mídia.'
+  - '**Vocabulário de tipos específicos**: "encarte", "folder", "catálogo" (geralmente documento ou imagem); "card", "banner", "screenshot" (imagem); "voicenote", "voz", "gravação" (áudio); "reel", "tutorial" (vídeo).'
+  - '**Padrão "por região/categoria"** em cenários com `buttons`/`menu`: "Escolha o estado" + lista de opções → cada opção tem um encarte/imagem distinta na sequência. Forte sinal de mídia por branch.'
+  - '**Retorno de integração com arquivo**: "a API retorna a segunda via em PDF", "o sistema retorna a foto do produto" — `integracao` seguido de `media` (sender bot).'
 
 commonMistakes:
-  - 'Confundir "encarte em PDF" como imagem — é documento'
-  - 'Não distinguir bot vs user — sempre considere quem envia no contexto'
-  - 'Esquecer mídias inline dentro de um parágrafo (procure por `[...]` em qualquer lugar)'
-  - 'Confundir áudio de voz com vídeo curto — voicenote é audio'
+  - '**Confundir "encarte em PDF" com imagem.** Encarte VISUAL não basta pra ser imagem — o que conta é o FORMATO de arquivo. PDF (mesmo que graficamente seja um folder) = `media_kind: documento`. Só se o escopo diz "imagem" ou "PNG/JPG" explicitamente, vira `imagem`.'
+  - '**Não distinguir `sender` bot vs user.** Sempre olhe o sujeito da frase: "o bot envia X" → `sender: bot`. "o cliente envia X" / "Cliente: [foto...]" → `sender: user`. Default é `bot`, mas verifique sempre.'
+  - '**Esquecer mídias inline dentro de um parágrafo.** Procure por `[...]` em QUALQUER posição do texto, não só em linhas standalone. Uma frase "Em seguida, [foto do produto] é enviada e o bot diz Olá" tem 1 `media` + 1 `bot`.'
+  - '**Confundir áudio de voz com vídeo curto.** Voicenote / voz / gravação = `audio`. Vídeo curto / reel / animação = `video`. A diferença é a faixa de imagem: áudio NÃO tem imagem associada.'
+  - '**Adicionar caption em áudio esperando que apareça pro usuário.** WhatsApp NÃO renderiza caption em mensagens de áudio. Se o doc tem "áudio: Bem-vindo à MarcaX", emita 1 `bot` com "Bem-vindo à MarcaX" + 1 `media` áudio com caption interna ("Boas-vindas") — ou só `bot` se o áudio é dispensável.'
+  - '**Tratar sub-bullet aninhado com mídia como nova bubble independente.** "Bot apresenta o catálogo:\n  - [Encarte Pernambuco]\n  - [Encarte Paraíba]" → as 2 mídias são FILHAS da mesma fala, NÃO viram frames separados. Sub-bullets pertencem ao bullet pai. [Regra #12 parser IA — hierárquica.]'
+  - '**Conectar mídia ao bubble bot pai em vez do botão correspondente.** Em "Escolha o estado → [Encarte PE] / [Encarte PB]", a edge da mídia PE deve sair do botão "Pernambuco", não do bot "Escolha o estado". Builder pareia `options[i]` → bloco[i] (regra #14 parser IA).'
+  - '**Misturar `media_kind` quando há ambiguidade.** "Comprovante" sozinho é DOCUMENTO (presume PDF formal). "Foto do comprovante" é IMAGEM (escopo explicitou foto). Não chute — siga a pista mais específica do escopo.'
 
 fields:
   media_kind:
     type: string
     required: true
     enum: ['imagem', 'documento', 'video', 'audio']
-    description: Tipo da mídia
+    description: Tipo da mídia anexada (define o `nodeType` final junto com `sender`)
+    aiHint: 'Escolha pelo CONTEÚDO concreto: foto/card/banner = `imagem`; PDF/DOCX/XLSX/encarte-em-pdf/contrato = `documento`; vídeo/reel/animação MP4 = `video`; voicenote/voz/MP3/OGG = `audio`. "Encarte" sozinho → `imagem`; "encarte em PDF" → `documento`.'
   sender:
     type: string
     required: true
     enum: ['bot', 'user']
-    description: Quem envia a mídia (bot ou user)
     default: 'bot'
+    description: Quem envia a mídia (bot é o caso dominante; user é foto/comprovante/áudio do cliente)
+    aiHint: 'Default `bot` (encarte institucional, card de produto, vídeo da marca). Use `user` quando escopo diz "cliente envia/manda/anexa/encaminha foto/áudio/PDF" — tipicamente NF, comprovante, foto de defeito, áudio com dúvida.'
   caption:
     type: string
     required: true
-    description: Legenda/descrição da mídia (em áudio é só descrição interna)
-    aiHint: 'Use o texto entre colchetes ou descreva o conteúdo. Ex: "Encarte Pernambuco", "Foto do produto", "Comprovante de pagamento", "Áudio explicativo do produto"'
+    description: Legenda/descrição da mídia (em áudio, é só descrição interna — Meta não renderiza caption em audio messages)
+    aiHint: 'Use o texto entre colchetes ("Encarte Pernambuco") ou descreva o conteúdo objetivamente ("Foto do produto com defeito", "Comprovante de pagamento", "Vídeo institucional do programa de fidelidade"). Suporta formatação WhatsApp (`*bold*`, `_italic_`) e placeholders `{var}`. Limite Meta: 1024 chars (mas seja conciso). Para `audio`, o caption É APENAS interno — não vai pro usuário, texto descritivo precisa vir em `bot` separado.'
 
 builderRules:
   edgeFromPrevious: true
   updatesLastFlowId: true
 
 examples:
-  - description: Encarte em PDF enviado pelo bot
-    input: '[Encarte Pernambuco - PDF]'
-    output: { kind: media, media_kind: documento, sender: bot, caption: "Encarte Pernambuco" }
+  - description: Encarte regional em PDF como anexo de branch (cenário com buttons)
+    input: |
+      Bot: Em qual estado você está?
+      - Pernambuco
+      - Paraíba
 
-  - description: Card de produto (imagem do bot)
+      [Encarte Pernambuco - PDF]
+      [Encarte Paraíba - PDF]
+    output:
+      - { kind: bot, text: "Em qual estado você está?" }
+      - { kind: buttons, options: ["Pernambuco", "Paraíba"] }
+      - { kind: media, media_kind: documento, sender: bot, caption: "Encarte Pernambuco" }
+      - { kind: media, media_kind: documento, sender: bot, caption: "Encarte Paraíba" }
+    note: 'Cada encarte conecta ao BOTÃO correspondente (regra #14 parser IA: buttons→blocos pareiam 1:1 pelos botões, não pelo bubble bot pai). "Encarte em PDF" → `documento`, NÃO imagem. Cenário deveria terminar com `direcionamento` pra `algo-mais` em cada branch.'
+
+  - description: Card de produto (imagem do bot com caption explicativa)
     input: 'O bot envia um card com os principais benefícios do cartão.'
-    output: { kind: media, media_kind: imagem, sender: bot, caption: "Card com os principais benefícios do cartão" }
+    output:
+      - { kind: media, media_kind: imagem, sender: bot, caption: "Card com os principais benefícios do cartão" }
+    note: 'Sem colchetes, mas frase descritiva clara. "Card" sem qualificador de formato = `imagem` (default visual). Caption descreve o conteúdo.'
 
-  - description: Foto enviada pelo cliente
+  - description: Foto enviada pelo cliente (sender user)
     input: 'Cliente: [foto do produto com defeito]'
-    output: { kind: media, media_kind: imagem, sender: user, caption: "Foto do produto com defeito" }
+    output:
+      - { kind: media, media_kind: imagem, sender: user, caption: "Foto do produto com defeito" }
+    note: 'Prefixo "Cliente:" + [foto...] = `sender: user`, `media_kind: imagem`. Cliente quase sempre envia imagem como JPG do celular, não documento.'
 
-  - description: Vídeo institucional
+  - description: Vídeo institucional demonstrativo (sender bot)
     input: 'Bot exibe um vídeo institucional explicando o programa de fidelidade.'
-    output: { kind: media, media_kind: video, sender: bot, caption: "Vídeo institucional do programa de fidelidade" }
+    output:
+      - { kind: media, media_kind: video, sender: bot, caption: "Vídeo institucional do programa de fidelidade" }
+    note: '"Vídeo" explícito + sender bot. Lembre limite Meta: MP4/3GPP até 16 MB, prefira clipes curtos (~30s) pra entrega rápida.'
 
-  - description: PDF enviado pelo cliente (comprovante)
+  - description: Comprovante em PDF enviado pelo cliente
     input: '[Cliente envia comprovante em PDF]'
-    output: { kind: media, media_kind: documento, sender: user, caption: "Comprovante de pagamento" }
+    output:
+      - { kind: media, media_kind: documento, sender: user, caption: "Comprovante de pagamento" }
+    note: '"PDF" + "Cliente envia" = `documento` + `sender: user`. Caption descritiva ajuda no log/CRM interno; a Meta aceita até 100 MB pra documento.'
+
+  - description: Áudio raro de boas-vindas (sender bot) — texto vem em bot SEPARADO
+    input: |
+      Bot: Olá! Ouça uma mensagem do nosso CEO:
+      [Áudio: mensagem de boas-vindas do CEO da MarcaX]
+    output:
+      - { kind: bot, text: "Olá! Ouça uma mensagem do nosso CEO:" }
+      - { kind: media, media_kind: audio, sender: bot, caption: "Mensagem de boas-vindas do CEO" }
+    note: 'CRÍTICO: áudio NÃO suporta caption visível pro usuário (Meta não renderiza). O texto "Ouça uma mensagem..." VAI em bubble bot SEPARADA antes. Caption do áudio fica como metadado interno só.'
+
+  - description: Foto da NF (Nota Fiscal) enviada pelo cliente em cenário de troca
+    input: |
+      Bot: Por favor, envie a foto da nota fiscal.
+      Cliente: [foto da NF]
+      Bot: Recebi! Vou processar sua solicitação.
+    output:
+      - { kind: bot, text: "Por favor, envie a foto da nota fiscal." }
+      - { kind: user, text: "[foto da NF]" }
+      - { kind: media, media_kind: imagem, sender: user, caption: "Foto da nota fiscal" }
+      - { kind: bot, text: "Recebi! Vou processar sua solicitação." }
+    note: 'Cliente envia foto = `media` com sender user + caption descritiva. Alternativa: alguns parsers tratam "[foto da NF]" inteiramente como `media user`, dispensando o bloco `user` extra — siga o padrão do projeto.'
+
+  - description: Cenário com mídia que TERMINA → direcionar pra Algo Mais
+    input: |
+      Bot: Aqui está o encarte da semana:
+      [Encarte semanal - PDF]
+      Bot: Posso te ajudar com algo mais?
+    output:
+      - { kind: bot, text: "Aqui está o encarte da semana:" }
+      - { kind: media, media_kind: documento, sender: bot, caption: "Encarte semanal" }
+      - { kind: direcionamento, label: "Algo mais?", target_frame_id: "algo-mais" }
+    note: 'Mídia não pode ser bloco final solto. "Posso te ajudar com algo mais?" sinaliza skill AM — emitir `direcionamento` pro frame `algo-mais`, NÃO duplicar inline.'
+
+aiInstructions: |
+  Mídia (Imagem/Documento/Vídeo/Áudio) cobre todo anexo rico trocado na
+  conversa. Heurísticas finais:
+
+  1. **Em dúvida sobre `media_kind`:** olhe a EXTENSÃO/formato citado, não o conteúdo visual. PDF mesmo que pareça encarte gráfico = `documento`. Sem extensão e visual = `imagem`. Voicenote/voz = `audio`. Animação MP4 = `video`.
+  2. **Em dúvida sobre `sender`:** sujeito da frase. "Bot envia/mostra/exibe" = bot. "Cliente envia/manda/anexa" = user. Default seguro: bot.
+  3. **Em dúvida sobre `caption`:** descreva o conteúdo objetivamente. Para áudio, lembre que caption é metadado INTERNO (não vai pro WhatsApp).
+  4. **Em dúvida sobre conectividade:** se a mídia é anexo de uma escolha (menu/buttons), conecte ao BOTÃO correspondente, não ao bubble bot pai (regra #14 parser IA).
+  5. **Cenário "termina" com mídia?** Conecte com `direcionamento` pra `algo-mais`/`encerramento` — mídia solta no fim = fluxo morto.
+
+  **Decision matrix — `media_kind` por pista:**
+
+  | Pista do escopo | `media_kind` | Notas |
+  |-----------------|--------------|-------|
+  | "foto", "card", "banner", "screenshot", "figura", "imagem" | `imagem` | JPG/PNG até 5 MB |
+  | "PDF", "DOCX", "XLSX", "contrato", "política", "encarte em PDF" | `documento` | Até 100 MB |
+  | "vídeo", "reel", "animação", "MP4", "tutorial em vídeo" | `video` | Até 16 MB, ~30s prático |
+  | "áudio", "voz", "voicenote", "gravação", "MP3", "OGG" | `audio` | Até 16 MB, SEM caption visível |
+  | "encarte" (sem qualificador) | `imagem` ou `documento` | Default `imagem`; se canal da marca usa PDF, `documento` |
+  | "comprovante" (sem qualificador) | `documento` | Presume PDF formal; se "foto do comprovante" → `imagem` |
+
+  **Glossário rápido:**
+  - **caption**: legenda da mídia (até 1024 chars). Renderizada em imagem/vídeo/documento; **NÃO renderizada em áudio**.
+  - **media_id**: identificador interno da Meta após upload via `/media`. Alternativa: URL HTTPS pública.
+  - **MIME-type / extensão**: a Meta valida tipo antes de entregar — PDF é `application/pdf`, JPG é `image/jpeg`, etc.
+  - **sender bot vs user**: `bot` envia institucional (encartes, cards, vídeos da marca); `user` envia evidências (NF, comprovante, áudio com dúvida).
+  - **branch attachment**: padrão onde cada opção de `buttons`/`menu` leva a uma mídia diferente (encarte por estado, foto por produto). Builder pareia `options[i]` → mídia[i].
+  - **AM/FA/EN**: skills reusadas — Algo Mais (`algo-mais`), Falar com Atendente (`atendente`), Encerramento (`encerramento`). Cenários com mídia que "terminam" sempre direcionam pra uma dessas, nunca duplicam inline.

@@ -6,74 +6,213 @@ nodeType: condicional
 flowControl: parallel
 
 description: |
-  Decisão CONDICIONAL com 2 saídas (TRUE e FALSE). Visualmente é um "varal"
-  horizontal com a condição no centro e dois pontos de conexão nas extremidades:
-  esquerda = TRUE (verde), direita = FALSE (vermelho).
+  Decisão CONDICIONAL com **2 saídas** (TRUE e FALSE), avaliada pelo sistema —
+  não pelo usuário. Visualmente é um "varal" horizontal com a condição no
+  centro e dois pontos de conexão nas extremidades: **esquerda = TRUE (verde)**,
+  **direita = FALSE (vermelho)**.
 
-  Use quando o fluxo precisa DIVIDIR em dois caminhos baseado em uma condição
-  AVALIADA pelo sistema (não pelo usuário). Diferente de `buttons`/`menu`
-  (que pedem escolha do usuário), `condicional` é uma decisão LÓGICA do bot.
+  Use sempre que o fluxo precisa DIVIDIR em dois caminhos baseado numa regra
+  lógica do bot (variável, contexto, retorno de API, classificação de IAG).
+  Diferente de `buttons`/`menu`/`btn-long` (que pedem escolha do usuário),
+  `condicional` é uma decisão AUTOMÁTICA — o usuário nem vê o bifurcamento.
 
-detectionCues:
-  - 'Frases como "se X então Y senão Z", "se cliente é VIP", "caso o CPF seja válido"'
-  - 'Avaliações automáticas: "horário comercial?", "cliente cadastrado?", "primeira interação?"'
-  - 'Lógica de validação após integração API ("se retornou sucesso, segue ... se não, ...")'
-  - 'Decisão pós-IAG ("se intenção classificada for X, ... senão ...")'
+  **Onde aparece no fluxo (topologia):**
+  - Vem DEPOIS de: retorno de `integracao` (validar resposta de API), retorno
+    de `iag` (avaliar intenção classificada), `user` (validar input — formato
+    de CPF, e-mail), `bot` (decisão temporal — feriado/horário), ou no início
+    de cenário (verificar contexto — "primeiro contato?", "cliente VIP?").
+  - Vem ANTES de: 2 caminhos paralelos — cada saída leva a `bot`/`menu`/
+    `direcionamento`/outro `condicional` (cascata).
+  - **NÃO atualiza o cursor de fluxo** (`updatesLastFlowId: false`) — é
+    `parallel`, abre 2 branches; o builder gerencia as edges TRUE/FALSE.
+  - **Sem auto-children** — não gera tracking; é nó de navegação interna.
+
+  **Dois padrões canônicos que a IA precisa reconhecer:**
+
+  **(a) Cascata FA (frame "Falar com atendente"):** 4 condicionais ANINHADOS
+  em sequência — `feriado?` → `fim de semana?` → `fora do horário?` →
+  `atendente disponível?` — cada TRUE termina o fluxo com mensagem de
+  indisponibilidade; o último FALSE leva ao `atendimento-humano`. O builder
+  trata esse padrão nativamente via `processCondicionalCascade` (vê regra #13
+  do parser).
+
+  **(b) Bifurcação simples** ("Primeiro contato?", "Cliente VIP?"): 1
+  condicional com 2 caminhos divergentes. Convenção do parser IA:
+  - Bloco **imediatamente após** o `condicional` = caminho TRUE (cutoff).
+  - `direcionamento` **logo depois** do cutoff TRUE = caminho FALSE — o
+    builder conecta com `sourceHandle: 'false'`.
+  - Blocos seguintes continuam o caminho TRUE até o fim do cenário.
 
 usageRules:
-  - 'Use APENAS para decisões AUTOMÁTICAS do sistema, NÃO para escolhas do usuário (escolha do usuário é `menu` ou `buttons`)'
-  - 'A `condition` deve ser CURTA e DECLARATIVA, terminando com `?` ou afirmação ("Cliente é VIP?", "CPF válido", "Horário comercial")'
-  - 'Labels TRUE/FALSE são editáveis — use "Sim/Não", "Válido/Inválido", "Aprovado/Negado" quando fizer sentido no contexto'
-  - 'Em FRAMES sequenciais, condicional substitui um menu/buttons quando a decisão NÃO depende do usuário'
+  - '**Use APENAS para decisões AUTOMÁTICAS do sistema, NUNCA para escolhas do usuário.** Escolha do usuário é `menu`, `buttons` ou `btn-long`. Sinal claro: se o usuário VÊ a pergunta no chat, é menu/buttons; se o bot avalia silenciosamente, é `condicional`.'
+  - '**`condition` deve ser CURTA e DECLARATIVA**, idealmente terminando com `?`. Bom: `"Cliente é VIP?"`, `"CPF válido?"`, `"Horário comercial?"`. Ruim: descrições longas, frases negativas duplas, condições compostas com AND/OR (quebre em condicionais separados).'
+  - '**Labels TRUE/FALSE são editáveis** — use o vocabulário do domínio quando fizer sentido: `"Sim"/"Não"`, `"Válido"/"Inválido"`, `"Aprovado"/"Negado"`, `"VIP"/"Comum"`. Defaults `"Verdadeiro"/"Falso"` só pra condições genéricas.'
+  - '**Cascata FA (regra forte):** quando o escopo descreve o frame `atendente`, emita EXATAMENTE 4 condicionais em sequência: `feriado?`, `fim de semana?`, `fora do horário?`, `atendente disponível?`. Cada TRUE leva a `bot` com mensagem canônica; o último FALSE leva a `atendimento-humano`. Não invente uma 5ª validação nem omita uma das 4.'
+  - '**Bifurcação simples (regra #13 do parser):** o bloco imediatamente após o `condicional` é o cutoff TRUE; um `direcionamento` logo depois é a saída FALSE (`sourceHandle: false`). NUNCA deixe a saída FALSE sem destino — usuário fica preso no canvas.'
+  - '**Após `integracao` ou `iag`**, quase sempre vem um `condicional` pra validar o retorno: `"Cadastro encontrado?"`, `"CPF válido?"`, `"Intenção = compra?"`. Sem o condicional, o fluxo trata sucesso e erro do mesmo jeito.'
+  - '**Condicionais aninhados (cascata)** são lidos como sequência LINEAR pelo builder — não emita um dentro do outro com indentação extra. O padrão é `cond1 → bot_falso → cond2 → bot_falso → cond3 → ...`, planificado.'
+  - '**NÃO confunda `condicional` com `direcionamento`.** Condicional avalia uma condição e bifurca DENTRO do mesmo frame. Direcionamento é salto pra OUTRO frame, sem condição. Cenário pode ter os dois (condicional → direcionamento na saída TRUE).'
+
+detectionCues:
+  - '**Frases condicionais clássicas:** `"se X então Y senão Z"`, `"caso X, faça Y; caso contrário, Z"`, `"se for X..."`, `"quando o cliente é X..."`. O `se`/`caso`/`quando` introduzindo uma avaliação é sinal forte.'
+  - '**Validações pós-integração ou pós-IAG:** `"se a API retornou sucesso..."`, `"se o CPF é válido..."`, `"se a intenção classificada for..."`, `"se o cadastro existe..."`. Sempre vem um `condicional` após `integracao`/`iag` quando há tratamento diferenciado de sucesso/erro.'
+  - '**Contexto temporal/horário:** `"horário comercial"`, `"feriado"`, `"fim de semana"`, `"fora do expediente"` — todos são condicionais (avaliação interna do bot, não pergunta ao usuário).'
+  - '**Cascata FA explícita:** quando o escopo descreve o frame `atendente` ou "transbordo", as 4 validações em sequência (`feriado → fim de semana → horário → disponibilidade`) são o padrão obrigatório — emita 4 `condicional` planificados.'
+  - '**Bifurcação contextual no início de cenário:** `"primeiro contato com o bot?"`, `"cliente já cadastrado?"`, `"é VIP?"` no começo de um cenário — o bot avalia silenciosamente um flag/variável e bifurca o fluxo.'
+  - '**Negações implícitas:** `"caso contrário..."`, `"senão..."`, `"do contrário..."` sinalizam que existe uma saída FALSE — confirme que o condicional anterior está emitido.'
 
 commonMistakes:
-  - 'Usar `condicional` quando o usuário escolhe entre opções (deveria ser `menu` ou `buttons`)'
-  - 'Esquecer de definir condition (campo obrigatório)'
-  - 'Confundir com `direcionamento` (que é salto pra outro frame, não decisão)'
+  - '**Usar `condicional` quando o usuário escolhe entre opções.** Errado: `condicional condition="O cliente quer voltar?"` com TRUE/FALSE. Certo: `buttons` com opções "Voltar ao menu" / "Sair". Regra de ouro: usuário VÊ no chat → não é condicional.'
+  - '**Saída FALSE sem destino (bug histórico do parser, corrigido na regra #13).** Errado: emitir `condicional` + blocos lineares e esquecer o `direcionamento` da saída FALSE — o caminho NÃO fica órfão no canvas. Certo: sempre cutoff TRUE imediato + `direcionamento` FALSE logo depois.'
+  - '**Concatenar condicionais com AND/OR na mesma `condition`.** Errado: `"Horário comercial AND atendente disponível?"`. Certo: dois condicionais aninhados, um após o outro — cada um com sua condição atômica.'
+  - '**Confundir `condicional` com `direcionamento`.** Direcionamento NÃO avalia condição — é salto incondicional pra outro frame. Se há lógica de "se X vá pra Y, senão vá pra Z", são DOIS componentes: 1 `condicional` + 2 `direcionamento` (um em cada saída).'
+  - '**Omitir validação após `integracao`/`iag`.** Esquecer o `condicional` faz o fluxo tratar sucesso e erro de API do mesmo jeito — bug funcional crítico.'
+  - '**Inverter ordem da cascata FA.** A ordem `feriado → fim de semana → horário → disponibilidade` é canônica e vem do padrão Blip/Digitalbot — não reordene. Feriado é a primeira validação (sobrescreve dia útil).'
+  - '**Esquecer das mensagens canônicas do frame FA.** Cada TRUE da cascata tem um bot pré-definido: `"Agradecemos seu contato. No momento estamos em feriado..."`, `"Aos finais de semana não temos atendimento..."`, etc. Não invente texto novo, use literal quando reconhecer o cenário.'
 
 fields:
   condition:
     type: string
     required: true
     description: Condição/pergunta avaliada pelo sistema
-    aiHint: 'Mantenha curta. Ex: "Cliente é VIP?", "CPF válido", "Horário comercial"'
+    aiHint: 'CURTA e DECLARATIVA, terminando com `?` quando possível. Ex: `"Cliente é VIP?"`, `"CPF válido?"`, `"Horário comercial?"`, `"Atendente disponível?"`, `"Feriado?"`. Evite condições compostas (AND/OR) — quebre em condicionais separados.'
   true_label:
     type: string
     default: "Verdadeiro"
-    description: Texto exibido no caminho TRUE
-    aiHint: 'Default "Verdadeiro" mas pode ser "Sim", "Válido", "Aprovado", etc.'
+    description: Texto exibido no caminho TRUE (saída esquerda/verde)
+    aiHint: 'Use vocabulário do domínio: `"Sim"`, `"Válido"`, `"Aprovado"`, `"VIP"`. Default `"Verdadeiro"` só pra casos genéricos.'
   false_label:
     type: string
     default: "Falso"
-    description: Texto exibido no caminho FALSE
-    aiHint: 'Default "Falso" mas pode ser "Não", "Inválido", "Negado", etc.'
+    description: Texto exibido no caminho FALSE (saída direita/vermelho)
+    aiHint: 'Use vocabulário do domínio: `"Não"`, `"Inválido"`, `"Negado"`, `"Comum"`. Default `"Falso"` só pra casos genéricos.'
 
 builderRules:
   edgeFromPrevious: true
   updatesLastFlowId: false  # parallel — não atualiza cursor (2 branches separados)
 
 examples:
-  - description: Validação pós integração
+  - description: Cascata FA completa (4 condicionais aninhados, padrão canônico)
     input: |
-      O bot consulta o CPF na API e:
-      - Se válido: prossegue com cadastro
-      - Se inválido: avisa o cliente
+      Frame: Falar com atendente
+      - Verifica se é feriado. Se sim: "Agradecemos seu contato. No momento
+        estamos em feriado e não temos atendimento disponível."
+      - Verifica se é fim de semana. Se sim: "Aos finais de semana não temos
+        atendimento."
+      - Verifica se está fora do horário comercial. Se sim: "No momento
+        estamos fora do nosso horário de atendimento."
+      - Verifica se há atendente disponível. Se sim, transbordo. Senão:
+        "Em alguns instantes um atendente fará seu atendimento."
     output:
-      - { kind: integracao, integracao_type: api, title: "Consultar CPF", fields: [{label: "Endpoint", key: "url", value: "API Validação"}] }
+      - { kind: condicional, condition: "Feriado?", true_label: "Sim", false_label: "Não" }
+      - { kind: bot, text: "Agradecemos seu contato. No momento estamos em feriado e não temos atendimento disponível." }
+      - { kind: condicional, condition: "Fim de semana?", true_label: "Sim", false_label: "Não" }
+      - { kind: bot, text: "Aos finais de semana não temos atendimento." }
+      - { kind: condicional, condition: "Fora do horário?", true_label: "Sim", false_label: "Não" }
+      - { kind: bot, text: "No momento estamos fora do nosso horário de atendimento." }
+      - { kind: condicional, condition: "Atendente disponível?", true_label: "Sim", false_label: "Não" }
+      - { kind: bot, text: "Em alguns instantes um atendente fará seu atendimento." }
+      - { kind: "atendimento-humano", label: "Início do atendimento humanizado" }
+    note: '4 condicionais planificados (não aninhados visualmente). Cada TRUE leva ao bot canônico de indisponibilidade; o último FALSE leva ao `atendimento-humano`. O builder (`processCondicionalCascade`) gerencia as edges TRUE/FALSE automaticamente.'
+
+  - description: Bifurcação simples — "Primeiro contato?" (regra #13 do parser)
+    input: |
+      O bot verifica se é o primeiro contato do cliente.
+      - Se sim: "Olá! Bem-vindo(a) à MarcaX. Sou seu assistente virtual."
+      - Se não: pula direto pro menu principal.
+    output:
+      - { kind: condicional, condition: "Primeiro contato?", true_label: "Sim", false_label: "Não" }
+      - { kind: bot, text: "Olá! Bem-vindo(a) à MarcaX. Sou seu assistente virtual." }
+      - { kind: direcionamento, label: "Menu principal", target_frame_id: "menu-principal" }
+    note: 'Cutoff TRUE = bot logo após o condicional. `direcionamento` em seguida = saída FALSE (`sourceHandle: false`), conectada pelo builder. Após a cascata, `lastFlowId` aponta pro bot TRUE — próximos blocos continuam o caminho SIM.'
+
+  - description: Validação pós-integração com tratamento de erro
+    input: |
+      O bot consulta o CPF na API.
+      - Se válido: "Cadastro confirmado. Como posso ajudar?"
+      - Se inválido: direciona pra recadastro.
+    output:
+      - kind: integracao
+        integracao_type: api
+        title: "Consultar CPF"
+        fields: [{label: "Endpoint", key: "url", value: "https://api.marca.com/cpf/validar"}]
       - { kind: condicional, condition: "CPF válido?", true_label: "Válido", false_label: "Inválido" }
+      - { kind: bot, text: "Cadastro confirmado. Como posso ajudar?" }
+      - { kind: direcionamento, label: "Recadastro", target_frame_id: "recadastro" }
+    note: 'Padrão clássico: `integracao` → `condicional` → cutoff TRUE (sucesso) + `direcionamento` FALSE (erro). Sem o condicional, sucesso e erro da API seriam tratados igual.'
 
-  - description: Decisão por contexto temporal
-    input: 'Se for horário comercial, atende o cliente. Fora do horário, mostra mensagem de retorno.'
+  - description: Condicional baseada em variável de contexto (VIP)
+    input: 'Se o cliente é VIP, direcionar para fila prioritária. Senão, fluxo padrão.'
     output:
-      - kind: condicional
-        condition: "Horário comercial?"
-        true_label: "Sim"
-        false_label: "Não"
+      - { kind: condicional, condition: "Cliente é VIP?", true_label: "VIP", false_label: "Comum" }
+      - { kind: direcionamento, label: "Fila prioritária", target_frame_id: "atendimento-vip" }
+      - { kind: direcionamento, label: "Fluxo padrão", target_frame_id: "menu-principal" }
+    note: 'Ambas as saídas são `direcionamento` — não há cutoff bot, ambas levam direto a outros frames. Builder conecta TRUE no primeiro `direcionamento`, FALSE no segundo.'
 
-  - description: Decisão baseada em VIP
-    input: 'Verificar se o cliente é VIP. Se for, direcionar para atendimento prioritário. Senão, fluxo normal.'
+  - description: Decisão pós-IAG (intenção classificada)
+    input: |
+      A IA classifica a intenção do cliente.
+      - Se for "comprar": vai pro frame de compra.
+      - Se for "tirar dúvida": vai pro FAQ.
     output:
-      - kind: condicional
-        condition: "Cliente é VIP?"
-        true_label: "VIP"
-        false_label: "Comum"
+      - { kind: iag, iag_type: entrada }
+      - { kind: condicional, condition: "Intenção = comprar?", true_label: "Sim", false_label: "Não" }
+      - { kind: direcionamento, label: "Compra", target_frame_id: "comprar" }
+      - { kind: direcionamento, label: "FAQ", target_frame_id: "faq" }
+    note: 'Quando a IAG classifica múltiplas intenções, encadeie condicionais (um por intenção) ou use um único condicional + cascata. Aqui só duas intenções → 1 condicional basta.'
+
+  - description: Condicional com labels customizadas (validação de dado)
+    input: 'Validar o e-mail digitado. Se o formato é válido, prossegue. Senão, pede pra digitar de novo.'
+    output:
+      - { kind: condicional, condition: "E-mail válido?", true_label: "Válido", false_label: "Inválido" }
+      - { kind: bot, text: "E-mail confirmado." }
+      - { kind: bot, text: "E-mail inválido. Por favor, digite novamente." }
+    note: 'Labels `"Válido"/"Inválido"` em vez de `"Verdadeiro"/"Falso"` — sempre prefira vocabulário do domínio. Após bot do FALSE, cenário geralmente volta ao `user` de input.'
+
+  - description: Cascata de regras de negócio (não é cascata FA, mas mesmo padrão)
+    input: |
+      Antes de aprovar o pedido:
+      - Se valor > R$ 1000, exige aprovação gerencial.
+      - Senão, se cliente tem score baixo, exige garantia adicional.
+      - Senão, aprova direto.
+    output:
+      - { kind: condicional, condition: "Valor > R$ 1000?", true_label: "Sim", false_label: "Não" }
+      - { kind: direcionamento, label: "Aprovação gerencial", target_frame_id: "aprovacao-gerencial" }
+      - { kind: condicional, condition: "Score baixo?", true_label: "Sim", false_label: "Não" }
+      - { kind: direcionamento, label: "Pedir garantia", target_frame_id: "garantia-adicional" }
+      - { kind: bot, text: "Pedido aprovado!" }
+    note: 'Mesma estrutura da cascata FA, mas com regras de negócio customizadas. Cada TRUE termina o cenário via `direcionamento`; o último FALSE chega no bot final de aprovação.'
+
+aiInstructions: |
+  Condicional é o componente que MAIS exige cuidado topológico — bifurcações
+  mal modeladas deixam usuários presos. Heurísticas finais:
+
+  1. **Em dúvida entre `condicional` e `menu`/`buttons`:** se o USUÁRIO vê a
+     pergunta no chat e escolhe, é `menu`/`buttons`. Se o BOT avalia
+     silenciosamente, é `condicional`. Quando o escopo diz "o bot verifica"
+     ou "se for", é condicional. Quando diz "o bot pergunta" ou "o cliente
+     escolhe", é menu/buttons.
+
+  2. **Em dúvida sobre ordem da cascata FA:** SEMPRE `feriado → fim de
+     semana → horário → disponibilidade`. Não invente, não reordene. É a
+     ordem canônica do padrão Blip.
+
+  3. **Em dúvida sobre saída FALSE de bifurcação simples:** sempre emita
+     `direcionamento` logo após o cutoff TRUE, mesmo que pareça redundante.
+     O builder precisa do `direcionamento` pra criar a edge FALSE.
+
+  4. **Em dúvida sobre AND/OR na `condition`:** quebre. `"X e Y?"` vira
+     `condicional X?` → cutoff TRUE → `condicional Y?`. Sempre atômico.
+
+  **Glossário rápido:**
+  - **TRUE/FALSE (saídas):** os 2 pontos de conexão do condicional —
+    esquerda verde (TRUE), direita vermelha (FALSE).
+  - **Cutoff TRUE:** primeiro bloco após o condicional na sequência — o
+    builder o trata como destino da saída TRUE.
+  - **`sourceHandle: 'false'`:** marca interna que o builder usa pra
+    conectar a edge FALSE quando há `direcionamento` logo após o cutoff.
+  - **Cascata FA:** sequência canônica de 4 condicionais no frame
+    `atendente` (padrão Blip/Digitalbot).
+  - **Cursor de fluxo (`lastFlowId`):** ponteiro interno do builder —
+    condicional NÃO atualiza (é parallel); após a cascata, aponta pro
+    último cutoff TRUE.

@@ -73,6 +73,7 @@ export default async function HelpPage() {
             <a href="#versoes-diff" className="text-blip-purple hover:underline">🕰️ Versões + Diff</a>
             <a href="#colaboracao" className="text-blip-purple hover:underline">👥 Colaboração (Realtime)</a>
             <a href="#configuracoes" className="text-blip-purple hover:underline">⚙️ Configurações globais</a>
+            <a href="#catalogo-componentes" className="text-blip-purple hover:underline">🧱 Catálogo de Componentes</a>
             <a href="#autenticacao" className="text-blip-purple hover:underline">🔐 Autenticação e perfis</a>
             <a href="#tour" className="text-blip-purple hover:underline">🎓 Tour de boas-vindas</a>
           </div>
@@ -247,6 +248,24 @@ export default async function HelpPage() {
               <li>🏢 <strong>Corporativo sério</strong> — B2B, governo, indústria pesada</li>
               <li>🎉 <strong>Jovem descontraído</strong> — Gaming, streaming, Gen-Z</li>
             </ul>
+          </Subsection>
+
+          <Subsection title="Editor estruturado do padrão global 🆕">
+            <p>
+              Em <Link href="/dashboard/settings" className="text-blip-purple hover:underline">Dashboard → Configurações → Voice &amp; Tone</Link>, cada preset agora tem campos detalhados em vez de só texto livre. Toggle <Kbd>✏️ Editar</Kbd> / <Kbd>👁️ Visualizar</Kbd> no header (default Visualizar pra ler com calma).
+            </p>
+            <FeatureGrid>
+              <FeatureCard emoji="🎭" title="Persona" desc="Frase curta com a 'voz' do bot (ex: 'consultor sênior', 'amiga divertida')." />
+              <FeatureCard emoji="🎯" title="Quando usar" desc="Indústrias e situações ideais pra esse tom — bullets editáveis." />
+              <FeatureCard emoji="🚫" title="Quando NÃO usar" desc="Contextos onde o tom seria errado e qual preset usar no lugar." />
+              <FeatureCard emoji="✅" title="PREFERIR" desc="Vocabulário, ritmo, marcadores positivos. Suporta markdown." />
+              <FeatureCard emoji="⚠️" title="EVITAR" desc="Gírias, formalismos, emojis em excesso, etc." />
+              <FeatureCard emoji="💬" title="Casos de uso" desc="Frases exemplares amarradas a contextos: Saudação, Confirmação, Erro, Encerramento — context + example por linha." />
+              <FeatureCard emoji="🤖" title="Descrição gerada" desc="Markdown auto-derivado dos campos acima — é o que vai pro prompt da IA. Read-only, regenerado a cada edição." />
+            </FeatureGrid>
+            <p className="text-sm text-gray-600">
+              💡 Editar qualquer campo transforma o profile em <em>custom</em> (não é mais um preset). Clique num preset pra restaurar a base. Markdown suportado nos textos: <code>**bold**</code>, <code>*italic*</code>, <code>`code`</code>, <code>[link](url)</code>, <code>- item</code>.
+            </p>
           </Subsection>
 
           <p>
@@ -503,20 +522,110 @@ export default async function HelpPage() {
           <p>
             Acesse via <Link href="/dashboard/settings" className="text-blip-purple hover:underline">Dashboard → Configurações</Link>. Preferências aplicadas a todos seus projetos novos.
           </p>
-          <ul>
-            <li>
-              <strong>👥 Gerenciamento de Acessos</strong> — visível para <em>Admin</em> e <em>Super Admin</em>.
-              Lista todos os usuários cadastrados com seu perfil de acesso. Super Admins podem alterar o perfil de qualquer usuário
-              (Edição / Admin / Super Admin) via dropdown na tabela.
-              Novos usuários entram pelo link de login com Google e chegam com perfil <em>Edição</em> por padrão.
-            </li>
-            <li><strong>Voice &amp; Tone padrão</strong> — define o tom default que projetos novos usam (override individual no editor de cada projeto)</li>
-            <li>
-              <strong>🤖 Parser IA — Prompt do sistema</strong> — visualize o prompt completo enviado ao Claude durante o parse IA de escopos.
-              Mostra modelo, tamanho, seções do prompt (framework + vocabulário YAML) e permite copiar.
-              Acesso também via botão <em>ⓘ Ver prompt</em> no dialog <em>Carregar Template → modo 🤖 IA</em>.
-            </li>
-          </ul>
+
+          <Subsection title="Sub-áreas (sidebar à esquerda) 🆕">
+            <p>
+              A página de Configurações agora tem uma <strong>sidebar de navegação vertical</strong> com sub-rotas. Cada área é um espaço próprio:
+            </p>
+            <FeatureGrid>
+              <FeatureCard
+                emoji="👥"
+                title="Gerenciamento de Acessos"
+                desc="Em /settings/acessos. Lista usuários cadastrados com perfil de acesso. Super Admins alteram perfil via dropdown. Novos usuários entram com perfil Edição. Visível só pra Admin e Super Admin."
+              />
+              <FeatureCard
+                emoji="✨"
+                title="Voice & Tone padrão"
+                desc="Em /settings/voice-tone. Editor estruturado do perfil de voz global (Persona, Quando usar/não usar, PREFERIR, EVITAR, Casos de uso). Toggle Editar/Visualizar no header. Visível pra todos os perfis."
+              />
+              <FeatureCard
+                emoji="🤖"
+                title="Parser IA"
+                desc="Em /settings/parser-ia. Visualiza o system prompt completo enviado ao Claude durante o parse IA de escopos. Modelo, tamanho, seções (framework + vocabulário YAML) e botão de copiar. Visível pra todos."
+              />
+            </FeatureGrid>
+            <p className="text-sm text-gray-600">
+              💡 <code>/dashboard/settings</code> redireciona automaticamente pra primeira área visível conforme seu perfil. Em mobile, a sidebar vira um menu horizontal scrollável no topo.
+            </p>
+          </Subsection>
+        </Section>
+
+        {/* ────────── CATÁLOGO DE COMPONENTES ────────── */}
+        <Section
+          id="catalogo-componentes"
+          emoji="🧱"
+          title="Catálogo de Componentes"
+        >
+          <p>
+            Acesse via <Link href="/dashboard/components" className="text-blip-purple hover:underline">Dashboard → Componentes</Link> (visível para <em>Admin</em> e <em>Super Admin</em>). É o catálogo de TODOS os blocos disponíveis no editor — builtins versionados no código + overrides + customs salvos no Supabase. Cada spec descreve regras, pistas de detecção, erros comuns e exemplos que alimentam tanto a UI quanto o system prompt da IA que gera fluxos a partir de escopo.
+          </p>
+
+          <Subsection title="Tipos de componentes">
+            <ul>
+              <li><strong>builtin</strong> (cinza) — versionado no git em <code>lib/component-specs/builtins/*.yaml</code>. Read-only por default. Editar cria um override.</li>
+              <li><strong>editado</strong> (âmbar) — override de um builtin, salvo no banco. Pode reverter pra voltar ao builtin original.</li>
+              <li><strong>customizado</strong> (verde) — componente criado do zero ou clonado. Pode deletar.</li>
+            </ul>
+          </Subsection>
+
+          <Subsection title="Modal de edição — duas modalidades">
+            <p>
+              No header da modal há um toggle global <Kbd>✏️ Editar</Kbd> / <Kbd>👁️ Visualizar</Kbd>:
+            </p>
+            <ul>
+              <li><strong>Visualizar</strong> (default pra builtins) — tudo renderizado como markdown polido. Inputs ficam disabled, footer só com <em>Fechar</em> + <em>Clonar como novo</em>. Foco em leitura/revisão.</li>
+              <li><strong>Editar</strong> (default pra custom/override) — textareas com markdown raw, inputs editáveis, footer com <em>Salvar</em>.</li>
+            </ul>
+            <p className="text-sm text-gray-600">
+              💡 Cada seção também tem toggle local <em>Editar / Preview</em> no canto direito do card quando você está no modo Editar global.
+            </p>
+          </Subsection>
+
+          <Subsection title="Seções de cada spec">
+            <FeatureGrid>
+              <FeatureCard emoji="🪪" title="Identidade" desc="ID (slug), nome exibido, ícone (emoji) e categoria (Mensagens / Navegação / Mídias / Integrações / IA / Estrutura)." />
+              <FeatureCard emoji="📝" title="Descrição" desc="Texto livre em markdown — explica o que é, onde se encaixa no fluxo (topologia) e constraints do canal WhatsApp." />
+              <FeatureCard emoji="✅" title="Regras de uso (verde)" desc="Bullets que a IA segue ao decidir o que emitir. Use `- texto` pra cada item." />
+              <FeatureCard emoji="🔍" title="Pistas pra detecção (roxo)" desc="Padrões textuais que indicam que o componente deve ser usado." />
+              <FeatureCard emoji="⚠️" title="Erros comuns (amber)" desc="Coisas que a IA deve EVITAR — anti-padrões e armadilhas conhecidas." />
+              <FeatureCard emoji="🧠" title="Instruções extras" desc="Apêndice livre no prompt — heurísticas, glossário, casos especiais. Colapsável." />
+            </FeatureGrid>
+          </Subsection>
+
+          <Subsection title="Markdown suportado nos textos">
+            <p>
+              Tanto na descrição quanto nas listas (regras, pistas, erros), você pode usar:
+            </p>
+            <ul>
+              <li><code>**bold**</code> → <strong>negrito</strong></li>
+              <li><code>*italic*</code> → <em>itálico</em></li>
+              <li><code>`code`</code> → <code className="bg-blip-purple/10 text-blip-purple-dark border border-blip-purple/20 px-1.5 rounded">code chip</code> em lavanda Blip</li>
+              <li><code>[texto](url)</code> → link clicável</li>
+              <li><code>- item</code> no início da linha → bullet de lista (só nas seções de lista)</li>
+            </ul>
+            <p className="text-sm text-gray-600">
+              O preview renderiza tudo num clique no toggle <em>Preview</em>. No modo Visualizar global, todas as seções já vêm renderizadas.
+            </p>
+          </Subsection>
+
+          <Subsection title="Exportar e importar specs">
+            <p>
+              Na barra de ações da página de Componentes:
+            </p>
+            <ul>
+              <li><strong>📥 Exportar</strong> — baixa um <code>.md</code> com TODOS os specs (builtins + customs + overrides) num formato editável fora.</li>
+              <li><strong>📤 Importar</strong> — lê um <code>.md</code> editado e mostra um <em>diff</em> antes de aplicar (a criar / a atualizar / sem mudanças / ausentes). Aplicação só acontece quando você clica em <em>Aplicar</em>.</li>
+            </ul>
+            <p className="text-sm text-gray-600">
+              💡 Útil pra editar specs em massa em editor externo (VS Code, Cursor) e re-importar.
+            </p>
+          </Subsection>
+
+          <Subsection title="Notificação de atualizações">
+            <p>
+              Cards com atualizações novas (vindas do banco ou de outros admins) mostram um <strong>dot vermelho pulsante</strong> no canto. O botão <em>Atualizar</em> no topo também ganha contador. Clique <em>marcar tudo como visto</em> pra zerar.
+            </p>
+          </Subsection>
         </Section>
 
         {/* ────────── AUTH ────────── */}

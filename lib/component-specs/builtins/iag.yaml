@@ -9,84 +9,272 @@ nodeType:
 flowControl: linear
 
 description: |
-  Card representando uma chamada a um modelo de LINGUAGEM (LLM) — OpenAI,
-  Claude, Gemini, etc. — pra interpretar input do usuário, classificar intenção,
-  ou gerar uma resposta.
+  Card representando uma chamada a um **modelo de linguagem (LLM)** —
+  OpenAI GPT, Anthropic Claude, Google Gemini, Llama, etc. Diferente de
+  `integracao` (API genérica), IAG é especializada em prompt + modelo +
+  temperatura + tokens, e o card renderiza esses campos de forma específica.
+  Substitui partes do fluxo determinístico quando se quer atendimento livre,
+  classificação de intenção, extração de entidades, ou geração de resposta
+  personalizada.
 
-  Três tipos:
-  - `entrada`: primeira chamada. Recebe input do usuário e classifica intenção/extrai dados.
-  - `reentrada`: chamada subsequente após uma rodada anterior (multi-turn).
-  - `saida`: gera a resposta final pro usuário usando IA.
+  **Três modos (`iag_type`):**
+  - **`entrada`**: PRIMEIRA chamada. Recebe o input livre do usuário,
+    classifica intenção ou extrai dados. É o "gate" de entrada da sessão IA.
+  - **`reentrada`**: chamada SUBSEQUENTE dentro da mesma sessão (multi-turn).
+    Carrega o histórico do contexto pra manter coerência. Use quando o cenário
+    é conversa continuada ("o usuário pode fazer perguntas seguidas").
+  - **`saida`**: ENCERRA a sessão IA. Gera a resposta final (potencialmente
+    usando todo o contexto acumulado) e devolve o controle pro fluxo
+    determinístico. A próxima edge sai de volta pra `bot`/`menu`/`direcionamento`.
 
-detectionCues:
-  - 'Menções a "IA", "GPT", "Claude", "LLM", "ChatGPT"'
-  - 'Frases "interpreta o input", "classifica a intenção", "extrai entidades"'
-  - 'NLU/NLP descrito: "entende a pergunta", "processa em linguagem natural"'
-  - 'Geração: "responde com IA", "gera resposta personalizada", "compõe mensagem"'
+  **Onde aparece no fluxo (topologia):**
+  - **Entrada** vem DEPOIS de: `user` (input livre que dispara IA), `menu`/`buttons`
+    opção "Tirar dúvidas com IA"/"Conversar"/"Pergunta livre", `condicional`
+    que classificou "intenção livre".
+  - **Reentrada** forma LOOPS: `iag-entrada` → `bot` (resposta da IA) → `user`
+    (próxima pergunta) → `iag-reentrada` → … até o usuário sair (palavra-chave,
+    timeout, intenção classificada como "encerrar").
+  - **Saída** termina a sessão IA. DEPOIS dela tipicamente vem `condicional`
+    ("usuário satisfeito?"), `direcionamento` pra `algo-mais`/`encerramento`,
+    ou `atendente` se a IA falhou em resolver.
+  - **Atualiza o cursor do fluxo** (`updatesLastFlowId: true`).
+
+  **Constraints LLM:**
+  - **Modelo**: especifique `gpt-4o`, `gpt-4o-mini`, `claude-sonnet-4`,
+    `gemini-1.5-pro`, etc. O default depende do tenant Blip.
+  - **Temperature**: `0.0` (determinístico, usado pra classificação/extração)
+    a `1.0` (criativo, usado pra resposta livre). Default = `0.3`.
+  - **Max tokens**: limite de saída por chamada. Default tipicamente 512 pra
+    resposta curta, 1024-2048 pra resposta longa. Acima disso aumenta latência
+    e custo.
+  - **Janela de contexto**: 8k-200k tokens dependendo do modelo. Multi-turn
+    longo pode estourar — use `iag-saida` pra resetar.
+  - **Custo**: cada chamada cobra por token de entrada + saída. Reentrada
+    cara pra conversa muito longa — modelar `condicional` de saída ("já entendeu?")
+    pra evitar loops infinitos.
+  - **Latência**: 1-5s por chamada em condições normais. Acima disso o usuário
+    percebe demora — coloque `bot "Pensando…"` antes ou use streaming se o
+    canal suportar.
 
 usageRules:
-  - 'Use `iag_type: "entrada"` quando o input livre do usuário é processado pela IA pela primeira vez'
-  - 'Use `iag_type: "reentrada"` quando há rodadas de conversa com a IA (followup, esclarecimento)'
-  - 'Use `iag_type: "saida"` quando a IA GERA a resposta que o bot envia (em vez de texto fixo)'
-  - 'Diferencie de `integracao`: integracao é API genérica de backend; iag é prompt pra LLM'
+  - '**Use `iag_type: "entrada"`** quando o input livre do usuário é processado pela IA pela PRIMEIRA VEZ na sessão. Tipicamente: classificar intenção, extrair entidades, decidir rota.'
+  - '**Use `iag_type: "reentrada"`** quando há rodadas adicionais de conversa com a IA dentro do mesmo cenário — followup, esclarecimento, dúvidas em cascata. Forma LOOP com `bot` + `user` no meio.'
+  - '**Use `iag_type: "saida"`** APENAS pra encerrar formalmente a sessão IA — limpa contexto, devolve controle pro fluxo determinístico. NÃO confunda com "saída do LLM" no sentido de resposta gerada; isso é só o output de qualquer iag.'
+  - '**Diferencie de `integracao`**: integração é API genérica de backend (CRM, planilha, CEP). IAG é especificamente prompt pra LLM, com `system_prompt`, `model`, `temperature`, `max_tokens`. Se o serviço externo NÃO é nominalmente um LLM, é `integracao`.'
+  - '**Use temperatura BAIXA (0.0–0.2)** pra classificação/extração — quer resposta determinística. Use temperatura MÉDIA-ALTA (0.5–0.9) pra geração livre ("resposta personalizada", "atendimento conversacional").'
+  - '**Sempre defina `system_prompt`** quando o escopo descreve um papel ("o bot atende como suporte técnico", "responde como vendedor consultor"). Sem system_prompt o LLM responde genérico.'
+  - '**Output deve ter NOME claro** ({intencao}, {entidades}, {resposta}) — o próximo bloco (condicional/bot) usa esse placeholder. Sem nome claro, o builder não sabe pra onde rotear.'
+  - '**Loop multi-turn precisa de saída.** Reentrada infinita = bot preso + custo descontrolado. Modele sempre uma `condicional` que rompe o loop ("usuário disse `obrigado`/`tchau`?", "intenção = encerrar?") ou um número máximo de rodadas.'
+  - '**IAG NÃO pode ser bloco final solto**. Sempre conecte: `bot` (renderiza a `{resposta}`), `condicional` (decide se continua o loop ou sai), `direcionamento` (`algo-mais`, `encerramento`, `atendente`).'
+
+detectionCues:
+  - '**Menções explícitas a IA/LLM**: "IA", "GPT", "Claude", "Gemini", "LLM", "ChatGPT", "modelo de linguagem", "IA generativa", "Copilot", "Blip AI".'
+  - '**Verbos NLU/NLP**: "interpreta o input", "classifica a intenção", "extrai entidades", "entende a pergunta", "processa em linguagem natural", "compreende o que o cliente quer".'
+  - '**Geração livre**: "responde com IA", "gera resposta personalizada", "compõe mensagem baseada no perfil", "elabora uma sugestão", "redige".'
+  - '**Atendimento conversacional**: "o cliente pode fazer perguntas livres", "conversa aberta", "tira dúvidas com IA", "fala naturalmente", "atendimento por IA".'
+  - '**Classificação multi-classe**: "classifica entre: agendamento, suporte, cancelamento" (lista de intenções) — clássico de `iag-entrada` com temperatura baixa.'
 
 commonMistakes:
-  - 'Confundir com `integracao` quando o sistema externo é uma IA'
-  - 'Não distinguir entrada vs reentrada vs saida — fica genérico demais'
+  - '**Confundir `iag` com `integracao` quando o serviço externo é uma IA.** Mesmo que o LLM esteja "atrás de uma API REST", o componente certo é `iag` — ele tem campos específicos (prompt, model, temperature) que `integracao` não tem.'
+  - '**Não distinguir entrada vs reentrada vs saida — fica genérico demais.** Em cenário de conversa multi-turn, a PRIMEIRA chamada é `entrada`, as do MEIO são `reentrada`, e o ENCERRAMENTO formal é `saida`. Em cenário de classificação simples (1 chamada só), use `entrada` e siga pra `condicional`/`bot`.'
+  - '**Esquecer de modelar saída do loop multi-turn.** Reentrada sem regra de parada = loop infinito + custo crescente. Sempre acompanhe de `condicional` que detecta "usuário quer sair" ou contador de rodadas.'
+  - '**Usar temperatura alta pra classificação.** Classificação precisa ser determinística — temperatura 0.0–0.2. Temperatura alta em classificação = respostas inconsistentes entre chamadas idênticas.'
+  - '**Tratar resposta da IA como bubble bot inline.** Errado: emitir `bot` com texto fixo + nota "(IA gera isso)". Certo: emitir `iag-saida` que produz `{resposta}` + `bot` que renderiza `"{resposta}"` literal — o runtime substitui.'
+  - '**Modelar IA pra cenário com fluxo determinístico claro.** Se o escopo já define perguntas estruturadas e respostas fixas, NÃO use IAG — use `menu`/`buttons`/`condicional`. IAG é pra texto livre e ambiguidade real.'
+  - '**Confundir cenário de IA com cenário com IA.** "O bot atende com IA" → IAG. "O bot consulta a IA pra validar texto" + retorna pro fluxo fixo → também IAG, mas só nessa etapa específica; o resto continua determinístico.'
 
 fields:
   iag_type:
     type: string
     required: true
     enum: ['entrada', 'reentrada', 'saida']
-    description: Tipo de chamada à IA
+    description: Modo da chamada à IA — entrada (primeira), reentrada (loop multi-turn) ou saida (encerra sessão IA)
     default: 'entrada'
+    aiHint: '`entrada` = primeira chamada do usuário com a IA. `reentrada` = chamada no meio de loop conversacional. `saida` = encerra formalmente a sessão IA (devolve controle pro fluxo determinístico). Em cenário de 1 chamada só, sempre `entrada`.'
   title:
     type: string
     required: true
-    description: Nome curto da chamada
-    aiHint: 'Ex: "Classificar intenção", "Extrair dados do pedido", "Gerar resposta personalizada"'
+    description: Nome curto da chamada (label do card)
+    aiHint: 'Verbo + substantivo: "Classificar intenção", "Extrair dados do pedido", "Gerar resposta personalizada", "Atendimento livre", "Responder dúvida". Evite frase longa ou descrição genérica como "Chamar IA".'
   fields:
     type: array
     itemType: object
     required: false
-    description: Campos da chamada (prompt, input, output)
-    aiHint: 'Chaves padrão: "prompt", "input", "model", "temperature", "output"'
+    description: Campos da chamada (system_prompt, input, model, temperature, max_tokens, output)
+    aiHint: 'Chaves padronizadas: `system_prompt`, `prompt`, `input`, `model`, `temperature`, `max_tokens`, `output`. Pelo menos `system_prompt` ou `prompt` deve estar presente — sem eles o LLM responde genérico. Se o escopo não detalha, deixe vazio e o usuário configura no painel.'
     fields:
       label:
         type: string
         required: true
-        description: Label humano
+        description: Label humano legível. Ex "System prompt", "Modelo", "Temperatura", "Output"
       key:
         type: string
         required: true
-        description: Chave técnica
+        description: Chave técnica. Ex `system_prompt`, `prompt`, `input`, `model`, `temperature`, `max_tokens`, `output`
       value:
         type: string
         required: true
-        description: Valor
+        description: Valor (pode conter placeholders entre chaves)
 
 builderRules:
   edgeFromPrevious: true
   updatesLastFlowId: true
 
 examples:
-  - description: Classificação de intenção
+  - description: Classificação de intenção (entrada, temperatura baixa)
     input: 'A IA classifica a intenção do cliente entre: agendamento, suporte, cancelamento.'
     output:
       kind: iag
       iag_type: entrada
       title: "Classificar intenção"
       fields:
+        - { label: "System prompt", key: "system_prompt", value: "Você é um classificador. Retorne apenas uma das três classes: agendamento, suporte, cancelamento. Nenhum texto adicional." }
         - { label: "Input", key: "input", value: "{texto livre do cliente}" }
-        - { label: "Output", key: "output", value: "agendamento | suporte | cancelamento" }
+        - { label: "Modelo", key: "model", value: "gpt-4o-mini" }
+        - { label: "Temperatura", key: "temperature", value: "0.0" }
+        - { label: "Output", key: "output", value: "{intencao}" }
+    note: '1 chamada só → `entrada`. Temperatura 0.0 pra determinismo. System prompt restringe formato da resposta. Output `{intencao}` é consumido por `condicional` ou roteamento seguinte (`switch case {intencao}`).'
 
-  - description: Geração de resposta personalizada
-    input: 'O bot usa IA pra gerar uma resposta personalizada baseada no perfil do cliente.'
+  - description: Atendimento conversacional multi-turn (loop entrada + reentrada)
+    input: |
+      O cliente conversa livremente com a IA tirando dúvidas sobre o produto.
+      Quando o cliente disser "obrigado" ou "tchau", a sessão encerra.
+    output:
+      - { kind: user, text: "{primeira pergunta livre}" }
+      - kind: iag
+        iag_type: entrada
+        title: "Atendimento conversacional"
+        fields:
+          - { label: "System prompt", key: "system_prompt", value: "Você é um assistente de suporte da loja MarcaX. Responda de forma cordial, em PT-BR, em até 3 frases." }
+          - { label: "Input", key: "input", value: "{primeira pergunta livre}" }
+          - { label: "Modelo", key: "model", value: "gpt-4o" }
+          - { label: "Temperatura", key: "temperature", value: "0.5" }
+          - { label: "Output", key: "output", value: "{resposta}" }
+      - { kind: bot, text: "{resposta}" }
+      - { kind: user, text: "{próxima pergunta}" }
+      - { kind: condicional, condition: "Cliente disse `obrigado` ou `tchau`?", true_label: "Encerrar", false_label: "Continuar" }
+      - kind: iag
+        iag_type: reentrada
+        title: "Continuar atendimento"
+        fields:
+          - { label: "Input", key: "input", value: "{próxima pergunta}" }
+          - { label: "Output", key: "output", value: "{resposta}" }
+    note: 'Loop multi-turn: entrada → bot → user → condicional → reentrada (volta pro bot). A `condicional` ROMPE o loop quando o usuário sinaliza encerramento. Sem ela, o loop é infinito. Reentrada herda system_prompt e model da entrada — só passa `input` e recebe `output`.'
+
+  - description: Geração de resposta personalizada (saida com temperatura média)
+    input: 'O bot usa IA pra gerar uma resposta personalizada baseada no perfil do cliente e na última mensagem.'
     output:
       kind: iag
       iag_type: saida
       title: "Gerar resposta personalizada"
       fields:
-        - { label: "Input", key: "input", value: "{perfil + última mensagem}" }
+        - { label: "System prompt", key: "system_prompt", value: "Você é um vendedor consultor da loja MarcaX. Use o perfil pra adaptar tom e oferta." }
+        - { label: "Input", key: "input", value: "Perfil: {perfil}. Última mensagem: {ultima_msg}." }
         - { label: "Modelo", key: "model", value: "gpt-4o" }
+        - { label: "Temperatura", key: "temperature", value: "0.7" }
+        - { label: "Max tokens", key: "max_tokens", value: "300" }
+        - { label: "Output", key: "output", value: "{resposta}" }
+    note: 'Geração livre → temperatura 0.7. `iag-saida` porque encerra a sessão IA — o próximo bloco é `bot "{resposta}"` que renderiza e o fluxo segue determinístico (provavelmente `direcionamento` pra `algo-mais`).'
+
+  - description: Extração de entidades (entrada estruturada)
+    input: 'A IA extrai do texto do cliente: nome, telefone, email, interesse.'
+    output:
+      kind: iag
+      iag_type: entrada
+      title: "Extrair dados do cliente"
+      fields:
+        - { label: "System prompt", key: "system_prompt", value: "Extraia do texto: nome, telefone, email, interesse. Retorne JSON com essas 4 chaves. Se algum campo faltar, use null." }
+        - { label: "Input", key: "input", value: "{texto livre do cliente}" }
+        - { label: "Modelo", key: "model", value: "gpt-4o-mini" }
+        - { label: "Temperatura", key: "temperature", value: "0.0" }
+        - { label: "Output", key: "output", value: "{cliente: {nome, telefone, email, interesse}}" }
+    note: 'Extração estruturada — modelo barato, temperatura zero, output JSON. Após este IAG vem tipicamente `condicional "Todos os campos preenchidos?"` que ramifica pra pedir os faltantes via `bot`+`user` determinísticos.'
+
+  - description: IAG seguida de condicional + direcionamento pra Falar com Atendente quando a IA falha
+    input: |
+      A IA tenta resolver a dúvida do cliente.
+      Se conseguir, mostra a resposta. Se não, passa pra atendente humano.
+    output:
+      - kind: iag
+        iag_type: entrada
+        title: "Tentar resolver dúvida com IA"
+        fields:
+          - { label: "System prompt", key: "system_prompt", value: "Resolva a dúvida em até 3 frases. Se não souber a resposta com confiança, retorne exatamente `ESCALAR`." }
+          - { label: "Input", key: "input", value: "{duvida do cliente}" }
+          - { label: "Temperatura", key: "temperature", value: "0.2" }
+          - { label: "Output", key: "output", value: "{resposta}" }
+      - { kind: condicional, condition: "Resposta = `ESCALAR`?", true_label: "Sim, escalar", false_label: "Não, resolveu" }
+      - { kind: bot, text: "{resposta}" }
+      - { kind: direcionamento, label: "Escalar pra atendente", target_frame_id: "atendente" }
+    note: 'Cutoff TRUE = "escalar" → bloco seguinte (`bot {resposta}`) é o caminho FALSE; `direcionamento` logo após é o caminho TRUE. Direcionamento aponta pro frame `atendente` (skill FA) — NÃO usa `atendimento-humano` inline. (Padrão parser IA — `aprendizados_parser_ia.md` regra #13.)'
+
+  - description: Cenário pós-IAG que termina e direciona pra Encerramento
+    input: |
+      [Conversa IA resolveu a dúvida]
+      Bot: Espero que isso tenha ajudado!
+      [Cenário acaba — encerra com avaliação]
+    output:
+      - kind: iag
+        iag_type: saida
+        title: "Resposta final ao cliente"
+        fields:
+          - { label: "Input", key: "input", value: "{ultima_pergunta}" }
+          - { label: "Output", key: "output", value: "{resposta}" }
+      - { kind: bot, text: "{resposta}" }
+      - { kind: bot, text: "Espero que isso tenha ajudado!" }
+      - { kind: direcionamento, label: "Encerrar", target_frame_id: "encerramento" }
+    note: 'IAG-saida fecha a sessão IA, bot renderiza a resposta + agradecimento, direcionamento salta pra skill EN (avaliação + feedback livre). Não duplicar a avaliação inline.'
+
+  - description: Dúvidas em loop com cap de rodadas (proteção anti-custo)
+    input: |
+      O cliente faz até 5 perguntas livres pra IA.
+      Se passar de 5 rodadas, oferece atendente humano.
+    output:
+      - { kind: condicional, condition: "Rodadas IA < 5?", true_label: "Sim", false_label: "Não" }
+      - kind: iag
+        iag_type: reentrada
+        title: "Próxima pergunta"
+        fields:
+          - { label: "Input", key: "input", value: "{pergunta}" }
+          - { label: "Output", key: "output", value: "{resposta}" }
+      - { kind: direcionamento, label: "Excedeu rodadas — atendente", target_frame_id: "atendente" }
+    note: 'Cap explícito de rodadas via `condicional` evita custo descontrolado. Caminho FALSE direciona pra `atendente`. Cutoff TRUE = "ainda dentro do cap" → continua o loop.'
+
+aiInstructions: |
+  IAG é poderoso e caro — use com critério. Heurísticas finais:
+
+  1. **Em dúvida entre `iag` e `integracao`:** se o serviço externo é
+     nominalmente um LLM/IA generativa (GPT, Claude, Gemini, Llama, "modelo
+     de linguagem"), use `iag`. Qualquer outro serviço (CRM, ERP, planilha,
+     CEP, BFF, "API interna" sem qualificar como IA) é `integracao`.
+  2. **Em dúvida entre `iag` e fluxo determinístico (`menu`/`condicional`):**
+     se o escopo descreve perguntas ESTRUTURADAS com respostas FIXAS, use
+     determinístico — IAG é overkill e mais cara. Use IAG quando há texto
+     livre real e ambiguidade que precisa de NLU.
+  3. **Em dúvida sobre `entrada` vs `reentrada` vs `saida`:**
+     - 1 chamada só → sempre `entrada`.
+     - Múltiplas chamadas no mesmo cenário (multi-turn): primeira é `entrada`,
+       as do meio são `reentrada`, a última (se encerrar formalmente) é `saida`.
+     - Se a sessão IA "se diluir" sem encerramento explícito (ex: terminou e o
+       fluxo segue), use `entrada` na única chamada — sem `saida`.
+  4. **Em dúvida sobre temperatura:** classificação/extração = 0.0–0.2;
+     resposta consultiva = 0.3–0.6; geração criativa = 0.7–1.0. Default geral
+     0.3.
+  5. **Sempre que houver loop multi-turn,** modele a SAÍDA explicitamente —
+     `condicional` que detecta encerramento (palavra-chave, intenção, cap de
+     rodadas). Loop sem saída é bug.
+  6. **IAG no fim do cenário sempre conecta** — `bot {resposta}` renderiza,
+     `direcionamento` salta pra skill (AM/FA/EN). IAG solta no final = resposta
+     gerada e descartada.
+
+  **Glossário rápido:**
+  - **LLM**: Large Language Model — GPT, Claude, Gemini, Llama, etc.
+  - **system_prompt**: instrução de papel que vai na primeira posição do
+    contexto do LLM — define personalidade, formato de resposta, restrições.
+  - **temperature**: 0.0 = determinístico (mesma resposta sempre); 1.0 =
+    criativo (varia entre chamadas).
+  - **token**: unidade de cobrança/contexto do LLM (~0.75 palavra em PT-BR).
+  - **multi-turn**: conversa com múltiplas rodadas — entrada + N reentradas.
+  - **AM/FA/EN**: skills reusadas — Algo Mais (`algo-mais`), Falar com Atendente
+    (`atendente`), Encerramento (`encerramento`). Cenários IAG que terminam
+    direcionam pra elas em vez de duplicar.

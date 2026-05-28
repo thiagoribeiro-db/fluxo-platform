@@ -26,9 +26,47 @@ export type VoicePresetId =
 export type VoiceSeverity = 'low' | 'medium' | 'high';
 
 /**
- * Profile salvo (no localStorage por projeto). O `preset` indica o
- * template base; `description` é o texto que vai pro system prompt
- * da IA (pode ser editado pelo usuário se quiser customizar um preset).
+ * Caso de uso contextualizado — uma frase exemplo amarrada a uma situação.
+ */
+export interface VoiceUseCase {
+  /** Contexto da situação. Ex: "Saudação inicial", "Confirmação", "Erro/desculpa". */
+  context: string;
+  /** Exemplo concreto da frase nesse contexto, no tom desejado. */
+  example: string;
+}
+
+/**
+ * Conteúdo estruturado do tom — adicionado em 2026-05 pra enriquecer a UI
+ * e o prompt da IA. Os campos viram seções renderizadas em markdown no
+ * editor, e também são concatenados em `description` (legacy) pra
+ * compatibilidade com analisadores antigos.
+ *
+ * Todos opcionais — profiles legacy só com `description` continuam funcionando.
+ */
+export interface VoiceStructuredContent {
+  /** Frase curta descrevendo a "persona" do bot nesse tom (ex: "consultor sênior", "amiga divertida"). */
+  persona?: string;
+  /** Indústrias/situações onde esse tom se encaixa bem. */
+  whenToUse?: string[];
+  /** Contextos onde esse tom seria errado ou contraproducente. */
+  whenNotToUse?: string[];
+  /** Coisas a PREFERIR — vocabulário, ritmo, marcadores positivos. */
+  dos?: string[];
+  /** Coisas a EVITAR — gírias, formalismos, emojis em excesso, etc. */
+  donts?: string[];
+  /** Frases exemplares amarradas a contextos (saudação, erro, confirmação...). */
+  useCases?: VoiceUseCase[];
+}
+
+/**
+ * Profile salvo (no localStorage por projeto e/ou no DB no perfil global do user).
+ * O `preset` indica o template base; `description` é o texto que vai pro system
+ * prompt da IA (pode ser editado pelo usuário se quiser customizar um preset).
+ *
+ * O campo `structured` (adicionado em 2026-05) tem os mesmos dados quebrados
+ * em seções — usado pela UI estruturada. `description` permanece como fonte
+ * canônica pro prompt da IA (gerada/sincronizada a partir de `structured` quando
+ * presente).
  */
 export interface VoiceProfile {
   preset: VoicePresetId;
@@ -36,6 +74,8 @@ export interface VoiceProfile {
   description: string;
   /** Exemplos de mensagens que representam o tom (1-3 frases). */
   examples?: string[];
+  /** Conteúdo estruturado (persona, dos, donts, etc.) — opcional, retrocompatível. */
+  structured?: VoiceStructuredContent;
 }
 
 /**

@@ -6,72 +6,191 @@ nodeType: link
 flowControl: linear
 
 description: |
-  Card que referencia uma URL externa (site, app, documento, formulário).
-  Renderiza como uma "link preview" do WhatsApp: ícone 🔗 + título + descrição
-  opcional + URL completa. Suporta sender bot ou user.
+  Componente que materializa uma URL externa (site institucional, app store,
+  formulário, documento online, política, FAQ). No WhatsApp Cloud API, este
+  componente é renderizado como **CTA URL Button** (`interactive.cta_url`) —
+  um botão azul fixo abaixo de uma mensagem com label clicável (ex: "Abrir
+  link", "Baixar app", "Solicitar cartão"). Ao tocar, o cliente WhatsApp
+  abre o URL no navegador in-app, fora do contexto do bot.
 
-  Use quando o documento descreve EXPLICITAMENTE o envio de um link, ou quando
-  uma frase do bot é dominada por um URL (ex: "🔗 {link do site}").
+  Visualmente, no canvas o nó aparece como um card 🔗 com título + URL —
+  no preview do WhatsApp vira a CTA button azul logo abaixo da mensagem
+  do bot (ou inline na timeline, conforme a versão do cliente).
 
-detectionCues:
-  - 'Texto entre `{ }` que claramente é um link: `{link do site}`, `{link iOS / Android}`, `{link de cadastro}`, `{URL oficial}`'
-  - 'Frase do bot que é PRINCIPALMENTE um URL, com ou sem texto curto antes ("🔗 https://...", "Acesse: https://...")'
-  - 'Menção a "documentação", "site oficial", "página de cadastro", "formulário" acompanhada de URL ou placeholder'
-  - 'Linhas com emoji 🔗 ou "https://" como elemento dominante'
+  **Onde aparece no fluxo (topologia):**
+  - Vem normalmente DEPOIS de: `bot` (texto explicativo antes do link), saída
+    de `condicional`, retorno de `integracao`/`iag`, branch específico de
+    `buttons`/`menu`/`btn-long` (link como resposta a uma escolha).
+  - Vem ANTES de: `direcionamento` (cenário termina e salta pro AM/EN), `bot`
+    (próxima mensagem do bot complementando o link), `user` (raro — quando o
+    bot envia link e espera input livre depois).
+  - **Atualiza o cursor do fluxo** (`updatesLastFlowId: true`): a próxima
+    edge sai DESTE nó link.
+  - **Pode aparecer como anexo de cenário** quando uma opção de `menu`/`buttons`
+    leva a um material externo (ex: "Baixar app" → bot explicativo + link).
+
+  **Constraints WhatsApp Cloud API (CTA URL Button):**
+  - **1 único CTA URL button por mensagem** (`interactive.cta_url`) — não
+    pode ser combinado com `interactive.button` (quick-reply) na mesma message.
+  - **Label do botão**: até **20 chars** (mesmo limite de quick-reply, vai
+    no campo `display_text` da API).
+  - **URL**: até **2000 chars**; deve incluir protocolo `https://` (ou
+    `http://`); URLs sem protocolo são rejeitadas pela API.
+  - **Renderização**: botão azul "Abrir link" (ou label custom) fixo abaixo
+    da bubble — clicar abre o navegador in-app do WhatsApp.
+  - **Placeholders `{var}`**: o runtime substitui no momento do envio; se a
+    URL final não tiver protocolo válido, a Meta rejeita o template.
+  - **Não suporta tracking pixel direto**: pra medir cliques, use redirect
+    server-side (ex: `https://link.marca.com/abrir?u=...`) que registra e
+    redireciona — o WhatsApp não envia webhook de "URL clicada".
 
 usageRules:
-  - 'Use `link` em vez de `bot` quando o conteúdo da mensagem é DOMINADO por um URL'
-  - 'Se o bot manda um link com texto explicativo ANTES ("Baixe o app: {link}"), separe: 1 bloco `bot` com o texto + 1 bloco `link` com o URL'
-  - 'Preserve placeholders em `{}` no campo `url` se o documento não tem a URL real'
-  - 'O `linkTitle` é o que aparece em destaque no card — use texto curto e claro ("Acessar site", "Baixar app", "Solicitar cartão")'
+  - '**Use `link` quando o conteúdo DOMINANTE da mensagem é o URL**. Se a fala do bot é apenas "🔗 {link do site}" ou "Acesse: https://...", esse é o caso típico de `link`.'
+  - '**Separe bot + link quando há texto explicativo ANTES do URL**. "Baixe o app na loja: {link}" → 1 `bot` ("Baixe o app na loja:") + 1 `link` (URL). NÃO embuta a URL dentro do texto de uma bubble bot.'
+  - '**Preserve placeholders EXATOS no campo `url`**. `{link do site}`, `{link iOS / Android}`, `{URL oficial}` — não invente URL real, não traduza chave, não complete com `https://` se vier sem protocolo no escopo (o runtime/template resolve).'
+  - '**`linkTitle` é o LABEL do botão azul** (CTA), não a URL. Use verbos de ação curtos: "Acessar site", "Baixar app", "Solicitar cartão", "Abrir formulário". Máximo 20 chars (limite Meta).'
+  - '**Link vem normalmente do BOT** — `sender: bot` é default. Use `sender: user` APENAS quando o documento explicita que o cliente compartilhou um URL (raro em WhatsApp — usuários quase sempre compartilham via texto bruto, não como CTA).'
+  - '**Link como anexo a uma escolha de menu/buttons** segue o padrão: a opção é botão de quick-reply (vira `direcionamento` na ordem), e o link é o conteúdo que aparece NO frame de destino. Não ponha o link como filho direto do botão.'
+  - '**Link NUNCA é bloco final solto em cenário ativo**. Após o link, conecte com `direcionamento` pro próximo frame (`algo-mais`, `encerramento`) — link sem saída = fluxo morto, igual bot solto.'
+  - '**NÃO use `link` pra navegação INTERNA do bot.** Se o usuário precisa "voltar ao menu" ou "ir pra outro fluxo", isso é `direcionamento` (edge interna), não `link` (CTA externa que abre o navegador).'
+
+detectionCues:
+  - '**Placeholder em chaves que claramente é URL**: `{link do site}`, `{link iOS / Android}`, `{link de cadastro}`, `{URL oficial}`, `{link app store}`, `{política de privacidade}`.'
+  - '**URL literal `http(s)://`** como elemento dominante de uma fala do bot, com ou sem texto curto antes ("🔗 https://...", "Acesse: https://docs.exemplo.com").'
+  - '**Emoji 🔗 ou 📱 seguido de URL/placeholder** — sinal forte de link externo no padrão Digitalbot.'
+  - '**Verbos de CTA externa**: "Acesse", "Baixe", "Cadastre-se em", "Confira em", "Solicite em", "Abra o link", "Toque pra abrir" — seguidos de URL/placeholder.'
+  - '**Menções a recursos externos com URL**: "documentação", "site oficial", "página de cadastro", "formulário", "loja Android/iOS", "termos e condições", "política de privacidade" — quando vêm com URL/placeholder ao lado.'
+  - '**Stand-alone entre colchetes/chaves**: `[Acessar app]`, `{link para abertura de conta}` — tipicamente vira `link` com label sugerido.'
 
 commonMistakes:
-  - 'Embutir URL dentro do texto de um bubble bot em vez de criar um link separado'
-  - 'Esquecer de definir `sender` (default `bot` se omitido)'
-  - 'Colocar a URL no `linkTitle` em vez do `url`'
+  - '**Embutir URL dentro do texto de um bubble bot.** Errado: `{ kind: bot, text: "Baixe o app: https://app.marca.com" }`. Certo: 1 `bot` "Baixe o app:" + 1 `link` com a URL. A CTA URL Button é uma render distinta, separe os blocos.'
+  - '**Colocar a URL no `linkTitle` em vez do `url`**. `linkTitle` é o LABEL ("Baixar app", "Solicitar cartão"), `url` é o destino (`{link iOS / Android}` ou `https://...`). Misturar quebra a renderização.'
+  - '**Esquecer `sender`** — apesar do default ser `bot`, sempre considere o contexto. Cliente quase nunca envia link como CTA; se o doc diz "cliente envia URL", o mais provável é que seja texto cru, não componente `link`.'
+  - '**Confundir `link` (CTA URL externa) com `btn-long` (quick-reply interno).** `link` ABRE NAVEGADOR; `btn-long` envia uma resposta de volta pro bot. Veja a matriz de decisão no aiInstructions.'
+  - '**Usar `link` pra navegação interna entre frames.** "Voltar ao menu" / "Ir pro próximo passo" = `direcionamento` (edge interna). `link` é EXCLUSIVO pra URLs externas.'
+  - '**Sub-bullet ou linha indentada com URL** sendo tratada como nova bubble independente. Sub-bullets com indentação pertencem ao bullet pai — o URL faz parte da mesma fala (vira `link` no MESMO frame, não em frame separado). [Bug histórico do parser IA — regra #12 hierárquica.]'
+  - '**Combinar CTA URL Button com quick-reply na mesma mensagem.** A Meta rejeita: `interactive.cta_url` é mutuamente exclusivo com `interactive.button`. Se você precisa de CTA URL + opções de menu, EMITA em mensagens SEPARADAS (link primeiro, depois bot+buttons).'
 
 fields:
   url:
     type: string
     required: true
-    description: URL alvo (pode ser placeholder em chaves se o documento não tem a URL real)
-    aiHint: 'Preserve placeholders como `{link do site}`. Inclua `https://` se vier sem protocolo.'
+    description: URL de destino do CTA (pode ser placeholder `{...}` quando o escopo não tem URL real)
+    aiHint: 'Preserve EXATAMENTE como veio: `{link do site}`, `{link iOS / Android}`, ou `https://...`. NÃO complete com `https://` se vier placeholder — quem resolve é o runtime/template. Se vier URL real sem protocolo (raro), prefixe `https://`. Limite Meta: 2000 chars.'
   linkTitle:
     type: string
     required: true
-    description: Título exibido em destaque no card (CTA curto)
-    aiHint: 'Texto curto e direto: "Acessar site", "Baixar app", "Solicitar cartão". Default: "Acessar link".'
+    description: Label do botão CTA (texto azul clicável "Abrir link", até 20 chars)
+    aiHint: 'Verbo de ação CURTO no imperativo: "Acessar site", "Baixar app", "Solicitar cartão", "Abrir formulário", "Ver termos". Máximo **20 chars** (limite WhatsApp `display_text`). Default razoável: "Acessar link". NÃO coloque a URL aqui.'
   linkDescription:
     type: string
     required: false
-    description: Descrição curta opcional (1-2 linhas)
+    description: Descrição auxiliar opcional (não vai pro WhatsApp, só ajuda no canvas/documentação interna)
+    aiHint: 'Opcional. Use 1-2 frases descrevendo o conteúdo do link ("Página oficial da marca", "Cadastro do cartão"). Não confunda com bubble bot — isso é metadado interno, não vai pro usuário final.'
   sender:
     type: string
     enum: ['bot', 'user']
     default: 'bot'
-    description: Quem envia o link (bot ou usuário)
+    description: Quem envia o link (bot é o caso quase universal; user é raro)
+    aiHint: 'Default `bot`. Use `user` SOMENTE quando o documento explicita "cliente compartilhou o link X" ou similar — situação rara em WhatsApp.'
 
 builderRules:
   edgeFromPrevious: true
   updatesLastFlowId: true
 
 examples:
-  - description: Link de cadastro do cartão
+  - description: Link pra app store (iOS/Android) com texto explicativo antes
+    input: |
+      Bot: Baixe nosso app na loja do seu celular.
+      📱 {link iOS / Android}
+    output:
+      - { kind: bot, text: "Baixe nosso app na loja do seu celular." }
+      - { kind: link, url: "{link iOS / Android}", linkTitle: "Baixar app", sender: bot }
+    note: 'Texto explicativo + URL = SEPARE em 2 blocos. O placeholder `{link iOS / Android}` fica intacto — runtime resolve baseado no device do usuário.'
+
+  - description: Link de cadastro do cartão (URL placeholder dominante)
     input: 'Bot: 🔗 {link oficial para solicitação do cartão junto à administradora}'
     output:
-      kind: link
-      url: "{link oficial para solicitação do cartão junto à administradora}"
-      linkTitle: "Solicitar cartão"
-      sender: bot
+      - { kind: link, url: "{link oficial para solicitação do cartão junto à administradora}", linkTitle: "Solicitar cartão", sender: bot }
+    note: 'Mensagem dominada por URL/placeholder, sem texto adicional relevante — vira 1 bloco `link` direto. O `linkTitle` resume o CTA.'
 
-  - description: Texto + link como blocos separados
-    input: 'Bot: Baixe o app na loja do seu celular.\n📱 {link iOS / Android}'
+  - description: Link com URL literal HTTPS e descrição
+    input: 'Bot: Confira nossa documentação completa: https://docs.marca.com/inicio'
     output:
-      - { kind: bot, text: "Baixe o app na loja do seu celular." }
+      - { kind: bot, text: "Confira nossa documentação completa:" }
+      - { kind: link, url: "https://docs.marca.com/inicio", linkTitle: "Documentação", sender: bot }
+    note: 'URL real com protocolo + texto explicativo antes — 2 blocos. Label curto "Documentação" cabe nos 20 chars.'
+
+  - description: Link como anexo a uma escolha de menu (cenário com buttons)
+    input: |
+      Bot: Onde você quer fazer o pedido?
+      - Pelo app
+      - Pelo site
+
+      (Se escolher "Pelo app")
+      Bot: Baixe na loja: {link iOS / Android}
+
+      (Se escolher "Pelo site")
+      Bot: Acesse: {link do site oficial}
+    output:
+      - { kind: bot, text: "Onde você quer fazer o pedido?" }
+      - { kind: buttons, options: ["Pelo app", "Pelo site"] }
+      - { kind: bot, text: "Baixe na loja:" }
       - { kind: link, url: "{link iOS / Android}", linkTitle: "Baixar app", sender: bot }
+      - { kind: bot, text: "Acesse:" }
+      - { kind: link, url: "{link do site oficial}", linkTitle: "Acessar site", sender: bot }
+    note: 'Cada branch do `buttons` tem seu próprio link como conteúdo. Builder conecta `options[i]` → blocos do branch via padrão buttons→dirs (regra #14 parser IA). Cenário termina nos links — em produção, cada branch deveria ter `direcionamento` pra `algo-mais` no fim.'
 
-  - description: Link explícito com descrição
-    input: 'Bot: Confira nossa documentação: https://docs.exemplo.com/inicio'
+  - description: Link pra termos e condições antes de aceitar
+    input: |
+      Bot: Para continuar, leia nossos termos:
+      🔗 {link dos termos e condições}
+      - Aceitar termos
     output:
-      - { kind: bot, text: "Confira nossa documentação:" }
-      - { kind: link, url: "https://docs.exemplo.com/inicio", linkTitle: "Documentação", sender: bot }
+      - { kind: bot, text: "Para continuar, leia nossos termos:" }
+      - { kind: link, url: "{link dos termos e condições}", linkTitle: "Ver termos", sender: bot }
+      - { kind: btn-long, label: "Aceitar termos" }
+    note: 'IMPORTANTE: CTA URL e quick-reply NÃO coexistem na mesma mensagem (limite Meta). O builder emite 2 mensagens distintas — primeiro o link, depois o `btn-long`. Visualmente o cliente recebe 2 bubbles.'
+
+  - description: Link pra política de privacidade dentro do frame de cadastro
+    input: 'Bot: Consulte nossa política de privacidade antes de cadastrar: {URL política}'
+    output:
+      - { kind: bot, text: "Consulte nossa política de privacidade antes de cadastrar:" }
+      - { kind: link, url: "{URL política}", linkTitle: "Ver política", sender: bot }
+    note: 'Padrão "leia antes de prosseguir" — link puro com CTA "Ver política". Label dentro dos 20 chars.'
+
+  - description: Cenário que termina com link → direcionar pra Algo Mais depois
+    input: |
+      Bot: Aqui está o link pra acompanhar seu pedido:
+      🔗 {link de rastreio}
+      Bot: Posso te ajudar com mais alguma coisa?
+    output:
+      - { kind: bot, text: "Aqui está o link pra acompanhar seu pedido:" }
+      - { kind: link, url: "{link de rastreio}", linkTitle: "Acompanhar pedido", sender: bot }
+      - { kind: direcionamento, label: "Algo mais?", target_frame_id: "algo-mais" }
+    note: 'O bot "Posso te ajudar com mais alguma coisa?" sinaliza skill AM — NÃO duplicar inline, direcionar pro frame `algo-mais`. Link não pode ser bloco final solto.'
+
+aiInstructions: |
+  Link Externo (CTA URL Button) é o componente certo SEMPRE que o bot precisa
+  expor um URL clicável ao cliente. Heurísticas finais:
+
+  1. **Em dúvida entre `link` e `bot` puro:** se a fala TEM um URL (literal ou placeholder), use `link`. URL no meio do texto é raro e prejudica o tracking — separe.
+  2. **Em dúvida sobre 1 ou 2 blocos:** se há texto explicativo ANTES do URL, separe em `bot` + `link`. Se a fala é dominada pelo URL (ex: "🔗 {link}"), 1 bloco `link` basta.
+  3. **Em dúvida sobre `linkTitle`:** prefira verbo de ação curto no imperativo ("Baixar app", "Acessar site"). Default seguro: "Acessar link".
+  4. **Em dúvida sobre o destino do CTA:** se for navegação INTERNA do bot (próximo frame, voltar ao menu), use `direcionamento`. Se for URL EXTERNA (abre navegador), use `link`. Nunca confunda os dois.
+
+  **Decision matrix — `link` (CTA URL) vs `btn-long` (quick-reply local):**
+
+  | Caso | Componente | Por quê |
+  |------|------------|---------|
+  | "Acessar nosso site" / "Baixar app" / URL externa | `link` | Abre navegador, sai do contexto do bot |
+  | "Aceitar termos" / "Continuar" / "Iniciar atendimento" | `btn-long` | Envia resposta de volta pro bot, segue no fluxo |
+  | "Ver mais ofertas" (próximo frame interno) | `direcionamento` | Navegação interna entre frames, sem botão de mensagem |
+  | "Solicitar cartão" — URL pra portal externo | `link` | URL externa, mesmo que pareça um CTA "interno" |
+  | "Falar com atendente" | `direcionamento` pra `atendente` (frame FA) | Skill reusada, NUNCA `atendimento-humano` inline |
+
+  **Glossário rápido:**
+  - **CTA URL Button** (`interactive.cta_url`): tipo de interactive message do WhatsApp Cloud API com 1 botão azul que abre URL no navegador.
+  - **quick-reply** (`interactive.button`): botão que envia resposta de volta pro bot, NÃO abre URL — esse é o `btn-long`/`btn-short`.
+  - **placeholder**: chave entre `{ }` que o runtime substitui em execução — preserve LITERAL.
+  - **AM/FA/EN**: skills reusadas — Algo Mais (`algo-mais`), Falar com Atendente (`atendente`), Encerramento (`encerramento`). Link nunca duplica essas skills, sempre direciona pro frame correto no final do cenário.

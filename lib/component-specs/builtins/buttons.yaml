@@ -6,60 +6,101 @@ nodeType: btn-short
 flowControl: parallel
 
 description: |
-  Linha de 2 ou 3 botões curtos dispostos LADO A LADO. Cada botão é um
-  quick-reply (`interactive.button`) do WhatsApp Cloud API.
+  Linha de **2 ou 3 botões curtos** dispostos LADO A LADO. Cada botão é um
+  quick-reply (`interactive.button`) da WhatsApp Cloud API. Visualmente: uma
+  row horizontal sob a última bubble do bot, com botões clicáveis pequenos.
 
-  ⚠️ O limite oficial Meta é **3 quick-replies por mensagem TOTAL**, somando
-  btn-short + btn-long (ambos são `interactive.button`, diferem só na
-  render visual do canvas).
+  É o componente de escolha intermediário entre `btn-long` (1 opção, CTA
+  único de linha inteira) e `menu` (4-10 opções, modal vertical). A escolha
+  é DETERMINÍSTICA pelo número de opções, não pelo estilo do escopo.
 
-  Diferente do `menu` (modal com lista vertical), `buttons` é uma row
-  horizontal e cria BRANCHES PARALELOS no fluxo — cada botão leva a um
-  caminho diferente.
+  Cada botão cria um BRANCH PARALELO no fluxo — diferente de `menu` que tem
+  saídas direcionadas pelo cursor, os botões criam handles separados, e o
+  builder conecta `direcionamento`s 1:1 pela ORDEM dos `options`. Por isso o
+  `flowControl: parallel`: `buttons` NÃO atualiza o cursor de fluxo
+  (`updatesLastFlowId: false`).
 
-detectionCues:
-  - 'Lista de 2 ou 3 itens, geralmente precedida por uma pergunta'
-  - 'Padrão Sim/Não, A/B, ou A/B/C'
-  - 'Botões/escolhas curtas (uma palavra ou frase pequena cada)'
+  **Limite oficial Meta:** **3 quick-replies por mensagem TOTAL**, somando
+  btn-short + btn-long no mesmo nó pai (ambos são `interactive.button`,
+  diferem só no layout visual do canvas — não na semântica da API).
+
+  **Onde aparece no fluxo (topologia):**
+  - Vem normalmente DEPOIS de: um `bot` (que faz a pergunta), saída de
+    `condicional`, retorno de `integracao`/`iag`, ou opção de `menu`/`buttons`
+    anterior (sub-níveis raros).
+  - Vem ANTES de: vários `direcionamento` (um por opção, MESMA ORDEM — regra
+    1:1 do builder), `bot` (quando todas as opções convergem na mesma resposta),
+    ou `condicional` (quando 1 opção dispara validação).
+  - **NÃO atualiza o cursor do fluxo** (`updatesLastFlowId: false`): cada
+    botão é um branch separado. O builder usa `lastButtonIds[]` pra rastrear
+    os IDs dos botões e conectar `direcionamento`s subsequentes pela posição
+    (ver `aprendizados_parser_ia.md` bug #3 — ligação por botão, não pelo pai).
+  - **Side-effect no bot/menu anterior**: o builder ADICIONA um `tracking`
+    com sufixo `_selecao` no bloco que fez a pergunta (lado esquerdo), pra
+    rastrear que o usuário escolheu uma opção.
+
+  **Constraints WhatsApp Cloud API:**
+  - **Label** (texto do botão): até **20 chars** — limite hard da Cloud API.
+  - **Máximo 3 quick-replies por mensagem** (soma btn-short + btn-long).
+  - **Formatação**: NÃO suporta `*bold*`/`_italic_` nos labels — texto puro.
+  - **Pergunta (body)**: até 4096 chars no bot anterior (ou inline via campo
+    `question` quando curta).
+  - **Variáveis**: labels NÃO aceitam placeholders `{var}` — devem ser texto
+    estático (o WhatsApp não renderiza variáveis em quick-reply text).
 
 usageRules:
-  - 'Use APENAS quando há 2 OU 3 opções. Pra 4+ é `menu`. Pra 1 é `btn-long`.'
-  - 'Limite Meta: cada label até **20 chars**; **máximo 3 quick-replies por mensagem** (soma btn-short + btn-long).'
-  - 'A `question` é opcional: se preenchida, gera UM bubble-bot ANTES da row de botões. Use quando a pergunta é curta e cabe inline.'
-  - 'Se a pergunta é longa ou tem várias frases, separe: 1 bloco `bot` (pergunta) + 1 bloco `buttons` (sem question, só options)'
-  - 'Os botões NÃO atualizam o cursor de fluxo (são branches paralelos). O próximo bloco semântico vai conectar via `direcionamento` ou re-convergir.'
+  - '**Use APENAS quando há 2 OU 3 opções.** Pra 4+, use `menu` (modal vertical). Pra 1, use `btn-long` (CTA único). A regra é DETERMINÍSTICA pelo número de opções. Tabela completa: 1 → `btn-long`, 2-3 → `buttons`, 4-10 → `menu`, 11+ → subdivida.'
+  - '**Limite Meta**: cada `label` até **20 chars**; **máximo 3 quick-replies por mensagem** somando btn-short + btn-long no mesmo nó pai. Se o escopo lista 4 opções curtas, NÃO force buttons — vire menu.'
+  - '**A `question` é opcional**: se preenchida, gera UM bubble-bot ANTES da row de botões. Use SÓ quando a pergunta é uma frase curta inline. Se a pergunta é longa, tem placeholders ou múltiplas frases, separe em: 1 bloco `bot` separado + 1 bloco `buttons` (sem question, só options).'
+  - '**Os botões NÃO atualizam o cursor de fluxo** (são branches paralelos — `flowControl: parallel`). O próximo bloco semântico vai conectar via `direcionamento` (um por opção, mesma ORDEM) ou re-convergir num `bot` único que todas as opções compartilham.'
+  - '**Direcionamentos 1:1 pela ORDEM, não pelo nome.** `options[0]` → `direcionamento[0]`, `options[1]` → `direcionamento[1]`, etc. O builder usa POSIÇÃO. Manter a ordem das `options` sincronizada com a ordem dos `direcionamento` é crítico (ver `aprendizados_parser_ia.md` bug #3 — buttons→dirs conectam 1:1 pelos botões, não pelo pai).'
+  - '**Sequência lógica obrigatória `bot → buttons → direcionamento` (ou `bot`).** NUNCA emita edge direta `bot_pergunta → bot_resposta` em paralelo aos botões — quebra a regra de sequência lógica (ver `feedback_sequencia_logica.md`): o caminho do usuário SEMPRE passa pelos botões no meio, nunca atalha.'
+  - '**NÃO duplique skills reutilizáveis nas opções inline.** Se o escopo tem `buttons` com opções tipo `["Sim, falar com atendente", "Não"]`, a opção "atendente" direciona pro frame **FA** (skill), nunca usa `atendimento-humano` inline. Se uma opção é "Finalizar", direciona pro frame **EN** (`encerramento`). A skill **AM** (Algo Mais) é um caso PARTICULAR de buttons (3 opções: Voltar/Atendente/Finalizar) — quando o escopo descreve essa estrutura, é a skill AM e direciona pra ela.'
+  - '**Para padrão Sim/Não que segue em DIREÇÕES diferentes**, emita: bot pergunta + buttons `["Sim","Não"]` + 2 direcionamentos (um pra cada resposta). NÃO use `condicional` pra Sim/Não originado de botão — `condicional` é pra validação de variável/contexto, botão JÁ é a escolha do usuário.'
+
+detectionCues:
+  - '**Lista de 2 ou 3 itens** geralmente precedida por uma pergunta — sinal mais forte. Padrões: `- Sim / - Não`, `- A / - B / - C`, `- Aceitar / - Recusar`.'
+  - '**Padrão binário Sim/Não** após pergunta fechada do bot ("Deseja...", "Posso...", "Tudo certo?").'
+  - '**Padrão ternário curto** após pergunta com 3 alternativas claras ("Pernambuco/Paraíba/Bahia", "Pequeno/Médio/Grande").'
+  - '**Botões/escolhas curtas** com labels de uma palavra ou frase pequena cada (uma palavra, máximo 2-3 palavras).'
+  - '**CTAs de confirmação dupla** ("Confirmar", "Cancelar") ou tripla ("Sim, prosseguir", "Não, voltar", "Falar com atendente").'
 
 commonMistakes:
-  - 'Usar buttons pra 4+ opções (deveria ser menu)'
-  - 'Esquecer de adicionar os direcionamentos/próximos passos pra cada branch'
-  - 'Duplicar a pergunta: emitir 1 `bot` E preencher `question` (escolha um caminho)'
+  - '**Usar buttons pra 4+ opções.** Errado: buttons com 5 labels (a Cloud API rejeita — limite 3). Certo: vire `menu`.'
+  - '**Esquecer de adicionar os direcionamentos/próximos passos pra cada branch.** Errado: emitir só os buttons e seguir com um único bot. Certo: emitir 1 direcionamento por opção (mesma ordem). Sem direcionamentos, os botões viram cliques que não vão a lugar nenhum.'
+  - '**Duplicar a pergunta**: emitir 1 `bot` E também preencher `question`. Errado: bot "Deseja continuar?" + buttons `question: "Deseja continuar?"`. Escolha UM caminho: ou pergunta no bot anterior, ou inline via `question`.'
+  - '**Labels que excedem 20 chars.** Errado: `"Sim, quero receber as ofertas"` (29 chars — Cloud API rejeita). Certo: `"Quero ofertas"` ou `"Sim"`. Abrevie/simplifique pro limite Meta.'
+  - '**Usar `condicional` em vez de buttons pra Sim/Não originado de pergunta.** Botão JÁ é a escolha — `condicional` é pra validar variável de contexto (ex: "É feriado?", "Cliente é VIP?"). Errado: bot "Deseja ofertas?" + condicional `condition: "deseja_ofertas == sim"`. Certo: bot + buttons `["Sim", "Não"]`.'
+  - '**Direcionamentos em ORDEM ERRADA** (não 1:1 com options). Errado: `options: ["Sim","Não"]` seguido de `direcionamento[0]: "Não"`, `direcionamento[1]: "Sim"`. O builder conecta pela ORDEM — não pelo label. Mantenha sincronizado.'
+  - '**Usar `atendimento-humano` inline numa opção de buttons.** Errado: buttons `["Continuar", "Falar com atendente"]` + 2º direcionamento pro nó `atendimento-humano`. Certo: o 2º direcionamento aponta pro frame **`atendente`** (skill FA), que tem a cascata de validações antes do atendimento-humano efetivo.'
+  - '**Tratar sub-bullet aninhado como opção do buttons.** Sub-bullets recuados PERTENCEM ao bullet pai — não são botões adicionais (ver `aprendizados_parser_ia.md` bug #1, hierarquia de marcadores).'
 
 fields:
   question:
     type: string
     required: false
-    description: 'Pergunta opcional que antecede os botões. Se preenchida, vira um bubble-bot ANTES da row.'
-    aiHint: 'Use apenas pra perguntas curtas inline. Pra perguntas longas, prefira 1 bloco `bot` separado + `buttons` só com options.'
+    description: 'Pergunta opcional que antecede os botões. Se preenchida, gera um bubble-bot ANTES da row.'
+    aiHint: 'Use apenas pra perguntas curtas inline (frase única, sem placeholders). Pra perguntas longas, com `{var}` ou múltiplas frases, prefira 1 bloco `bot` separado + `buttons` só com options. NUNCA preencha `question` se já há um `bot` anterior com a mesma pergunta — vira duplicação.'
   options:
     type: array
     itemType: string
     required: true
-    description: Lista de 2 ou 3 labels de botão
-    aiHint: 'Mantenha labels CURTOS (máximo 20 chars — limite oficial WhatsApp). Preserve texto e ordem do documento.'
+    description: Lista de 2 ou 3 labels de botão (texto curto exibido em cada quick-reply)
+    aiHint: 'Mantenha labels CURTOS (máximo 20 chars — limite hard WhatsApp). Preserve texto e ORDEM do documento — o builder conecta direcionamentos 1:1 pela posição (`options[i]` → `direcionamento[i]`). Texto puro (sem markdown), sem placeholders `{var}`.'
 
 builderRules:
   edgeFromPrevious: true  # cada botão recebe edge do bloco anterior
-  updatesLastFlowId: false  # parallel — não atualiza cursor
+  updatesLastFlowId: false  # parallel — não atualiza cursor (branches paralelos)
   sideEffectOnPrevious:
     whenPreviousIsKind: ['bot', 'menu']
     addChild:
       nodeType: tracking
       labelTemplate: "{{slug(previous.text || previous.header)}}_selecao"
       relativePosition: { x: -256, y: 0 }
-      description: 'Tracking de seleção — adicionado ao bot/menu anterior quando há botões abaixo'
+      description: 'Tracking de seleção — ADICIONADO AO bot/menu ANTERIOR (não aos buttons) pra rastrear que o usuário clicou uma das opções.'
 
 examples:
-  - description: Sim/Não inline
+  - description: Sim/Não inline (caso canônico — 2 opções)
     input: |
       Bot: Deseja receber ofertas?
       - Sim
@@ -67,8 +108,14 @@ examples:
     output:
       - { kind: bot, text: "Deseja receber ofertas?" }
       - { kind: buttons, options: ["Sim", "Não"] }
+      - { kind: direcionamento, label: "Sim", target_frame_id: "ofertas-sim" }
+      - { kind: direcionamento, label: "Não", target_frame_id: "ofertas-nao" }
+    note: |
+      2 opções → buttons. SEMPRE seguidas de 1 direcionamento por opção, na MESMA ORDEM
+      (`options[0]: "Sim"` → `direcionamento[0]: "Sim"`). Sem direcionamentos, os
+      botões viram cliques sem destino.
 
-  - description: Localidade com 2 opções (cada uma leva a uma mídia diferente)
+  - description: Localidade com 2 opções (cada uma leva a mídia diferente)
     input: |
       Em qual estado você está?
       - Pernambuco
@@ -81,8 +128,147 @@ examples:
       - { kind: buttons, options: ["Pernambuco", "Paraíba"] }
       - { kind: media, media_kind: documento, sender: bot, caption: "Encarte Pernambuco" }
       - { kind: media, media_kind: documento, sender: bot, caption: "Encarte Paraíba" }
+    note: |
+      Cada botão pode levar a respostas DIFERENTES (não convergentes). Aqui Pernambuco→encarte PE,
+      Paraíba→encarte PA. As mídias seguem a ordem das options pelo builder (regra 1:1).
 
-  - description: Buttons com question inline (forma alternativa)
+  - description: Buttons com question inline (forma alternativa pra pergunta curta)
     input: 'Deseja continuar? (Sim/Não)'
-    output: { kind: buttons, question: "Deseja continuar?", options: ["Sim", "Não"] }
-    note: 'Quando a pergunta é uma única frase curta, `question` inline é OK'
+    output:
+      - { kind: buttons, question: "Deseja continuar?", options: ["Sim", "Não"] }
+      - { kind: direcionamento, label: "Sim", target_frame_id: "continuar" }
+      - { kind: direcionamento, label: "Não", target_frame_id: "encerramento" }
+    note: |
+      Pergunta curta inline → `question` direto no buttons (sem bot separado).
+      Note: "Não" direciona pro frame **EN** (`encerramento`) — skill de fechamento,
+      não duplica inline.
+
+  - description: 3 opções com "Falar com atendente" → direcionar pra FA (não atendimento-humano inline)
+    input: |
+      Bot: Como deseja prosseguir?
+      - Continuar compra
+      - Voltar ao menu
+      - Falar com atendente
+    output:
+      - { kind: bot, text: "Como deseja prosseguir?" }
+      - { kind: buttons, options: ["Continuar compra", "Voltar ao menu", "Falar com atendente"] }
+      - { kind: direcionamento, label: "Continuar compra", target_frame_id: "compra" }
+      - { kind: direcionamento, label: "Voltar ao menu", target_frame_id: "menu-principal" }
+      - { kind: direcionamento, label: "Falar com atendente", target_frame_id: "atendente" }
+    note: |
+      "Falar com atendente" SEMPRE direciona pro frame **FA** (`atendente`), que faz
+      a cascata de 4 condicionais (feriado / fim de semana / horário / disponibilidade)
+      antes do `atendimento-humano`. NUNCA usa `atendimento-humano` inline na opção.
+
+  - description: Skill AM canônica — 3 opções de continuação (Voltar/Atendente/Finalizar)
+    input: |
+      Bot: Posso te ajudar com algo mais?
+      - Voltar ao menu
+      - Falar com atendente
+      - Finalizar
+    output:
+      - { kind: bot, text: "Posso te ajudar com algo mais?" }
+      - { kind: buttons, options: ["Voltar ao menu", "Falar com atendente", "Finalizar"] }
+      - { kind: direcionamento, label: "Voltar ao menu", target_frame_id: "menu-principal" }
+      - { kind: direcionamento, label: "Falar com atendente", target_frame_id: "atendente" }
+      - { kind: direcionamento, label: "Finalizar", target_frame_id: "encerramento" }
+    note: |
+      Essa é a estrutura INTERNA da skill **AM** (frame `algo-mais`), construída UMA vez
+      no fluxo. Em CENÁRIOS EXTERNOS que terminam perguntando "algo mais", emita apenas
+      `direcionamento` pro frame `algo-mais` em vez de duplicar este conteúdo.
+
+  - description: Cenário ERRADO — buttons pra 4 opções (deveria ser menu)
+    input: |
+      Bot: Selecione:
+      - Opção A
+      - Opção B
+      - Opção C
+      - Opção D
+    output:
+      - { kind: bot, text: "Selecione:" }
+      - kind: menu
+        header: "Selecione"
+        options: ["Opção A", "Opção B", "Opção C", "Opção D"]
+    note: |
+      4 opções NUNCA viram buttons — a Cloud API rejeita (limite 3 quick-replies).
+      Vire `menu` (modal vertical). Regra determinística: 2-3 → buttons, 4+ → menu.
+
+  - description: Cenário ERRADO — buttons sem direcionamentos depois (fluxo morto)
+    input: |
+      Bot: Confirma?
+      - Sim
+      - Não
+    output:
+      - { kind: bot, text: "Confirma?" }
+      - { kind: buttons, options: ["Sim", "Não"] }
+      - { kind: direcionamento, label: "Sim", target_frame_id: "confirmacao-sim" }
+      - { kind: direcionamento, label: "Não", target_frame_id: "confirmacao-nao" }
+    note: |
+      Esquecer os direcionamentos abaixo é um dos erros mais comuns. Sem eles, o
+      usuário clica mas o bot não vai a lugar nenhum → fluxo morto. SEMPRE 1
+      direcionamento por opção, mesma ordem.
+
+  - description: Cenário ERRADO — sub-bullet tratado como opção do buttons
+    input: |
+      Bot: Qual perfil?
+      - Pessoa Física
+        - CPF próprio
+        - CPF de terceiro
+      - Pessoa Jurídica
+    output:
+      - { kind: bot, text: "Qual perfil?" }
+      - { kind: buttons, options: ["Pessoa Física", "Pessoa Jurídica"] }
+    note: |
+      Sub-bullets recuados PERTENCEM ao bullet pai (ver `aprendizados_parser_ia.md`
+      bug #1) — não são opções adicionais do buttons. O detalhe "CPF próprio/terceiro"
+      pode aparecer DENTRO do frame `pessoa-fisica` como pergunta subsequente.
+
+aiInstructions: |
+  Buttons é o componente de escolha pra LISTAS CURTAS (2-3 opções). Heurísticas finais:
+
+  1. **Decisão entre buttons / menu / btn-long é DETERMINÍSTICA pelo número:**
+     - 1 opção → `btn-long` (CTA único, linha inteira)
+     - 2-3 opções → `buttons` (row horizontal de quick-replies)
+     - 4-10 opções → `menu` (modal vertical)
+     - 11+ opções → divida ou agrupe em sections de menu
+     Não escolha pelo "estilo" do escopo, escolha pela CONTAGEM.
+
+  2. **SEMPRE emita os direcionamentos pós-buttons** — um por opção, MESMA ORDEM
+     das `options`. O builder conecta 1:1 pela posição (`options[i]` → `direcionamento[i]`).
+     Esquecer os direcionamentos = botões mortos.
+
+  3. **Question inline OU bot separado, nunca os dois.** Pergunta curta cabe em
+     `question`. Pergunta longa ou com placeholder → bot separado.
+
+  4. **Labels até 20 chars.** Limite hard da Cloud API — abrevie se necessário.
+
+  5. **Skill AM tem buttons de 3 opções (Voltar/Atendente/Finalizar) dentro do
+     frame `algo-mais`** — nunca duplique inline. Em cenários externos, emita
+     `direcionamento` pra AM.
+
+  6. **"Falar com atendente" nas opções SEMPRE direciona pro frame FA** (skill
+     `atendente`), que tem a cascata de 4 condicionais. Nunca usa
+     `atendimento-humano` inline.
+
+  7. **Sequência lógica obrigatória `bot → buttons → direcionamento`** — nunca
+     emita edge direta `bot_pergunta → bot_resposta` em paralelo aos botões
+     (ver `feedback_sequencia_logica.md`).
+
+  8. **Buttons NÃO atualiza o cursor de fluxo** (`updatesLastFlowId: false`).
+     O builder usa `lastButtonIds[]` pra rastrear handles e conectar
+     direcionamentos pela ORDEM (bug histórico do parser corrigido — ver
+     `aprendizados_parser_ia.md` #3).
+
+  **Glossário rápido:**
+  - **quick-reply**: botão clicável do `interactive.button` da Cloud API — escolha fechada,
+    JÁ é a resposta do usuário (não precisa de `user` depois).
+  - **row**: linha horizontal de 2-3 botões lado a lado, sob a última bubble.
+  - **branch paralelo** (`flowControl: parallel`): cada botão é uma saída independente, com
+    handle próprio — diferente de `menu` (saída única do nó pai).
+  - **direcionamento 1:1**: cada botão conecta a UM direcionamento subsequente, pela
+    ORDEM (não pelo nome) — `options[i]` → `direcionamento[i]`.
+  - **cursor de fluxo** (`lastFlowId`): buttons NÃO atualiza — branches ficam em paralelo.
+    Builder usa `lastButtonIds[]` pra rastrear handles individuais.
+  - **AM/FA/EN**: skills reusadas — Algo Mais (`algo-mais`), Falar com Atendente (`atendente`),
+    Encerramento (`encerramento`). A skill AM tem buttons de 3 opções como seu núcleo;
+    opções "Falar com atendente"/"Finalizar" em cenários externos direcionam pra FA/EN.

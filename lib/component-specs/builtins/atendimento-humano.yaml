@@ -6,52 +6,178 @@ nodeType: atendimento-humano
 flowControl: leaf
 
 description: |
-  Marca o TRANSBORDO do fluxo automatizado para um humano. Visualmente é
-  uma pílula compacta laranja vibrante com ícone 👤.
+  Marca o **TRANSBORDO EFETIVO** do fluxo automatizado para um humano.
+  Visualmente é uma pílula compacta laranja vibrante com ícone 👤 — o
+  ponto EXATO do canvas onde o bot encerra e o atendente humano assume
+  o controle da conversa.
 
-  Diferente do `direcionamento` "Falar com atendente" (que é um botão/salto
-  pra outro frame), este componente marca o PONTO EXATO onde o bot encerra
-  e o humano assume o controle da conversa.
+  Diferente do `direcionamento` `"Falar com atendente"` (que é um salto
+  pra outro frame), este componente é o **terminal real do bot** — quando
+  o fluxo chega aqui, o cliente sai da automação e entra na fila/sala do
+  atendente humano.
 
-detectionCues:
-  - 'Frases como "o cliente entra em atendimento humano", "inicia atendimento humanizado", "transbordo para humano"'
-  - 'Após "Falar com atendente" ser selecionado e o bot já ter feito o handoff'
-  - 'Em frames de transbordo, após o bot dizer "vou te conectar com um atendente"'
-  - 'Marcadores no escopo como "{início do atendimento humanizado}", "humano assume", "fila de atendentes"'
+  **Onde aparece no fluxo (topologia):**
+  - **REGRA FORTE:** `atendimento-humano` **SÓ aparece DENTRO do frame FA**
+    (Falar com atendente, `frame_id: atendente`), e **APENAS DEPOIS** da
+    cascata de 4 condicionais (feriado → fim de semana → horário →
+    disponibilidade). É o último bloco da saída FALSE do 4º condicional.
+  - Vem DEPOIS de: `bot` (mensagem de transição, opcional) + saída FALSE
+    do 4º `condicional` da cascata (`atendente disponível?` → FALSE não...
+    o componente é o que acontece quando há atendente disponível, ou seja,
+    a saída TRUE da cascata completa).
+  - Vem ANTES de: nada — é **folha terminal** (`flowControl: leaf`).
+    Quando renderiza, o fluxo automatizado acabou. **NÃO emite** edges
+    de saída.
+  - **NÃO atualiza o cursor de fluxo** (`updatesLastFlowId: false`) — é
+    terminal absoluto do fluxo bot.
+  - **Sem auto-children** — não gera tracking; é um sinalizador puro de
+    handoff.
+
+  **Cenários externos NUNCA emitem `atendimento-humano` direto.** Quando
+  o escopo descreve "o cliente quer falar com atendente", emite
+  `direcionamento target_frame_id="atendente"` — o frame FA resolve a
+  cascata de validações e, se passar por todas, chega no
+  `atendimento-humano`. Esse padrão é canônico do Blip/Digitalbot e está
+  documentado nas memórias `padrao_falar_com_atendente.md`.
+
+  **Constraints Blip Builder:**
+  - O componente vira um nó especial no fluxo Blip (handoff/transbordo
+    de fato), com integração com a fila de atendentes da plataforma.
+  - Não tem campos de configuração além do `label` (texto exibido) —
+    a lógica real de roteamento de atendente é configurada FORA do
+    fluxo (no painel da plataforma Blip/Digitalbot).
 
 usageRules:
-  - 'Use apenas para marcar o MOMENTO real do transbordo, não para botões de menu (que viram `direcionamento` ou `buttons`)'
-  - 'Geralmente é o ÚLTIMO bloco do frame de transbordo — terminal do fluxo automatizado'
-  - 'Não confundir com `direcionamento target_frame_id="atendente"` que é o SALTO pro frame; este é o transbordo EFETIVO dentro desse frame'
+  - '**REGRA FORTE — só dentro do frame FA, depois da cascata:** `atendimento-humano` SÓ pode aparecer dentro do frame `atendente` (skill FA), DEPOIS dos 4 condicionais em cascata (feriado, fim de semana, horário, disponibilidade). É a saída TRUE do 4º condicional (`atendente disponível?`).'
+  - '**Cenário externo NUNCA emite `atendimento-humano` direto.** Errado: bot diz "vou te conectar com atendente" + `atendimento-humano`. Certo: bot diz "vou te conectar com atendente" + `direcionamento target_frame_id="atendente"`. O frame FA tem a cascata e o `atendimento-humano` no fim.'
+  - '**É o ÚLTIMO bloco do frame FA** (terminal absoluto do fluxo bot). Nenhum bloco vem depois — quando o canvas chega aqui, o automatizado entregou o controle ao humano.'
+  - '**Não confundir com `direcionamento` `"Falar com atendente"`:** direcionamento é o SALTO pro frame FA. `atendimento-humano` é o HANDOFF efetivo dentro do frame FA. São coisas diferentes.'
+  - '**Label customizável mas defaults canônicos:** `"Atendimento humano"` (default), `"Início do atendimento humanizado"` (mais formal), `"Transbordo equipe"` (operacional), `"Fila SAC"` (quando há especialização de equipe). Use vocabulário do domínio se o escopo indicar.'
+  - '**Marcadores no escopo que indicam transbordo:** `{início do atendimento humanizado}`, `{transbordo}`, `[humano assume]`, `[fila de atendentes]` — esses placeholders entre `{}` ou `[]` em frames de atendente sinalizam o ponto exato do componente.'
+
+detectionCues:
+  - '**Frases explícitas de handoff:** `"o cliente entra em atendimento humano"`, `"inicia atendimento humanizado"`, `"transbordo para humano"`, `"handoff pra atendente"`, `"humano assume o controle"`. Sempre que o documento descreve a transição efetiva, é `atendimento-humano`.'
+  - '**APÓS a cascata de validações** (feriado/fim de semana/horário/disponibilidade) no frame FA — o componente é o terminal da cascata quando todas as 4 validações passam.'
+  - '**Marcadores placeholders no escopo:** `{início do atendimento humanizado}`, `{transbordo}`, `[atendimento humano]`, `[fila SAC]` — anotações entre `{}` ou `[]` em frames de atendente.'
+  - '**Bot de transição imediatamente antes:** `"Certo! Vou te direcionar para um dos nossos atendentes."` ou `"Em alguns instantes um atendente fará seu atendimento."` — o bloco SEGUINTE é geralmente `atendimento-humano`.'
+  - '**Especificações operacionais:** menções a `"fila de atendentes"`, `"equipe de SAC"`, `"setor responsável"` no contexto de "o que acontece quando passa pelo bot" — sinaliza handoff ali.'
 
 commonMistakes:
-  - 'Usar `atendimento-humano` em vez de `direcionamento` no menu principal (deveria ser direcionamento)'
-  - 'Esquecer de marcar o transbordo no frame de "Falar com atendente" — deixa o fluxo sem ponto claro de handoff'
+  - '**Usar `atendimento-humano` no menu principal ou em cenário externo.** Errado: opção "Falar com atendente" do menu emite `atendimento-humano` direto. Certo: opção emite `direcionamento target_frame_id="atendente"` — frame FA resolve a cascata e termina em `atendimento-humano`. Vide memória `padrao_falar_com_atendente`.'
+  - '**Esquecer de marcar o transbordo no frame FA.** Errado: frame `atendente` termina com bot `"Vou te conectar"` mas sem `atendimento-humano`. Resultado: fluxo automatizado fica vivo sem ponto claro de handoff — o builder Blip não sabe onde sair pra fila humana.'
+  - '**Colocar `atendimento-humano` antes da cascata de validações** dentro do frame FA. Errado: `atendimento-humano` no início do frame, antes dos condicionais — não respeita as regras de horário/feriado/disponibilidade. Certo: cascata PRIMEIRO, `atendimento-humano` no fim (saída TRUE do 4º condicional).'
+  - '**Tratar como direcionamento e dar `target_frame_id`.** Errado: tentar passar `target_frame_id` no `atendimento-humano` — é folha terminal, não tem destino. Os únicos campos são `label`.'
+  - '**Esperar que `atendimento-humano` emita edges de saída.** Errado: assumir que blocos após `atendimento-humano` continuam o fluxo. Certo: ele é terminal absoluto — qualquer bloco depois fica órfão. O fluxo automatizado ACABA aqui.'
+  - '**Usar plural ou variações no `target_frame_id` ao referenciar de fora.** Errado: `target_frame_id="atendentes"` ou `target_frame_id="atendimento-humano"`. Certo: SEMPRE `target_frame_id="atendente"` (singular, slug canônico do frame FA).'
 
 fields:
   label:
     type: string
     default: "Atendimento humano"
-    description: Texto exibido no badge
-    aiHint: 'Default "Atendimento humano". Pode customizar: "Início do atendimento humanizado", "Transbordo equipe", "Fila SAC".'
+    description: Texto exibido no badge do canvas
+    aiHint: 'Default `"Atendimento humano"`. Variações canônicas: `"Início do atendimento humanizado"` (formal), `"Transbordo equipe"` (operacional), `"Fila SAC"` (quando há especialização de equipe), `"Fila de atendentes"`. Use vocabulário do domínio se o escopo indicar.'
 
 builderRules:
   edgeFromPrevious: true
   updatesLastFlowId: false  # terminal — não atualiza cursor
 
 examples:
-  - description: Frame de transbordo termina em atendimento humano
+  - description: Frame FA completo — cascata + atendimento-humano (padrão canônico)
+    input: |
+      Frame "Falar com atendente":
+      - Verifica se é feriado → mensagem de indisponibilidade
+      - Verifica se é fim de semana → mensagem
+      - Verifica se fora do horário → mensagem
+      - Verifica se há atendente → se sim, transbordo; se não, mensagem de espera
+    output:
+      - { kind: condicional, condition: "Feriado?", true_label: "Sim", false_label: "Não" }
+      - { kind: bot, text: "Agradecemos seu contato. No momento estamos em feriado e não temos atendimento disponível." }
+      - { kind: condicional, condition: "Fim de semana?", true_label: "Sim", false_label: "Não" }
+      - { kind: bot, text: "Aos finais de semana não temos atendimento." }
+      - { kind: condicional, condition: "Fora do horário?", true_label: "Sim", false_label: "Não" }
+      - { kind: bot, text: "No momento estamos fora do nosso horário de atendimento." }
+      - { kind: condicional, condition: "Atendente disponível?", true_label: "Sim", false_label: "Não" }
+      - { kind: bot, text: "Em alguns instantes um atendente fará seu atendimento." }
+      - { kind: "atendimento-humano", label: "Início do atendimento humanizado" }
+    note: 'Padrão canônico Blip/Digitalbot — frame FA inteiro. `atendimento-humano` é o ÚLTIMO bloco, depois da cascata de 4 condicionais. Cenários externos direcionam pra `target_frame_id="atendente"` e o frame resolve.'
+
+  - description: Cenário externo NÃO usa atendimento-humano — direciona pro frame FA
+    input: 'O cliente seleciona "Falar com atendente" no menu principal.'
+    output:
+      - { kind: direcionamento, label: "Falar com atendente", target_frame_id: "atendente" }
+    note: 'REGRA FORTE: nenhum cenário fora do frame FA emite `atendimento-humano` direto. Cenários externos sempre `direcionamento target_frame_id="atendente"` — quem faz o handoff real é o frame FA, depois da cascata.'
+
+  - description: Bot de transição imediatamente antes do atendimento-humano
     input: |
       Bot: Certo! Vou te direcionar para um dos nossos atendentes.
-      Bot: 👤 {Início do atendimento humanizado}
+      [transbordo efetivo]
     output:
       - { kind: bot, text: "Certo! Vou te direcionar para um dos nossos atendentes." }
       - { kind: "atendimento-humano", label: "Início do atendimento humanizado" }
+    note: 'É comum (e desejável) ter um `bot` de aviso antes do `atendimento-humano`, pra o cliente saber que vai sair do bot. Ainda assim, esse padrão só aparece DENTRO do frame FA, depois da cascata.'
 
-  - description: Após coleta de dados, transbordo
+  - description: Variação de label — "Transbordo equipe" (operacional)
     input: |
-      Bot: Obrigada! Vou encaminhar seu atendimento para a equipe.
-      [transbordo]
+      Frame FA — ao final, após validações, faz handoff pra equipe específica.
     output:
-      - { kind: bot, text: "Obrigada! Vou encaminhar seu atendimento para a equipe." }
       - { kind: "atendimento-humano", label: "Transbordo equipe" }
+    note: 'Label customizado quando há equipes diferenciadas. Comum em fluxos B2B ou SAC especializado. Default `"Atendimento humano"` cobre 90% dos casos.'
+
+  - description: Variação de label — "Fila SAC"
+    input: |
+      Após validações, encaminha pro SAC.
+    output:
+      - { kind: "atendimento-humano", label: "Fila SAC" }
+    note: 'Label específico de domínio (SAC = Serviço de Atendimento ao Cliente). Sinaliza qual equipe recebe o handoff.'
+
+  - description: Frame FA sem bot final de transição (vai direto pro atendimento-humano)
+    input: |
+      Frame Atendente — após confirmar disponibilidade, transbordo imediato sem mensagem.
+    output:
+      - { kind: condicional, condition: "Atendente disponível?", true_label: "Sim", false_label: "Não" }
+      - { kind: "atendimento-humano", label: "Atendimento humano" }
+    note: 'Variação curta — sem bot de aviso antes do `atendimento-humano`. Aceito mas menos comum; o ideal é avisar o cliente antes do handoff. (Aqui omiti as 3 primeiras validações da cascata pra simplificar; em fluxo real são 4.)'
+
+  - description: ANTI-padrão — atendimento-humano FORA do frame FA (NÃO FAZER)
+    input: |
+      [ERRADO] Cenário "Devolução" termina com:
+      Bot: Vou te transferir pra um atendente.
+      atendimento-humano: Início do atendimento humanizado
+    output:
+      - { kind: bot, text: "Vou te transferir pra um atendente." }
+      - { kind: direcionamento, label: "Falar com atendente", target_frame_id: "atendente" }
+    note: 'Como NÃO fazer (cenário "Devolução" fora do frame FA): emitir `atendimento-humano` direto pula a cascata de validações (feriado, horário, disponibilidade) e quebra o padrão. Como FAZER: `direcionamento target_frame_id="atendente"` — frame FA aplica validações e faz handoff só quando apropriado.'
+
+aiInstructions: |
+  Atendimento humano é o componente com a REGRA MAIS FORTE do sistema —
+  use APENAS dentro do frame FA, depois da cascata. Heurísticas finais:
+
+  1. **Em dúvida se vai emitir `atendimento-humano`:** pergunte "estou
+     gerando blocos do frame FA, depois da cascata de 4 condicionais?".
+     Se NÃO, emita `direcionamento target_frame_id="atendente"` em vez
+     do `atendimento-humano`.
+
+  2. **Em dúvida sobre label:** default `"Atendimento humano"` está bom
+     pra 90% dos casos. Use variações canônicas (`"Início do atendimento
+     humanizado"`, `"Fila SAC"`, `"Transbordo equipe"`) só quando o
+     escopo explicitamente indicar especialização ou tom mais formal.
+
+  3. **Em dúvida sobre posicionamento no frame FA:** é SEMPRE o último
+     bloco do frame, depois de todos os condicionais e seus bots de
+     indisponibilidade. Nenhum bloco vem depois.
+
+  4. **Se o escopo descreve cenário externo pedindo atendente:** SEMPRE
+     `direcionamento`, NUNCA `atendimento-humano`. Esse é o erro #1 que a
+     IA precisa evitar — está documentado em `padrao_falar_com_atendente`.
+
+  **Glossário rápido:**
+  - **Transbordo/handoff:** transição do fluxo automatizado pra atendente
+    humano — o componente `atendimento-humano` marca esse ponto exato.
+  - **Frame FA:** frame `"Falar com atendente"` (prefix `FA`, frame_id
+    `atendente`), skill reusada que contém cascata de validações.
+  - **Cascata FA:** sequência de 4 condicionais antes do
+    `atendimento-humano` — feriado, fim de semana, horário, disponibilidade.
+  - **Folha terminal:** bloco que não emite edges de saída — o fluxo
+    automatizado termina ali. `atendimento-humano` é o exemplo canônico.
+  - **`target_frame_id="atendente"`:** referência canônica do frame FA
+    pelos direcionamentos externos. SEMPRE singular, slug `atendente`.

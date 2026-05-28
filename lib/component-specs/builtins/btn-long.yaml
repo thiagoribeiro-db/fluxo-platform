@@ -6,54 +6,233 @@ nodeType: btn-long
 flowControl: linear
 
 description: |
-  Quick-reply button (interactive.button do Cloud API) renderizado com
-  largura inteira no canvas. É funcionalmente IDÊNTICO ao Botão Curto —
-  ambos viram `interactive.button` no WhatsApp. A diferença é só visual:
-  btn-long é usado quando há UMA única opção/CTA, ocupando linha inteira;
-  btn-short é usado em rows de 2-3 lado-a-lado.
+  Quick-reply button (`interactive.button` da WhatsApp Cloud API) renderizado
+  com largura inteira no canvas. É **funcionalmente IDÊNTICO** ao Botão Curto
+  (`buttons` / `btn-short`) — ambos viram `interactive.button` na API, com a
+  mesma semântica de quick-reply. **A diferença é apenas VISUAL no canvas:**
 
-  ⚠️ NÃO confundir com CTA URL Button (`cta_url`) — esse abre URL externa
-  no navegador e é um componente separado (não implementado ainda).
+  - **btn-long**: usado quando há UMA única opção/CTA, ocupando linha inteira
+    (mais legível pra ações primárias destacadas tipo "Aceitar termos", "Continuar").
+  - **btn-short** (componente `buttons`): usado em rows de 2-3 botões lado a lado.
 
-  Limites WhatsApp Cloud API (válidos pra btn-long E btn-short):
-    - label: até 20 chars
-    - máximo 3 quick-replies por mensagem (soma curtos + longos)
+  No app do usuário ambos viram quick-reply pequenos sob a bubble — a largura
+  inteira do btn-long é só uma convenção de canvas pra distinguir CTAs únicos
+  visualmente. O WhatsApp NÃO mostra um "botão grande" diferente; é só layout
+  do editor.
 
-detectionCues:
-  - 'Lista com apenas 1 item após uma pergunta/instrução'
-  - 'CTAs explícitos curtos: "Continuar", "Aceitar"'
-  - 'Frase como "o usuário toca em Continuar pra avançar"'
+  ⚠️ **NÃO confundir com CTA URL Button** (`cta_url`) — esse abre URL externa
+  no navegador (link button), é um tipo distinto da Cloud API e é um componente
+  separado no Fluxo Platform (não implementado ainda). Pra link clicável dentro
+  do fluxo, use `bot` com URL no texto (a Cloud detecta auto), NÃO btn-long.
+
+  **Onde aparece no fluxo (topologia):**
+  - Vem normalmente DEPOIS de: um `bot` (que faz o convite/instrução), saída
+    de `condicional`, retorno de `integracao`/`iag`. Pode também aparecer como
+    primeiro componente "interativo" do frame quando há instrução prévia.
+  - Vem ANTES de: outro `bot` (resposta à ação), `condicional` (raro — quando
+    a ação dispara validação), `direcionamento` (quando o clique salta direto
+    pra outro frame).
+  - **Atualiza o cursor do fluxo** (`updatesLastFlowId: true`): único caso
+    entre os componentes de botão que atualiza — porque só tem uma saída (1
+    opção), o builder trata como bloco linear. Diferente de `buttons`
+    (parallel, não atualiza).
+  - **Auto-children**: não tem auto-children (o builder não gera tracking
+    automaticamente pra btn-long isolado).
+
+  **Constraints WhatsApp Cloud API:**
+  - **Label** (texto do botão): até **20 chars** — limite hard da Cloud API,
+    mesmo limite do btn-short (ambos são `interactive.button`).
+  - **Máximo 3 quick-replies por mensagem TOTAL** (soma btn-short + btn-long
+    no mesmo nó pai). Um btn-long sozinho já ocupa 1 das 3 cotas. Se houver
+    btn-long + buttons no mesmo bot, somam: 1 long + 2 short = 3 total
+    (limite atingido).
+  - **Formatação**: NÃO suporta `*bold*`/`_italic_` no label — texto puro.
+  - **Variáveis**: label NÃO aceita placeholders `{var}` — deve ser texto
+    estático (a Cloud não renderiza variáveis em quick-reply text).
 
 usageRules:
-  - 'Use APENAS quando há 1 ÚNICA opção/ação. Se houver 2-3, use `buttons`. Se 4+, use `menu`.'
-  - 'O `label` é o texto exibido no botão — geralmente um verbo de ação curto'
-  - 'Limite Meta: 20 chars no label (mesmo que btn-short, é o mesmo interactive.button)'
-  - 'Pra link externo (URL no navegador), aguarde implementação do CTA URL — NÃO use btn-long pra isso'
+  - '**Use APENAS quando há 1 ÚNICA opção/ação.** Se houver 2-3, use `buttons` (row horizontal). Se 4+, use `menu` (modal vertical). A regra é DETERMINÍSTICA pelo número de opções, não pelo estilo do escopo. Tabela completa: 1 → `btn-long`, 2-3 → `buttons`, 4-10 → `menu`, 11+ → subdivida.'
+  - '**Limite Meta**: label até **20 chars**, mesmo que btn-short (ambos `interactive.button`). Conte com cuidado: "Confirmar agendamento" (22 chars) NÃO cabe — abrevie pra "Confirmar" ou "Agendar".'
+  - '**O `label` é o texto exibido no botão** — geralmente um VERBO DE AÇÃO curto. Bom: "Continuar", "Aceitar", "Iniciar", "Confirmar", "Aceitar termos", "Sim". Ruim: "Clique aqui para aceitar nossos termos" (ultrapassa 20 chars).'
+  - '**Pra link externo (URL no navegador), NÃO use btn-long.** Aguarde implementação do CTA URL (`cta_url`) — componente separado. Enquanto isso, use `bot` com URL no texto: a Cloud API detecta `http(s)://` automaticamente e renderiza clicável.'
+  - '**btn-long atualiza o cursor de fluxo** (`updatesLastFlowId: true`) — diferente de `buttons` (parallel, não atualiza). Como só há 1 opção, o próximo bloco semântico conecta diretamente do btn-long como se fosse um nó linear.'
+  - '**btn-long e buttons COMPARTILHAM a cota de 3 quick-replies por mensagem.** Não é "3 buttons + 3 btn-long" — é "3 quick-replies totais, somando ambos os tipos". Use com parcimônia se já houver buttons na mesma bubble pai.'
+  - '**NÃO duplique skills reutilizáveis no btn-long.** Se o label fosse "Finalizar atendimento" como ação única → direcionar pra skill **EN** (frame `encerramento`), não emitir conteúdo de fechamento inline. Se fosse "Falar com atendente" como CTA único → direcionar pra skill **FA** (frame `atendente`), nunca usar `atendimento-humano` inline.'
+  - '**Não use btn-long pra Sim/Não.** Mesmo que o escopo só descreva "o usuário aceita" (parecendo 1 opção), na verdade Sim/Não é binário (2 opções). Use `buttons` com `["Sim", "Não"]` — explicita ao usuário que pode recusar.'
+
+detectionCues:
+  - '**Lista com apenas 1 item** após uma pergunta/instrução — sinal mais forte. Padrão: bot pergunta/instrui + um único `- Item` ou `> Item`.'
+  - '**CTAs explícitos curtos** com verbo de ação: "Continuar", "Aceitar", "Iniciar", "Confirmar", "Aceitar termos", "Concordo", "Avançar".'
+  - '**Frase narrativa de avanço único**: "o usuário toca em Continuar pra avançar", "para prosseguir, basta clicar em Iniciar", "ao confirmar, o atendimento começa".'
+  - '**Termos de uso / aceite de condições** — clássico caso de btn-long: bot explica os termos, btn-long "Aceitar termos" como único caminho de avanço (recusa = abandono do fluxo, sem botão).'
+
+commonMistakes:
+  - '**Usar btn-long pra 2-3 opções.** Errado: 2 btn-long seguidos pra Sim/Não. Certo: UM `buttons` com `options: ["Sim", "Não"]`. Múltiplos btn-long empilhados são visualmente piores e contam contra o limite de 3 quick-replies.'
+  - '**Label > 20 chars.** Errado: `"Confirmar agendamento da consulta"` (32 chars — Cloud API rejeita). Certo: `"Confirmar"` ou `"Agendar"`. Abrevie pro limite.'
+  - '**Usar btn-long pra link externo.** Errado: btn-long `label: "Ver site"` pretendendo abrir URL no browser — quick-reply NÃO abre URL, apenas envia o texto do label de volta ao bot. Certo: `bot` com URL no texto (`"Visite https://marca.com"`), que a Cloud detecta auto.'
+  - '**Esquecer de conectar o que vem DEPOIS do btn-long.** Diferente de buttons (que precisa direcionamento por opção), btn-long é linear — mas ainda precisa do próximo bloco semântico (`bot`, `condicional`, `direcionamento`). btn-long solto no fim = fluxo morto.'
+  - '**Duplicar a skill EN/FA no btn-long.** Errado: btn-long `label: "Finalizar"` + bot "Como avalia o atendimento?" + menu de avaliação inline. Certo: btn-long `label: "Finalizar"` + `direcionamento` pro frame `encerramento` (skill EN, que já tem a avaliação completa).'
+  - '**Confundir btn-long com CTA URL.** btn-long é quick-reply (envia texto de volta ao bot, não abre URL). CTA URL é `cta_url` da Cloud API (abre URL no navegador) — componente separado, não implementado ainda. Pra link clicável, use texto do `bot` com URL inline.'
+  - '**Tratar btn-long como pergunta opcional.** Cada btn-long é uma AÇÃO ÚNICA — não há "outra opção". Se o escopo permite o usuário recusar/voltar, são 2+ opções e deveria ser `buttons`.'
 
 fields:
   label:
     type: string
     required: true
     description: Texto do botão (quick-reply, até 20 chars)
-    aiHint: 'Comece com verbo de ação curto: "Continuar", "Aceitar", "Sim". Máximo 20 chars (limite WhatsApp).'
+    aiHint: 'Comece com verbo de ação curto: "Continuar", "Aceitar", "Iniciar", "Confirmar", "Sim", "Avançar". Máximo 20 chars (limite hard WhatsApp Cloud API). Texto puro, sem markdown (`*bold*` não renderiza), sem placeholder `{var}` (a Cloud não substitui em quick-reply text).'
 
 builderRules:
   edgeFromPrevious: true
-  updatesLastFlowId: true
+  updatesLastFlowId: true  # único quick-reply que atualiza cursor (linear, 1 opção)
 
 examples:
-  - description: Aceitar termos antes de continuar
+  - description: Aceitar termos antes de continuar (caso canônico)
     input: |
       Bot: Para continuar, é necessário aceitar nossos termos.
       - Aceitar termos
     output:
       - { kind: bot, text: "Para continuar, é necessário aceitar nossos termos." }
       - { kind: btn-long, label: "Aceitar termos" }
+    note: |
+      1 opção como CTA primário → btn-long. O label "Aceitar termos" (14 chars) cabe
+      no limite de 20. A recusa é IMPLÍCITA (cliente fecha conversa); por isso 1 opção
+      basta.
 
-  - description: CTA único curto
+  - description: CTA único curto pra iniciar atendimento
     input: |
       Bot: Tudo pronto pra começar?
       - Iniciar atendimento
     output:
       - { kind: bot, text: "Tudo pronto pra começar?" }
       - { kind: btn-long, label: "Iniciar atendimento" }
+    note: |
+      "Iniciar atendimento" (19 chars) ainda cabe no limite de 20. Se passasse,
+      abreviaria pra "Iniciar". Bot anterior dá contexto, btn-long é o trigger único.
+
+  - description: 'btn-long seguido de bot (sequência linear — flowControl: linear)'
+    input: |
+      Bot: Bem-vindo(a)! Vamos começar?
+      - Começar
+      Bot: Ótimo! Primeiro, preciso confirmar seu CPF.
+    output:
+      - { kind: bot, text: "Bem-vindo(a)! Vamos começar?" }
+      - { kind: btn-long, label: "Começar" }
+      - { kind: bot, text: "Ótimo! Primeiro, preciso confirmar seu CPF." }
+    note: |
+      btn-long é LINEAR (`updatesLastFlowId: true`) — o próximo bot conecta direto,
+      como se fosse um nó normal. Diferente de buttons (parallel) que exige
+      direcionamentos por opção.
+
+  - description: btn-long → direcionamento pra outro frame (salto após CTA único)
+    input: |
+      Bot: Tudo certo com sua compra! Deseja avaliar o atendimento?
+      - Avaliar
+    output:
+      - { kind: bot, text: "Tudo certo com sua compra! Deseja avaliar o atendimento?" }
+      - { kind: btn-long, label: "Avaliar" }
+      - { kind: direcionamento, label: "Avaliar atendimento", target_frame_id: "encerramento" }
+    note: |
+      btn-long "Avaliar" direciona pro frame **EN** (skill `encerramento`), que tem
+      a estrutura completa de avaliação + feedback livre. NUNCA duplique o menu de
+      avaliação inline.
+
+  - description: Cenário ERRADO — btn-long pra 2 opções (deveria ser buttons)
+    input: |
+      Bot: Confirma?
+      - Sim
+      - Não
+    output:
+      - { kind: bot, text: "Confirma?" }
+      - { kind: buttons, options: ["Sim", "Não"] }
+      - { kind: direcionamento, label: "Sim", target_frame_id: "sim-path" }
+      - { kind: direcionamento, label: "Não", target_frame_id: "nao-path" }
+    note: |
+      2 opções NUNCA viram dois btn-long empilhados — viram `buttons` (row horizontal).
+      Empilhar 2 btn-long é visualmente pior E conta como 2 das 3 cotas de quick-reply.
+      Regra: 1 → btn-long, 2-3 → buttons.
+
+  - description: Cenário ERRADO — label > 20 chars
+    input: |
+      Bot: Pronto pra agendar?
+      - Confirmar agendamento da consulta
+    output:
+      - { kind: bot, text: "Pronto pra agendar?" }
+      - { kind: btn-long, label: "Confirmar" }
+    note: |
+      "Confirmar agendamento da consulta" tem 32 chars — Cloud API rejeita. Abrevie
+      pro essencial: "Confirmar" (9 chars) ou "Agendar" (7 chars). O contexto vem do
+      bot anterior.
+
+  - description: Cenário ERRADO — btn-long pra link externo (deveria ser bot com URL)
+    input: |
+      Bot: Veja nossas ofertas no site:
+      - Acessar site
+    output:
+      - { kind: bot, text: "Veja nossas ofertas no site: https://marca.com/ofertas" }
+    note: |
+      Quick-reply (incluindo btn-long) NÃO abre URL no navegador — só envia o texto
+      do label de volta ao bot. Pra link clicável, use `bot` com URL inline; a Cloud
+      detecta `http(s)://` e renderiza clicável automaticamente. CTA URL real é
+      componente separado (`cta_url`, não implementado ainda).
+
+  - description: btn-long "Finalizar" como única ação → direcionar pra skill EN (não duplicar avaliação inline)
+    input: |
+      Bot: Atendimento concluído! Deseja finalizar?
+      - Finalizar
+    output:
+      - { kind: bot, text: "Atendimento concluído! Deseja finalizar?" }
+      - { kind: btn-long, label: "Finalizar" }
+      - { kind: direcionamento, label: "Finalizar", target_frame_id: "encerramento" }
+    note: |
+      "Finalizar" como CTA único → direciona pro frame **EN** (skill `encerramento`),
+      que tem o fluxo de avaliação + feedback completo. NUNCA duplique o menu de
+      avaliação ou bot "Obrigado" inline — reuso > duplicação.
+
+aiInstructions: |
+  btn-long é o componente de escolha pra UMA ÚNICA ação (CTA único). Heurísticas finais:
+
+  1. **Decisão entre btn-long / buttons / menu é DETERMINÍSTICA pelo número:**
+     - **1 opção → `btn-long`** (CTA único, linha inteira no canvas)
+     - 2-3 opções → `buttons` (row horizontal de quick-replies)
+     - 4-10 opções → `menu` (modal vertical)
+     - 11+ opções → divida ou agrupe em sections de menu
+     Não escolha pelo "estilo" do escopo, escolha pela CONTAGEM. Se o escopo permite
+     recusa (Sim/Não implícito), são 2 opções → `buttons`, não btn-long.
+
+  2. **Label até 20 chars, verbo de ação curto.** Conte com cuidado. Use o contexto
+     do bot anterior pra encurtar o label (não precisa repetir "agendamento" no botão
+     se o bot já falou).
+
+  3. **btn-long ATUALIZA o cursor de fluxo** (`updatesLastFlowId: true`) — único
+     entre os componentes de botão a fazer isso. Próximo bloco conecta direto.
+     Por isso o `flowControl: linear` (vs `buttons` que é `parallel`).
+
+  4. **NÃO use pra link externo.** Quick-reply envia texto de volta, não abre URL.
+     Pra link clicável, use `bot` com URL inline.
+
+  5. **NÃO use pra Sim/Não.** Mesmo que pareça 1 opção, é binário — use `buttons`.
+
+  6. **Compartilha cota de 3 quick-replies por mensagem com buttons.** Se já há
+     `buttons` no mesmo bot pai, somam (1 long + 2 short = 3 total, máximo).
+
+  7. **Labels que disparam skill (EN/FA): direcionar pro frame, não duplicar inline.**
+     btn-long "Finalizar" → direcionamento pra EN. btn-long "Falar com atendente"
+     (raro como CTA único) → direcionamento pra FA.
+
+  **Glossário rápido:**
+  - **quick-reply**: botão clicável do `interactive.button` da Cloud API — envia texto
+    de volta ao bot ao ser clicado (NÃO abre URL).
+  - **CTA único**: Call To Action de ação primária, sem alternativa explícita
+    (recusa é implícita por abandono).
+  - **btn-long vs btn-short**: ambos são `interactive.button` na API — diferem só na
+    largura visual do canvas (linha inteira vs row de 2-3 lado a lado).
+  - **CTA URL** (`cta_url`): tipo SEPARADO da Cloud API que abre URL no navegador —
+    NÃO é btn-long. Componente próprio (não implementado ainda no Fluxo).
+  - **cota de 3 quick-replies**: limite hard Meta — buttons + btn-long somam no mesmo
+    nó pai. 1 long + 2 short = 3 total.
+  - **cursor de fluxo** (`lastFlowId`): btn-long atualiza (`linear`, 1 opção); buttons
+    NÃO atualiza (`parallel`, branches).
+  - **AM/FA/EN**: skills reusadas — Algo Mais (`algo-mais`), Falar com Atendente
+    (`atendente`), Encerramento (`encerramento`). Quando o label do btn-long dispara
+    uma skill, direcione pro frame correspondente em vez de duplicar inline.

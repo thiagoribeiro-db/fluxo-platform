@@ -6,36 +6,76 @@ nodeType: bubble-user
 flowControl: linear
 
 description: |
-  Input ENVIADO PELO USUÁRIO ao bot. Renderiza como bubble verde-clara alinhada
-  à direita no preview do WhatsApp. Representa uma resposta livre digitada (não
-  uma escolha de menu/botão).
+  Input ENVIADO PELO USUÁRIO ao bot. É a unidade básica de comunicação de
+  ENTRADA do chatbot — cada bubble vira UMA mensagem na timeline do WhatsApp,
+  com timestamp próprio. Renderiza como balão verde-claro alinhado à direita
+  no preview, simulando a fala do cliente.
 
-detectionCues:
-  - 'Linhas começando com "Cliente:", "User:", "Usuário:", "Customer:", "Você:" (ou variações com "diz", "envia", "responde", "escolhe")'
-  - 'Texto entre `{ }` representando resposta esperada: `{nome do cliente}`, `{CPF}`, `{loja selecionada}`'
-  - 'Narrativa descrevendo input: "O cliente informa o nome", "O usuário digita o telefone"'
+  Representa SEMPRE uma resposta LIVRE digitada pelo usuário (texto solto, voz
+  transcrita, número, e-mail, CPF, etc.). Escolhas entre opções fechadas NÃO
+  são `user` — são `buttons`/`menu`/`btn-long`, que produzem o próprio evento
+  de seleção sem precisar de input livre.
+
+  **Onde aparece no fluxo (topologia):**
+  - Vem SEMPRE DEPOIS de: um `bot` que faz uma pergunta de input livre, OU um
+    `menu`/`buttons`/`btn-long` (raro — só quando a opção escolhida abre campo
+    livre, ex: "outros: descreva").
+  - Vem ANTES de: outro `bot` (que processa/confirma a resposta), `condicional`
+    (que valida o input), `integracao` (que envia o dado pra API), `direcionamento`
+    (quando o input encerra o cenário e salta pra outro frame).
+  - **Atualiza o cursor do fluxo** (`updatesLastFlowId: true`): a próxima edge
+    sai DESTE user.
+  - **Auto-children**: o builder cria automaticamente um nó `excecao` filho
+    abaixo (label "Exceção / Fallback") — disparado quando o input não atende
+    validação esperada (ex: usuário digita letras onde se esperava número).
+  - **Side-effect no bot/menu anterior**: o builder ADICIONA um `tracking`
+    com sufixo `_input` no bloco que fez a pergunta (lado esquerdo), pra
+    rastrear que o usuário respondeu.
+
+  **Constraints WhatsApp Cloud API:**
+  - O usuário pode mandar QUALQUER texto até 4096 chars — o input é livre.
+  - O campo `text` do bloco `user` é só uma representação PROJETADA da resposta
+    esperada — geralmente um placeholder `{var}` que documenta o que se aguarda.
+  - Mídia enviada pelo usuário (foto, áudio, doc) NÃO é representada como `user`:
+    isso vira `media` com `sender: user`.
+  - Variáveis capturadas viram contexto (`{{ contact.extras.nome }}` no Blip,
+    `{nome}` no escopo) — preserve a notação `{ }` exatamente como veio.
 
 usageRules:
-  - 'Use APENAS para inputs LIVRES (texto digitado). Escolhas entre opções específicas viram `buttons`, `menu` ou `btn-long`.'
-  - 'O texto deve representar a resposta ESPERADA — geralmente um placeholder em chaves'
-  - 'Bubble user vem SEMPRE depois de uma bubble bot ou menu (que faz a pergunta) — NUNCA emita user como PRIMEIRO bloco de um frame, NUNCA emita 2 users consecutivos'
-  - 'Se o documento descreve "o cliente envia Oi para iniciar" ou similar mensagem inicial do usuário, IGNORE — o fluxo SEMPRE começa com bot (cumprimentando ou apresentando o menu), não com user'
+  - '**Use APENAS para inputs LIVRES** (texto digitado). Escolhas entre opções fechadas (Sim/Não, A/B/C, lista) NUNCA viram `user` — viram `buttons`, `menu` ou `btn-long`. O componente de escolha já produz o evento de seleção; emitir `user` adicional é redundante e quebra o tracking.'
+  - '**O texto deve representar a resposta ESPERADA, não a literal:** prefira placeholder `{nome do cliente}`, `{CPF}`, `{telefone}`, `{e-mail}`, `{loja selecionada}`, `{descrição do problema}`. Evite tentar adivinhar a resposta exata — o runtime captura o que o usuário realmente digitar.'
+  - '**Vem SEMPRE depois de uma pergunta** (bot, menu ou buttons). NUNCA emita `user` como PRIMEIRO bloco de um frame — o fluxo SEMPRE inicia com bot. NUNCA emita dois `user` consecutivos sem um bot entre eles — duas perguntas seguidas sem retorno do bot quebram o ritmo conversacional do WhatsApp.'
+  - '**Se o documento descreve mensagem inicial do usuário** ("o cliente envia Oi pra iniciar", "o usuário começa digitando olá"), IGNORE — o trigger de início no Blip Builder é uma intent global, NÃO um bubble `user` no fluxo. O frame começa direto com `bot` cumprimentando.'
+  - '**Sequência lógica `bot → user → bot`** é o padrão canônico. Quebrá-la (ex: `bot → bot → user` com dois bots seguidos perguntando, ou `user → user` com dois inputs encadeados) confunde o usuário no WhatsApp. Se o escopo tem duas perguntas seguidas, são DOIS pares `bot+user` separados.'
+  - '**Pra inputs múltiplos numa única coleta** (nome + CPF + telefone tudo de uma vez), use UM `user` com placeholder genérico tipo `{dados do cliente}` — o bot anterior é quem detalha o que pedir. Não emita 3 `user` separados pra 1 só input.'
+  - '**Após o `user`, conecte explicitamente o próximo passo.** User solto no fim de um cenário = fluxo morto. Se o cenário termina aqui, emita `direcionamento` pro frame `algo-mais` (skill AM) ou `encerramento` (skill EN). Se há validação, emita `condicional`. Se há envio à API, emita `integracao`.'
+  - '**NUNCA duplique skills reutilizáveis após o `user`.** Se o cenário coleta o feedback final do cliente (texto livre de avaliação), emita `direcionamento` pro frame `encerramento` (skill EN) — o frame EN já tem seu próprio par `bot → user` pra capturar o feedback opcional.'
+
+detectionCues:
+  - '**Prefixo explícito** começando com `Cliente:`, `User:`, `Usuário:`, `Customer:`, `Você:` (ou variações com "diz", "envia", "responde", "informa", "digita", "escolhe").'
+  - '**Texto entre `{ }` representando resposta esperada**: `{nome do cliente}`, `{CPF}`, `{loja selecionada}`, `{descrição do problema}` — qualquer placeholder em chaves após uma pergunta do bot é forte sinal de bubble `user`.'
+  - '**Narrativa descrevendo input livre**: "O cliente informa o nome", "O usuário digita o telefone", "O cliente envia o CPF" — sem texto literal, mas claramente descreve resposta livre.'
+  - '**Pergunta do bot que ESPERA texto livre** (não opções): "Por favor, digite seu nome", "Qual o seu CPF?", "Conte mais sobre o problema" → o próximo bloco semântico é `user` com placeholder apropriado.'
 
 commonMistakes:
-  - 'Emitir `user` para uma escolha entre opções fechadas (Sim/Não, A/B/C) — isso é `buttons` ou `menu`'
-  - 'Tentar prever a resposta exata do usuário em vez de usar um placeholder genérico'
+  - '**Emitir `user` para uma escolha entre opções fechadas.** Errado: bot "Deseja ofertas?" → user "{escolha}" → buttons. Certo: bot "Deseja ofertas?" → buttons `["Sim", "Não"]`. O botão JÁ é a resposta — não precisa de `user` antes nem depois.'
+  - '**Tentar prever a resposta literal do usuário** em vez de usar placeholder. Errado: `user "João da Silva"`. Certo: `user "{nome do cliente}"`. O texto literal é só pra mostrar o tipo de dado esperado.'
+  - '**Emitir `user` como primeiro bloco do frame.** Frames SEMPRE começam com `bot` (saudação, instrução, pergunta). Mesmo que o escopo diga "o cliente envia Olá pra iniciar", isso é o gatilho de intent — não um bloco no fluxo.'
+  - '**Dois `user` consecutivos sem bot entre eles.** Quebra a sequência lógica `pergunta → resposta → confirmação`. Se o escopo tem duas coletas seguidas, intercale com `bot` confirmando/perguntando o próximo dado.'
+  - '**Esquecer de conectar o que vem DEPOIS do `user`.** User solto no fim do cenário deixa o usuário parado. Sempre conecte: outro `bot` (resposta/confirmação), `condicional` (validação), `integracao` (envio), `direcionamento` (salto pra skill AM/EN).'
+  - '**Tratar mídia enviada pelo usuário (foto/áudio/doc) como `user`.** Errado: `user "foto do documento"`. Certo: `media` com `sender: user` e `media_kind: imagem/documento/audio` — o componente certo pra mídia.'
 
 fields:
   text:
     type: string
     required: true
-    description: Texto esperado do usuário (geralmente um placeholder em chaves)
-    aiHint: 'Use `{nome do cliente}`, `{CPF/CNPJ}`, `{telefone}`, `{e-mail}`, `{loja selecionada}` etc.'
+    description: Texto esperado do usuário (geralmente um placeholder em chaves representando a resposta livre)
+    aiHint: 'Use placeholder semanticamente apropriado: `{nome do cliente}`, `{CPF/CNPJ}`, `{telefone}`, `{e-mail}`, `{loja selecionada}`, `{descrição do problema}`, `{feedback do cliente}`. Preserve a notação `{ }` — o runtime captura o input real do usuário e substitui a variável. Não traduza, não invente formato (ex: não use `<var>` ou `[[var]]` — sempre `{ }`).'
   time:
     type: string
     default: "9.41 AM"
     visible: false
-    description: Horário simulado
+    description: Horário simulado da mensagem (default fixo, não importa pro fluxo)
 
 builderRules:
   edgeFromPrevious: true
@@ -44,33 +84,102 @@ builderRules:
     - nodeType: excecao
       labelTemplate: "Exceção / Fallback"
       relativePosition: { x: 0, y: 140 }
-      description: 'Exceção auto-criada — disparada se input não atende validação'
+      description: 'Exceção auto-criada abaixo do user — disparada quando o input não atende validação (ex: cliente digita letras onde esperava CPF). Não precisa emitir manualmente.'
   sideEffectOnPrevious:
     whenPreviousIsKind: ['bot', 'menu']
     addChild:
       nodeType: tracking
       labelTemplate: "{{slug(previous.text || previous.header)}}_input"
       relativePosition: { x: -256, y: 0 }
-      description: 'Tracking de input — adicionado ao bot/menu anterior pra rastrear que o usuário respondeu'
+      description: 'Tracking de input — ADICIONADO AO bot/menu ANTERIOR (não ao user) pra rastrear que o usuário respondeu àquela pergunta.'
 
 examples:
-  - description: Input direto após pergunta do bot
+  - description: Input direto após pergunta do bot (caso canônico)
     input: |
       Bot: Por favor, digite seu nome.
       Cliente: {nome do cliente}
     output:
       - { kind: bot, text: "Por favor, digite seu nome." }
       - { kind: user, text: "{nome do cliente}" }
+    note: 'Padrão `bot → user`: pergunta livre + resposta com placeholder. O builder adiciona automaticamente o tracking `_input` no bot e o `excecao` abaixo do user.'
 
-  - description: Múltiplas informações em um input
+  - description: Múltiplas informações em UM input (não três user separados)
     input: |
       Bot: Informe nome, CPF, telefone e e-mail.
       Cliente: {dados do cliente}
     output:
       - { kind: bot, text: "Informe nome, CPF, telefone e e-mail." }
       - { kind: user, text: "{dados do cliente}" }
+    note: 'Quando o bot pede vários dados de uma vez, use UM placeholder genérico (`{dados do cliente}`). NÃO emita 3 pares bot+user separados — o escopo claramente quer 1 coleta única.'
 
-  - description: Input narrativo (sem placeholder literal)
+  - description: Input narrativo (sem placeholder literal no escopo)
     input: 'Em seguida, o cliente informa qual loja deseja.'
-    output: { kind: user, text: "{loja selecionada}" }
-    note: 'Quando narrativa, escolha placeholder semanticamente apropriado'
+    output:
+      - { kind: bot, text: "Qual loja deseja?" }
+      - { kind: user, text: "{loja selecionada}" }
+    note: 'Origem narrativa: infira a pergunta do bot (curta, apropriada) E escolha placeholder semanticamente correto. Não pode haver `user` sem `bot` antes — se o escopo só descreve o input, gere também a pergunta.'
+
+  - description: Sequência `bot → user → bot` com confirmação
+    input: |
+      Bot: Qual o seu CPF?
+      Cliente: {CPF}
+      Bot: Obrigado! Estou validando seu cadastro.
+    output:
+      - { kind: bot, text: "Qual o seu CPF?" }
+      - { kind: user, text: "{CPF}" }
+      - { kind: bot, text: "Obrigado! Estou validando seu cadastro." }
+    note: 'Padrão clássico — pergunta, coleta, confirmação. O user NUNCA fica isolado no fim; sempre tem um bot processando a resposta antes de qualquer salto.'
+
+  - description: User que termina cenário → direcionamento pra skill AM (não bot solto)
+    input: |
+      Bot: Conte mais sobre o problema.
+      Cliente: {descrição do problema}
+      [O cliente finalizou o relato — perguntar se há algo mais]
+    output:
+      - { kind: bot, text: "Conte mais sobre o problema." }
+      - { kind: user, text: "{descrição do problema}" }
+      - { kind: direcionamento, label: "Algo mais?", target_frame_id: "algo-mais" }
+    note: 'Após coletar o input final, NÃO emita inline "Posso te ajudar com algo mais?" + 3 botões — direcione pro frame **AM** (skill Algo Mais). Reuso > duplicação.'
+
+  - description: Cenário ERRADO — user como primeiro bloco (ignore o "Oi" inicial)
+    input: |
+      Cliente: Oi
+      Bot: Olá! Bem-vindo. Como posso ajudar?
+    output:
+      - { kind: bot, text: "Olá! Bem-vindo. Como posso ajudar?" }
+    note: 'O "Oi" do cliente é o GATILHO de entrada do bot (intent global no Blip), NÃO um bubble no fluxo. Frame começa direto pelo bot. Ignore mensagens iniciais do usuário no escopo.'
+
+  - description: Cenário ERRADO — escolha fechada vira buttons, não user
+    input: |
+      Bot: Deseja continuar?
+      Cliente: {escolha}
+    output:
+      - { kind: bot, text: "Deseja continuar?" }
+      - { kind: buttons, options: ["Sim", "Não"] }
+    note: 'Escolha Sim/Não NÃO é input livre — é `buttons`. Mesmo que o escopo escreva `Cliente: {escolha}`, reconheça pelo formato da pergunta (binária/fechada) que deveria ser quick-reply.'
+
+  - description: Feedback final do cliente → direcionamento pra skill EN
+    input: |
+      Bot: Obrigado pelo atendimento! Antes de encerrar, como avalia sua experiência?
+      [coleta de feedback]
+    output:
+      - { kind: direcionamento, label: "Encerramento", target_frame_id: "encerramento" }
+    note: 'A coleta de avaliação + feedback livre é a skill **EN** (frame `encerramento`). NÃO emita `bot → menu avaliação → bot → user feedback` inline — o frame EN já tem essa estrutura completa.'
+
+aiInstructions: |
+  Bubble user é o reverso do bot: representa a fala do cliente. Heurísticas finais:
+
+  1. **Em dúvida entre user e buttons/menu:** se a resposta é UM dentre N opções fechadas (Sim/Não, lista pré-definida), é `buttons`/`menu`/`btn-long`. Se é texto livre digitado, é `user`.
+  2. **Em dúvida sobre o placeholder:** prefira semântico (`{nome do cliente}`, `{CPF}`) ao genérico (`{resposta}`). Quando o tipo é claramente múltiplo, use `{dados do cliente}` ou similar.
+  3. **Em dúvida sobre primeiro bloco:** NUNCA `user` — sempre `bot`. Mensagens iniciais do usuário no escopo são intents/triggers, não nós do fluxo.
+  4. **Em dúvida sobre o próximo passo:** se o cenário "termina" no user, conecte com `direcionamento` pra skill AM/EN — user solto é fluxo morto.
+  5. **Em dúvida sobre conteúdo de skill reusada (EN tem `bot + menu + bot + user + bot`):** emita `direcionamento` pro frame da skill, NÃO replique o par bot+user inline.
+
+  **Glossário rápido:**
+  - **bubble**: a "caixinha" de mensagem renderizada no chat do WhatsApp (alinhada à direita pra user, à esquerda pra bot).
+  - **quick-reply**: botão clicável do `interactive.button` da Cloud API — escolha fechada, NÃO gera `user`.
+  - **placeholder `{var}`**: notação Blip pra variável capturada do input — o runtime substitui pelo texto real digitado.
+  - **excecao**: child auto-gerado pelo builder, abaixo do user — dispara quando input falha validação (ex: cliente digita texto onde esperava CPF).
+  - **tracking `_input`**: analytics auto-criado NO bot/menu ANTERIOR, registra que o usuário respondeu àquele prompt.
+  - **cursor de fluxo** (`lastFlowId`): ponteiro interno do builder pra próxima edge — user atualiza, buttons NÃO.
+  - **AM/FA/EN**: skills reusadas — Algo Mais (`algo-mais`), Falar com Atendente (`atendente`), Encerramento (`encerramento`).

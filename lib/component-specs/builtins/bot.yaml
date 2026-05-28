@@ -6,40 +6,61 @@ nodeType: bubble-bot
 flowControl: linear
 
 description: |
-  Mensagem ENVIADA PELO BOT ao usuário. É a unidade básica de comunicação
-  de saída do chatbot — renderiza como uma bubble cinza/branca alinhada à
-  esquerda no preview do WhatsApp.
+  Mensagem ENVIADA PELO BOT ao usuário. É a unidade básica de comunicação de
+  SAÍDA do chatbot — cada bubble vira UMA mensagem na timeline do WhatsApp,
+  com timestamp próprio. Renderiza como balão cinza/branco alinhado à esquerda
+  no preview.
 
-detectionCues:
-  - 'Linhas começando com "Bot:", "Gui:", "Atendente:", "Assistente:", "Chatbot:", "Atendente virtual:" (ou variações com "diz", "envia", "responde")'
-  - 'Texto declarativo descrevendo fala do bot mesmo sem prefixo explícito ("O bot então pergunta...", "Em seguida, o bot informa...")'
-  - 'Frases que terminam com `?` precedendo uma lista de opções (geralmente é uma pergunta do bot)'
-  - 'Mensagens placeholder em escopo: textos com `{variavel}` ou `{nome do cliente}`'
+  **Onde aparece no fluxo (topologia):**
+  - Vem normalmente DEPOIS de: outro `bot`, `user`, opção de `menu`/`buttons`/`btn-long`, saída TRUE/FALSE de `condicional`, retorno de `integracao`/`iag`.
+  - Vem ANTES de: `user` (quando faz pergunta de input livre), `menu`/`buttons`/`btn-long` (quando faz pergunta de escolha), outro `bot` (mensagens sequenciais), `direcionamento` (quando o cenário termina e salta pra outro frame).
+  - **Atualiza o cursor do fluxo** (`updatesLastFlowId: true`): a próxima edge sai DESTE bot.
+  - **Auto-children**: o builder cria automaticamente um nó `tracking` filho com label `{slug(text)}_exibicao` à esquerda — não precisa emitir manualmente.
+
+  **Constraints WhatsApp Cloud API:**
+  - Texto: até **4096 chars** por mensagem (limite alto, raramente atingido).
+  - Formatação suportada: `*negrito*`, `_itálico_`, `~tachado~`, `` `monospace` ``, ```` ```bloco de código``` ```` — sintaxe **WhatsApp** (UM asterisco, não dois).
+  - Quebras de linha: `\n` literal dentro do `text` (permitido na mesma bubble).
+  - Emojis: Unicode direto, sem marcação.
+  - Links: URLs `http(s)://` são auto-detectadas e viraram clicáveis pelo cliente.
+  - Placeholders: `{variavel}` ou `{nome do cliente}` — preserve EXATO como vieram do escopo, o runtime substitui em tempo de execução.
 
 usageRules:
-  - 'Cada PARÁGRAFO/MENSAGEM do bot é UM bloco separado — nunca concatene duas falas em uma única bubble'
-  - 'Preservar EXATAMENTE o texto original: emojis, links 🔗, placeholders `{var}`, formatação Markdown se houver'
-  - 'Quebras de linha dentro de uma mesma bubble são permitidas (use `\n` no campo text)'
-  - 'NÃO inventar conteúdo — se o documento diz "Bot: Olá", emita "Olá", não "Olá! Tudo bem?"'
-  - 'Mensagens que descrevem AÇÃO interna do bot ("o bot então consulta a API") NÃO viram bubble — vire integração ou nota'
+  - '**Cada parágrafo/mensagem do bot é UM bloco separado** — nunca concatene duas falas numa única bubble. Se o documento diz "Bot: Olá. Bot: Como vai?", emita DOIS blocos `bot` distintos. Cada bubble = uma mensagem com seu próprio timestamp.'
+  - '**Preserve EXATAMENTE o texto original**: emojis (`🔗`, `📱`), links, placeholders `{var}`, formatação Markdown WhatsApp (`*bold*`, `_italic_`). Não traduza, não parafraseie, não adicione pontuação ou emojis que não estavam no original.'
+  - '**Quebras de linha dentro da mesma bubble são permitidas** — use `\n` no campo `text` quando o documento original tem uma única mensagem multi-linha.'
+  - '**Narrativa vs mensagem literal:** se o documento diz "Bot: Olá", emita texto literal `"Olá"`. Se diz "o bot cumprimenta de forma amigável" (narrativa, sem texto literal), infira uma mensagem curta apropriada.'
+  - '**Ação interna ≠ mensagem.** Frases como "o bot consulta a API", "o bot valida o CPF" descrevem comportamento interno — viram `integracao` ou nota, NÃO `bot`.'
+  - '**NUNCA duplique skills reutilizáveis inline.** Se o cenário termina perguntando "Posso te ajudar com algo mais?" → emita `direcionamento` pro frame `algo-mais` (skill AM), não `bot` + opções. Se termina com "Obrigado pelo contato" + avaliação → `direcionamento` pro frame `encerramento` (skill EN). Se o usuário pede atendente → `direcionamento` pro frame `atendente` (skill FA, que faz a cascata de validações).'
+  - '**Bot dentro do frame FA** (cascata de validações): segue mensagens canônicas — "Agradecemos seu contato. No momento estamos em feriado..." / "Aos finais de semana não temos atendimento..." / "Em alguns instantes um atendente fará seu atendimento...". Use literalmente quando o escopo indicar o cenário.'
+  - '**Bot NÃO pode ser bloco final solto** num cenário ativo. Se é o último bloco semântico, conecte explicitamente: `direcionamento` pro próximo frame (`algo-mais`, `encerramento`, ou o que faça sentido).'
+
+detectionCues:
+  - '**Prefixo explícito** começando com `Bot:`, `Gui:`, `Atendente:`, `Assistente:`, `Chatbot:`, `Atendente virtual:` (ou variações com "diz", "envia", "responde", "informa").'
+  - '**Texto declarativo** descrevendo a fala do bot mesmo sem prefixo: "O bot então pergunta...", "Em seguida, o bot informa...", "A IA responde com..."'
+  - '**Perguntas terminadas com `?`** precedendo uma lista de opções — a pergunta vira `bot`, as opções viram `buttons`/`menu`/`btn-long`.'
+  - '**Mensagens com placeholders** no escopo: textos contendo `{variavel}` ou `{nome do cliente}` são tipicamente bubble bot (resposta dinâmica que o runtime preenche).'
+  - '**Mensagens canônicas das skills AM/FA/EN** — quando o escopo cita "Posso te ajudar com algo mais?", "Obrigado pelo contato", "Agradecemos seu contato, no momento...", reconhecer que pertencem a skills reusadas (e direcionar pra elas em vez de emitir bot novo).'
 
 commonMistakes:
-  - 'Concatenar 2 bubbles em uma só ("Bot: Olá. Por favor, digite seu nome." quando o documento tinha 2 bubbles separadas)'
-  - 'Adicionar emojis ou pontuação que não estavam no original'
-  - 'Traduzir/parafrasear o texto — preserve EXATO'
-  - 'Confundir narrativa ("O bot cumprimenta o cliente") com mensagem — narrativa vira UMA bubble com texto INFERIDO; mensagem explícita preserva LITERAL'
+  - '**Concatenar 2 bubbles em uma só.** Errado: `"Olá. Por favor, digite seu nome."` (uma bubble). Certo: dois blocos `bot` separados, um "Olá" e outro "Por favor, digite seu nome." — o documento original tinha dois pulinhos de mensagem.'
+  - '**Adicionar emojis ou pontuação que não existiam no original.** Se o doc diz "Olá", emita `"Olá"`, não `"Olá! 😊"`.'
+  - '**Traduzir ou parafrasear o texto.** "Bot: Welcome" → emita `"Welcome"`, não `"Bem-vindo"`.'
+  - '**Confundir narrativa com mensagem literal.** "O bot cumprimenta o cliente" (narrativa) vira UMA bubble com texto INFERIDO curto. "Bot: Bem-vindo!" (literal) preserva LITERAL.'
+  - '**Tratar sub-bullet aninhado como nova bubble.** Sub-bullets recuados PERTENCEM ao bullet pai — não são bots separados. (Bug histórico do parser IA, corrigido na regra #12.)'
+  - '**Duplicar inline o conteúdo das skills AM/FA/EN.** Em vez de emitir `bot "Posso ajudar em algo mais?"` + 3 botões inline, emita 1 `direcionamento` pro frame `algo-mais`. Reuso > duplicação.'
 
 fields:
   text:
     type: string
     required: true
     description: Texto exato da mensagem que o bot envia
-    aiHint: 'Preserve formatação visível (emojis, links, placeholders em {} e quebras de linha)'
+    aiHint: 'Preserve formatação visível: emojis Unicode, links http(s), placeholders entre `{}`, quebras de linha como `\n`, markdown WhatsApp (`*bold*`, `_italic_`, `~strike~`, `` `mono` ``). Não invente formatação que não estava no original.'
   time:
     type: string
     default: "9.41 AM"
     visible: false
-    description: Horário simulado da mensagem (default fixo, não importa)
+    description: Horário simulado da mensagem (default fixo, não importa pro fluxo)
 
 builderRules:
   edgeFromPrevious: true
@@ -51,28 +72,68 @@ builderRules:
       description: 'Tracking de exibição — disparado quando a bubble é renderizada ao usuário'
 
 examples:
-  - description: Duas mensagens sequenciais (cada uma um bloco)
+  - description: Duas mensagens sequenciais (cada uma uma bubble própria)
     input: |
       Bot: Olá! Sou o assistente virtual da MarcaX, e vou te ajudar.
       Bot: Por favor, digite o seu nome.
     output:
       - { kind: bot, text: "Olá! Sou o assistente virtual da MarcaX, e vou te ajudar." }
       - { kind: bot, text: "Por favor, digite o seu nome." }
+    note: 'Duas linhas com prefixo Bot: viram DOIS blocos. Nunca concatene.'
 
-  - description: Bot com placeholders preservados
+  - description: Bot com placeholder preservado
     input: 'Bot: Bem-vindo(a), {nome}! Posso te ajudar com a {marca}.'
     output: { kind: bot, text: "Bem-vindo(a), {nome}! Posso te ajudar com a {marca}." }
+    note: 'Placeholders `{nome}`, `{marca}` ficam exatos — o runtime substitui em execução.'
 
-  - description: Bot com emoji e link
-    input: 'Bot: Baixe o app aqui: 📱 {link iOS / Android}'
-    output: { kind: bot, text: "Baixe o app aqui: 📱 {link iOS / Android}" }
+  - description: Bot com emoji + link + formatação WhatsApp
+    input: 'Bot: *Baixe nosso app* aqui: 📱 https://app.marca.com'
+    output: { kind: bot, text: "*Baixe nosso app* aqui: 📱 https://app.marca.com" }
+    note: 'Markdown WhatsApp `*bold*`, emoji Unicode `📱` e URL clicável — preserve tudo literalmente.'
 
-  - description: Texto narrativo vira bubble com texto INFERIDO (não literal)
+  - description: Bot multi-linha numa mesma bubble (uso de \n)
+    input: |
+      Bot: Resumo do seu pedido:
+      - Item A
+      - Item B
+      Total: R$ 50,00
+    output:
+      { kind: bot, text: "Resumo do seu pedido:\n- Item A\n- Item B\nTotal: R$ 50,00" }
+    note: 'Texto multi-linha num mesmo bloco usa `\n`. Só vire bubbles separadas se o documento sinalizar pulinhos distintos.'
+
+  - description: Texto narrativo vira bubble com texto INFERIDO curto
     input: 'Em seguida, o bot cumprimenta o cliente de forma amigável.'
     output: { kind: bot, text: "Olá! Tudo bem?" }
-    note: 'Origem era narrativa — texto literal não existia, inferido com tom amigável conforme orientação do documento'
+    note: 'Origem narrativa, sem texto literal — infira mensagem curta apropriada conforme o tom indicado.'
+
+  - description: Cenário que TERMINA com encerramento → NÃO duplicar inline
+    input: |
+      Bot: Pronto! Sua devolução foi registrada.
+      Bot: Posso te ajudar com algo mais?
+      - Voltar ao menu
+      - Falar com atendente
+      - Finalizar
+    output:
+      - { kind: bot, text: "Pronto! Sua devolução foi registrada." }
+      - { kind: direcionamento, label: "Algo mais?", target_frame_id: "algo-mais" }
+    note: 'O bot "Posso te ajudar com algo mais?" + 3 opções é a skill **AM** (frame `algo-mais`). NÃO emitir inline — emitir 1 direcionamento e deixar o frame AM resolver.'
+
+  - description: Cenário que pede atendente humano → NÃO usar atendimento-humano inline
+    input: 'O cliente seleciona "Falar com atendente" no menu principal.'
+    output:
+      - { kind: direcionamento, label: "Falar com atendente", target_frame_id: "atendente" }
+    note: 'Componente `atendimento-humano` SÓ aparece dentro do frame FA (skill), DEPOIS da cascata de 4 condicionais. Cenário externo apenas direciona pra ele.'
 
 aiInstructions: |
-  Bubble bot é o tipo MAIS comum em fluxos. Quando estiver em dúvida se um
-  trecho é narrativa ou mensagem real do bot, prefira interpretar como mensagem
-  e usar o texto literal se houver, ou inferir um curto se não houver.
+  Bubble bot é o tipo MAIS comum em fluxos. Heurísticas finais:
+
+  1. **Em dúvida entre narrativa e mensagem real:** prefira interpretar como mensagem. Use texto literal se houver, ou infira curto e amigável se for descrição.
+  2. **Em dúvida sobre concatenar/separar:** prefira separar — duas bubbles é mais natural no WhatsApp que uma bubble longa.
+  3. **Em dúvida sobre conteúdo de skill reusada (AM/FA/EN):** emita `direcionamento` pro frame da skill, NÃO `bot` inline.
+  4. **Sempre que o cenário "termina"** (passou a info que tinha, atendeu o pedido), conecte com `direcionamento` — bot solto no fim = fluxo morto.
+
+  **Glossário rápido:**
+  - **bubble**: a "caixinha" de mensagem renderizada no chat do WhatsApp.
+  - **cursor de fluxo** (`lastFlowId`): ponteiro interno do builder pra próxima edge — bot atualiza, buttons NÃO.
+  - **tracking**: nó de analytics auto-gerado, fica à esquerda do bloco; pra cada bot há um tracking de `_exibicao`.
+  - **AM/FA/EN**: skills reusadas — Algo Mais (`algo-mais`), Falar com Atendente (`atendente`), Encerramento (`encerramento`).

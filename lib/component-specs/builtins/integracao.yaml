@@ -8,68 +8,96 @@ nodeType:
 flowControl: linear
 
 description: |
-  Card representando uma INTEGRAÇÃO externa do bot — consulta a API REST,
-  planilha do Google Sheets, ou outro sistema. Renderiza como card retangular
-  no canvas com header colorido (azul=API, verde=planilha) + lista de campos.
+  Card representando uma **INTEGRAÇÃO externa** — chamada HTTP a uma API REST,
+  consulta a uma planilha (Google Sheets/Excel), ou qualquer operação de backend
+  que o bot dispara durante o fluxo. Renderiza como card retangular no canvas
+  com header colorido (azul = API, verde = planilha) e lista de campos
+  configuráveis. **Não é uma mensagem** trocada com o usuário — é uma operação
+  silenciosa que acontece "nos bastidores" entre dois bots/menus.
 
-  Não é uma mensagem trocada — é uma operação de backend que o bot executa
-  antes/depois de responder ao usuário.
+  **Onde aparece no fluxo (topologia):**
+  - Vem normalmente DEPOIS de: `user` (recebeu input que precisa ser validado/consultado), `bot` (deu mensagem de "consultando, aguarde…"), `menu`/`buttons` (escolha que dispara a busca), `condicional` (já bifurcou e agora executa um lado).
+  - Vem ANTES de: `condicional` (para bifurcar conforme o retorno — "deu certo?" / "encontrou?"), `bot` (que renderiza o resultado pro usuário usando placeholders `{output.*}`), `iag` (quando o retorno alimenta um prompt LLM).
+  - **Atualiza o cursor do fluxo** (`updatesLastFlowId: true`): a próxima edge sai DESTE bloco.
+  - **Auto-children (exceção)**: se a chamada falhar (timeout, 5xx, schema inválido), o runtime salta pra um caminho `excecao` — não precisa modelar isso como bloco principal, mas o builder cria a edge de fallback no canvas.
 
-detectionCues:
-  - 'Frases "consulta a API", "busca no sistema", "valida no Serasa", "verifica no CRM"'
-  - 'Menções a serviços específicos: "API dos Correios", "ViaCEP", "Salesforce", "Vtex"'
-  - 'Planilhas: "busca na planilha", "consulta a base", "Google Sheets"'
-  - 'Endpoints HTTP descritos: "POST /api/pedido", "GET /clientes/{id}"'
+  **Constraints HTTP (API):**
+  - **Métodos**: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. Default = `GET`.
+  - **URL**: pode conter placeholders `{var}` (ex: `https://viacep.com.br/ws/{cep}/json`). O runtime substitui antes da chamada.
+  - **Headers**: tipicamente `Content-Type: application/json`, `Authorization: Bearer {token}`. Auth recomendada via variável `{token}` resolvida do escopo do contato.
+  - **Body**: JSON serializado, com placeholders `{var}` permitidos nos values.
+  - **Timeout** padrão: 15s no runtime Blip. Acima disso, dispara `excecao`.
+  - **Resposta**: salva em uma variável de saída (tipicamente `{output}` ou nome customizado). Os blocos seguintes acessam campos via `{output.campo}`.
+
+  **Constraints Planilha:**
+  - Engine: Google Sheets API (read-only por default; write exige escopo extra).
+  - Identificação: ID/URL da planilha + nome da aba + range opcional.
+  - Performance: leituras grandes (>1000 linhas) podem estourar timeout; prefira filtros server-side ou cache.
 
 usageRules:
-  - 'Use `integracao_type: "api"` pra HTTP/REST/SOAP/qualquer serviço externo'
-  - 'Use `integracao_type: "planilha"` pra Google Sheets/Excel'
-  - 'O `title` é o nome curto da operação. Ex: "Consultar CEP", "Buscar pedido"'
-  - 'Os `fields` descrevem inputs/outputs/config da integração. Use chaves padronizadas: "url", "method", "input", "output", "auth"'
-  - 'Se o escopo não detalha campos, deixe vazio — o usuário preenche depois no editor'
+  - '**Use `integracao_type: "api"`** pra qualquer chamada HTTP/REST/SOAP/webhook — ViaCEP, Salesforce, Vtex, CRM próprio, BFF interno, etc.'
+  - '**Use `integracao_type: "planilha"`** APENAS pra Google Sheets/Excel — não confunda com "consulta em base de dados" genérica (essa é API).'
+  - '**`title` é verbo + substantivo curto**: "Consultar CEP", "Buscar pedido", "Validar CPF", "Registrar lead". Funciona como o "label" do card no canvas e como prefixo no slug. Não use frase longa.'
+  - '**Os `fields` configuram a chamada**. Chaves padronizadas: `url`, `method`, `headers`, `body`, `auth`, `input`, `output`, `timeout`. Pode deixar `fields` vazio se o escopo só descreve a operação em alto nível — o usuário detalha depois no painel de propriedades.'
+  - '**O retorno alimenta o próximo bloco via placeholder.** Se o output é `{cliente}`, o bot seguinte pode usar `"Olá, {cliente.nome}!"`. Documente sempre o `output` esperado pra dar pistas ao builder do que o próximo bot vai renderizar.'
+  - '**Sempre precede `condicional` quando há bifurcação por sucesso/falha.** Padrão clássico: `integracao` → `condicional "Deu certo?"` → TRUE: usa o dado / FALSE: mensagem de erro + `direcionamento` pro `atendente` (frame FA) ou retry.'
+  - '**A exceção é tratada via auto-children, não inline.** NÃO modele "se falhar a integração, mostra erro" como um bloco `bot` solto — o builder já cria o caminho `excecao`. Use `condicional` apenas quando a regra de negócio depende do CONTEÚDO da resposta (ex: "encontrou o pedido?"), não do FRACASSO da chamada.'
+  - '**Integração NÃO pode ser bloco final solto.** Sempre conecte: `condicional` (valida resposta), `bot` (mostra o resultado) ou `direcionamento` (passa adiante). Integração no fim do fluxo = dado consultado e descartado.'
+
+detectionCues:
+  - '**Verbos de consulta/operação backend**: "consulta a API", "busca no sistema", "valida no Serasa", "verifica no CRM", "registra na base", "envia pro Salesforce", "grava na planilha".'
+  - '**Menções a serviços nomeados**: ViaCEP, Correios, Salesforce, Vtex, RD Station, HubSpot, Mailchimp, Twilio, Stripe, Pagar.me, Serasa, Receita Federal, "API interna", "BFF", "webhook".'
+  - '**Endpoints HTTP descritos**: `POST /api/pedido`, `GET /clientes/{id}`, `PUT /lead`, `DELETE /carrinho/{id}`.'
+  - '**Termos de planilha**: "Google Sheets", "planilha de pedidos", "consulta a base de SKUs", "tabela de FAQ", "aba `Clientes`".'
+  - '**Frases narrativas backend-only**: "o bot então consulta...", "o sistema verifica...", "valida-se nos bastidores...". O usuário não vê essa ação — é integração, NÃO bubble bot.'
 
 commonMistakes:
-  - 'Tratar narrativa "o bot consulta a base" como bubble — isso é integração'
-  - 'Confundir com `iag` (IA generativa): integração é serviço EXTERNO; iag é prompt pra um LLM'
+  - '**Tratar narrativa "o bot consulta a API/base" como `bot` bubble.** Isso é AÇÃO INTERNA do bot, não uma mensagem ao usuário. Emita `integracao`, não `bot`. (Regra herdada de `bot.yaml`: ação interna ≠ mensagem.)'
+  - '**Confundir com `iag`.** Integração é serviço externo genérico (CRM, API REST, planilha). `iag` é especificamente um LLM (GPT, Claude, Gemini). Se o serviço externo POR ACASO é uma IA, ainda assim use `iag` — o card é especializado pra prompt/model/temperature.'
+  - '**Modelar fallback de erro como `bot` inline.** Errado: `integracao` + `bot "Erro ao consultar"` + `direcionamento`. Certo: o caminho de exceção é auto-children do builder; bots de erro só aparecem dentro do ramo TRUE/FALSE de um `condicional` que valida o conteúdo da resposta.'
+  - '**Esquecer de validar o retorno com `condicional`.** Quando o resultado da integração TEM significado pro fluxo ("encontrou o pedido?", "CPF válido?"), o próximo bloco deve ser `condicional`. Sem isso, o fluxo só "consulta e prossegue" mesmo quando a resposta indica falha de negócio.'
+  - '**Concatenar duas integrações como se fossem uma só.** Cada chamada externa é UM card. Se o escopo diz "consulta CPF e busca pedido", emita DUAS `integracao` (ou uma `integracao` + `condicional` + outra `integracao`).'
+  - '**Usar `integracao_type: "planilha"` pra coisa que não é Google Sheets/Excel.** "Consulta a base de dados" sem mencionar planilha é API. Planilha é a engine literal Sheets.'
 
 fields:
   integracao_type:
     type: string
     required: true
     enum: ['api', 'planilha']
-    description: Tipo de integração
+    description: Tipo da integração — define o renderer e o engine de execução
     default: 'api'
+    aiHint: '`api` pra qualquer chamada HTTP/REST/webhook/CRM/ERP. `planilha` APENAS pra Google Sheets/Excel literal. Em dúvida, use `api`.'
   title:
     type: string
     required: true
-    description: Nome curto da operação
-    aiHint: 'Verbo + substantivo: "Consultar CEP", "Buscar pedido", "Validar CPF"'
+    description: Nome curto da operação (vai pro label do card)
+    aiHint: 'Verbo no infinitivo + substantivo curto: "Consultar CEP", "Buscar pedido", "Validar CPF", "Registrar lead", "Enviar pedido pro CRM". Evite frase longa ou descrição genérica como "API externa".'
   fields:
     type: array
     itemType: object
     required: false
-    description: Lista de campos da integração ({label, key, value})
-    aiHint: 'Use chaves padrão: "url", "method", "input", "output", "auth". Pode deixar vazio se escopo não detalha.'
+    description: Lista de campos de configuração da integração ({label, key, value})
+    aiHint: 'Chaves padronizadas: `url`, `method`, `headers`, `body`, `auth`, `input`, `output`, `timeout`, `sheet`, `range`. Valores podem ter placeholders `{var}`. Deixe vazio se o escopo não detalha — o usuário preenche no painel.'
     fields:
       label:
         type: string
         required: true
-        description: Label humano do campo. Ex "Endpoint", "Input do usuário"
+        description: Label humano legível do campo. Ex "Endpoint", "Método", "Input do usuário", "Resposta esperada"
       key:
         type: string
         required: true
-        description: Chave técnica. Ex "url", "input", "output"
+        description: Chave técnica padronizada. Ex `url`, `method`, `input`, `output`, `auth`, `body`, `headers`
       value:
         type: string
         required: true
-        description: Valor (pode ter placeholders entre chaves)
+        description: Valor (pode conter placeholders entre chaves)
 
 builderRules:
   edgeFromPrevious: true
   updatesLastFlowId: true
 
 examples:
-  - description: Consulta de CEP via API
+  - description: Consulta de CEP via API pública (ViaCEP)
     input: 'O bot consulta o CEP via API ViaCEP pra retornar o endereço completo do cliente.'
     output:
       kind: integracao
@@ -77,16 +105,151 @@ examples:
       title: "Consultar CEP"
       fields:
         - { label: "Endpoint", key: "url", value: "https://viacep.com.br/ws/{cep}/json" }
+        - { label: "Método", key: "method", value: "GET" }
         - { label: "Input", key: "input", value: "{CEP do cliente}" }
-        - { label: "Output", key: "output", value: "{logradouro, bairro, cidade, UF}" }
+        - { label: "Output", key: "output", value: "{endereco.logradouro, endereco.bairro, endereco.cidade, endereco.uf}" }
+    note: 'Verbo "consulta a API" → `integracao`, NÃO `bot`. O título é curto ("Consultar CEP"). O output usa nome semântico (`endereco`) pra ser reaproveitado em `bot "Confirmando seu endereço: {endereco.logradouro}, {endereco.bairro}…"` no bloco seguinte.'
 
-  - description: Busca de pedido em planilha
-    input: 'Bot busca o pedido na planilha de pedidos pelo número.'
+  - description: Busca de pedido em planilha Google Sheets
+    input: 'Bot busca o pedido na planilha de pedidos pelo número informado pelo cliente.'
     output:
       kind: integracao
       integracao_type: planilha
       title: "Buscar pedido"
       fields:
-        - { label: "Planilha", key: "sheet", value: "Pedidos 2025" }
+        - { label: "Planilha", key: "sheet", value: "Pedidos 2026" }
+        - { label: "Aba", key: "range", value: "Vendas!A:F" }
         - { label: "Busca por", key: "input", value: "{número do pedido}" }
-        - { label: "Retorna", key: "output", value: "{status, data, valor}" }
+        - { label: "Retorna", key: "output", value: "{pedido.status, pedido.data, pedido.valor}" }
+    note: 'Engine literal Google Sheets → `integracao_type: "planilha"`. `range` segue notação Sheets (`Aba!A:F`). Output em namespace `pedido.*` deixa claro pro bot seguinte como acessar.'
+
+  - description: Validação de CPF com bifurcação por sucesso/erro de negócio
+    input: |
+      O bot valida o CPF do cliente na API de validação.
+      - Se válido: prossegue pro cadastro.
+      - Se inválido: pede pra digitar de novo.
+    output:
+      - kind: integracao
+        integracao_type: api
+        title: "Validar CPF"
+        fields:
+          - label: "Endpoint"
+            key: "url"
+            value: "https://api.interno/cpf/validar"
+          - label: "Método"
+            key: "method"
+            value: "POST"
+          - label: "Body"
+            key: "body"
+            value: '{"cpf": "{cpf}"}'
+          - label: "Output"
+            key: "output"
+            value: "{valido: bool}"
+      - { kind: condicional, condition: "CPF válido?", true_label: "Válido", false_label: "Inválido" }
+    note: 'A validação de negócio ("CPF é válido?") usa `condicional` LOGO DEPOIS da `integracao` — não trate como auto-exception. Auto-exception é só pra FALHA da chamada (timeout/5xx), não pra resultado negativo legítimo.'
+
+  - description: Registrar lead no CRM (POST com body)
+    input: 'O bot registra o lead no Salesforce com os dados coletados (nome, telefone, interesse).'
+    output:
+      kind: integracao
+      integracao_type: api
+      title: "Registrar lead no CRM"
+      fields:
+        - label: "Endpoint"
+          key: "url"
+          value: "https://api.salesforce.com/leads"
+        - label: "Método"
+          key: "method"
+          value: "POST"
+        - label: "Auth"
+          key: "auth"
+          value: "Bearer {sf_token}"
+        - label: "Body"
+          key: "body"
+          value: '{"name":"{nome}","phone":"{telefone}","interest":"{interesse}"}'
+        - label: "Output"
+          key: "output"
+          value: "{lead.id}"
+    note: 'POST com payload — `body` em JSON inline com placeholders. Auth com token resolvido do escopo. Output guarda só o `id` retornado pra reuso.'
+
+  - description: Consulta de estoque seguida de bot que renderiza o resultado
+    input: |
+      Bot: Vou verificar o estoque pra você, um momento…
+      [O sistema consulta a API de estoque]
+      Bot: Encontrei {qtd} unidades de {produto} em estoque.
+    output:
+      - { kind: bot, text: "Vou verificar o estoque pra você, um momento…" }
+      - kind: integracao
+        integracao_type: api
+        title: "Consultar estoque"
+        fields:
+          - { label: "Endpoint", key: "url", value: "https://api.interno/estoque/{sku}" }
+          - { label: "Output", key: "output", value: "{qtd, produto}" }
+      - { kind: bot, text: "Encontrei {qtd} unidades de {produto} em estoque." }
+    note: 'Padrão clássico: bot de "aguarde" → integração silenciosa → bot que renderiza com placeholders do output. Sem bot intermediário, o usuário fica olhando "digitando…" sem feedback.'
+
+  - description: Cenário pós-integração que termina e direciona pra skill Algo Mais
+    input: |
+      [Bot consulta a API e registra a devolução]
+      Bot: Pronto! Sua devolução foi registrada com o protocolo {protocolo}.
+      [Cenário acaba — pergunta se quer algo mais]
+    output:
+      - kind: integracao
+        integracao_type: api
+        title: "Registrar devolução"
+        fields:
+          - { label: "Endpoint", key: "url", value: "https://api.interno/devolucoes" }
+          - { label: "Método", key: "method", value: "POST" }
+          - { label: "Output", key: "output", value: "{protocolo}" }
+      - { kind: bot, text: "Pronto! Sua devolução foi registrada com o protocolo {protocolo}." }
+      - { kind: direcionamento, label: "Algo mais?", target_frame_id: "algo-mais" }
+    note: 'Integração nunca termina o cenário sozinha. Aqui ela escreve, o bot confirma com o protocolo retornado, e o `direcionamento` salta pra skill AM. Sem AM duplicada inline.'
+
+  - description: Cenário com falha de negócio que direciona pro frame Falar com Atendente
+    input: |
+      [Bot tenta buscar o pedido]
+      - Se encontrar: mostra status.
+      - Se não encontrar: avisa e oferece falar com atendente.
+    output:
+      - kind: integracao
+        integracao_type: api
+        title: "Buscar pedido"
+        fields:
+          - { label: "Endpoint", key: "url", value: "https://api.interno/pedidos/{numero}" }
+          - { label: "Output", key: "output", value: "{pedido}" }
+      - { kind: condicional, condition: "Pedido encontrado?", true_label: "Sim", false_label: "Não" }
+      - { kind: bot, text: "Encontrei seu pedido: status {pedido.status}, atualizado em {pedido.data}." }
+      - { kind: direcionamento, label: "Não encontrou — falar com atendente", target_frame_id: "atendente" }
+    note: 'Caminho FALSE do `condicional` direciona pro frame `atendente` (skill FA) — NÃO usa `atendimento-humano` inline. A skill FA faz a cascata de feriado/fim de semana/horário/disponível antes do transbordo real. (Convenção parser: o `direcionamento` logo após o cutoff TRUE é o caminho FALSE — ver `aprendizados_parser_ia.md` regra #13.)'
+
+aiInstructions: |
+  Integração é o componente que dá "memória" ao bot — sem ela, o fluxo só
+  troca textos estáticos. Heurísticas finais:
+
+  1. **Em dúvida entre `bot` e `integracao`:** se a frase descreve AÇÃO INTERNA
+     ("consulta", "valida", "verifica", "registra", "grava", "envia pro X"),
+     emita `integracao`. Se descreve MENSAGEM VISÍVEL ("o bot diz", "o bot
+     responde", "o bot informa"), emita `bot`.
+  2. **Em dúvida entre `integracao` e `iag`:** se o serviço é nominalmente
+     uma IA (GPT, Claude, "LLM", "modelo de linguagem"), use `iag`. Qualquer
+     outra coisa — CRM, ERP, CEP, Estoque, base própria, planilha — é `integracao`.
+  3. **Sempre que o retorno da integração TEM consequência no fluxo**
+     ("encontrou?", "é válido?", "está disponível?"), o próximo bloco DEVE ser
+     `condicional`. Não termine integração + bot sem validar.
+  4. **Falha técnica vs falha de negócio são DIFERENTES.** Timeout, 5xx, payload
+     malformado = auto-exception (builder resolve). Resultado "não encontrado",
+     "saldo zero", "CPF inválido pela Receita" = `condicional` explícito.
+  5. **Integração no fim de cenário SEMPRE conecta** — `bot` que mostra o
+     resultado e/ou `direcionamento` pra skill (AM, FA, EN). Integração solta
+     no final = dado consultado e descartado.
+
+  **Glossário rápido:**
+  - **placeholder**: variável entre chaves `{var}` que o runtime substitui na
+    chamada (e na renderização do bot seguinte). Padrão: `{snake_case}`.
+  - **output namespace**: convenção de nomear o retorno (`{pedido.status}`,
+    `{endereco.cep}`) pra deixar claro qual campo o próximo bloco usa.
+  - **auto-exception**: caminho de fallback automático quando a chamada FALHA
+    (não confundir com lógica de negócio do retorno).
+  - **AM/FA/EN**: skills reusadas — Algo Mais (`algo-mais`), Falar com Atendente
+    (`atendente`), Encerramento (`encerramento`). Integrações que terminam
+    cenário direcionam pra elas, não duplicam inline.

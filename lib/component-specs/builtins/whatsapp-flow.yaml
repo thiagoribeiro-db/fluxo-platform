@@ -6,43 +6,83 @@ nodeType: whatsapp-flow
 flowControl: linear
 
 description: |
-  Mini-app multi-screen do WhatsApp pra coletar dados estruturados (formulários
-  guiados). É funcionalmente diferente do menu/lista: o user navega por TELAS
-  com inputs (texto, dropdown, radio, datepicker, etc) dentro do próprio
-  WhatsApp, retorna dados estruturados ao fim.
+  Mini-app multi-screen nativo do WhatsApp, criado e publicado pela Meta dentro
+  do canal — não é um link externo nem um webview customizado. É uma sequência
+  de TELAS com inputs estruturados (texto, dropdown, radio, date picker, opt-in)
+  que o usuário preenche dentro do app do WhatsApp e, ao final, retorna um
+  payload JSON estruturado pro bot processar.
 
-  Casos típicos:
-   - Cadastro de cliente (Nome, CPF, Email, Aceite LGPD)
-   - Agendamento (data, hora, especialidade)
-   - Captura de lead (interesse, empresa, telefone)
-   - Pesquisa NPS estruturada
+  Diferente de `menu`/`buttons`/`btn-long` (que mostram opções avulsas no
+  feed do chat), o WhatsApp Flow abre uma **tela inteira** com vários campos,
+  navegação multi-screen, e validação CLIENT-SIDE (regex, required, range).
+  Substitui sequências longas de `bot`+`user`+`bot`+`user` de cadastro/formulário.
 
-  No canvas, o Flow é representado por UM bloco "WhatsApp Flow" — as telas,
-  componentes e roteamento ficam no SUB-EDITOR dedicado (clica em "Abrir
-  editor de telas" no painel de propriedades).
+  **Onde aparece no fluxo (topologia):**
+  - Vem DEPOIS de: `bot` (mensagem de contexto + CTA — "Pra continuar, abra o
+    formulário"), `menu`/`buttons` (opção "Cadastrar"/"Agendar" que dispara o
+    Flow), `condicional` (já decidiu que precisa coletar dados estruturados).
+  - Vem ANTES de: `condicional` (ramifica conforme o resultado — completou?
+    cancelou? campo X tem valor Y?), `bot` (confirma o envio com `{nome}`,
+    `{cpf}` recebidos), `integracao` (envia os dados coletados pra CRM/base),
+    `direcionamento` (passa adiante o fluxo).
+  - **Atualiza o cursor do fluxo** (`updatesLastFlowId: true`): a próxima edge
+    sai DESTE bloco.
+  - **Sub-editor dedicado**: as telas, componentes e roteamento entre screens
+    NÃO ficam no canvas principal — ficam no editor de telas do Flow (botão
+    "Abrir editor de telas" no painel de propriedades). No canvas, o Flow é
+    UM bloco só.
 
-detectionCues:
-  - 'Sentenças como "formulário", "form", "cadastro estruturado", "coleta de dados em telas"'
-  - 'Frases como "abre um formulário no WhatsApp", "tela de cadastro", "fluxo de inscrição"'
-  - 'Listagem de campos a coletar em sequência (Nome, CPF, Email, Telefone…)'
+  **Constraints Meta:**
+  - **Limite de screens**: até **10 telas** por Flow.
+  - **Componentes por tela**: até **100 componentes** (inputs, labels,
+    imagens, botões).
+  - **Tipos de input**: `TextInput`, `TextArea`, `RadioButtonsGroup`,
+    `CheckboxGroup`, `Dropdown`, `DatePicker`, `OptIn`, `Footer` (botão de
+    submit/avançar).
+  - **Validação**: JSON Schema embutido na definição do Flow — `required`,
+    `min`/`max`, `pattern` (regex), `min-length`/`max-length`.
+  - **Categoria Meta obrigatória**: `SIGN_UP`, `SIGN_IN`, `APPOINTMENT_BOOKING`,
+    `LEAD_GENERATION`, `CONTACT_US`, `CUSTOMER_SUPPORT`, `SURVEY`, `SHOPPING`,
+    `OTHER`. Definida em build-time e exigida na publicação.
+  - **Status**: Flow precisa ser **publicado** (status `PUBLISHED` na Meta)
+    pra rodar em produção. Em dev, fica `DRAFT`.
+  - **Payload de retorno**: JSON com as chaves dos inputs preenchidos. Acessível
+    no bot seguinte como `{flow.campo}` (ex: `{flow.nome}`, `{flow.cpf}`).
+  - **CTA**: o botão que ABRE o Flow é configurado em `triggerLabel` (até 20
+    chars — Meta limita o texto do botão).
 
 usageRules:
-  - 'Use SOMENTE pra fluxos de DADOS ESTRUTURADOS coletados em uma sessão guiada (não pra menus simples — esses são `menu`).'
-  - 'Defina sempre a `category` Meta apropriada (SIGN_UP, APPOINTMENT_BOOKING, etc) — é exigido pela publicação na Meta.'
-  - 'Limite Meta: até 10 screens. Componentes detalhados ficam pra fase seguinte do sub-projeto.'
-  - 'Edge depois do Flow representa o que acontece após o user completar/cancelar.'
+  - '**Use APENAS pra DADOS ESTRUTURADOS coletados numa sessão guiada**: cadastro completo, agendamento, captura de lead detalhada, pesquisa NPS estruturada. Pra menus simples de 2-3 opções, use `buttons` ou `menu`.'
+  - '**Defina sempre a `flowCategory` Meta apropriada** — é exigido pela publicação. `SIGN_UP` pra cadastro, `APPOINTMENT_BOOKING` pra agendamento, `LEAD_GENERATION` pra captura, `SURVEY` pra pesquisa, `CONTACT_US` pra formulário de contato, `CUSTOMER_SUPPORT` pra ticket, `SHOPPING` pra venda, `OTHER` pra demais casos.'
+  - '**`flowName` é interno** (até 50 chars) — descreve o propósito do Flow pro dev/PM, não aparece pro usuário final. Use frase descritiva curta: "Cadastro de cliente", "Agendamento de consulta".'
+  - '**`triggerLabel` é PÚBLICO** (até 20 chars) — é o texto do botão CTA que o usuário toca no chat pra ABRIR o Flow. Use verbo curto de ação: "Cadastrar", "Agendar", "Iniciar", "Preencher".'
+  - '**Limite Meta: até 10 screens, até 100 componentes/screen.** Se o escopo descreve mais que isso, quebre em múltiplos Flows ou misture com fluxo conversacional determinístico.'
+  - '**Sempre preceda com `bot` de contexto** explicando o que o Flow vai fazer e por quê. Ex: `bot "Pra agendar, vou abrir um formulário rapidinho"` → `whatsapp-flow "Agendar"`. Flow solto sem contexto = usuário confuso.'
+  - '**O retorno alimenta o próximo bloco via placeholder `{flow.campo}`.** Documente os campos esperados no `flowName`/descrição interna pra dar pista ao builder.'
+  - '**Edge depois do Flow representa o que acontece DEPOIS do usuário completar ou cancelar.** Tipicamente: `integracao` (manda os dados pra CRM), `bot` (confirma "Recebi seus dados, {flow.nome}!"), `direcionamento` (passa adiante).'
+
+detectionCues:
+  - '**Termos explícitos**: "WhatsApp Flow", "Flow", "mini-app", "formulário nativo do WhatsApp", "telas estruturadas".'
+  - '**Sentenças sobre formulário**: "abre um formulário", "tela de cadastro", "fluxo de inscrição estruturado", "coleta de dados em telas".'
+  - '**Listagem de muitos campos em sequência** (Nome, CPF, Email, Telefone, Endereço, Data, Aceite LGPD…) — sinal de que faz mais sentido em Flow do que em sequência de `user`/`bot` no chat.'
+  - '**Categorias de uso típicas**: cadastro completo (>3 campos), agendamento com data+hora+especialidade, NPS estruturado (escala + comentário + categoria), captura de lead B2B com qualificação.'
+  - '**Necessidade de validação client-side**: "valida o CPF na hora", "data não pode ser no passado", "email obrigatório" — sinaliza JSON Schema do Flow.'
 
 commonMistakes:
-  - 'Usar Flow pra menu de 2-3 opções (deveria ser `buttons` ou `menu` quick-reply)'
-  - 'Esquecer de configurar a `category` (Meta rejeita publicação sem categoria)'
-  - 'Esperar que o Flow funcione como conversa livre — ele é estruturado, screens fixas, inputs específicos'
+  - '**Usar Flow pra menu de 2-3 opções.** Errado: Flow com 1 screen, 3 radio buttons. Certo: `buttons` ou `menu` quick-reply no próprio chat. Flow é overkill — exige publicação na Meta, sub-editor, mais latência.'
+  - '**Esquecer de configurar a `flowCategory`.** Meta REJEITA publicação sem categoria. Sempre escolher uma das 9 categorias enumeradas — `OTHER` só quando realmente nenhuma encaixa.'
+  - '**Esperar que o Flow funcione como conversa livre.** Flow é ESTRUTURADO: telas fixas, inputs específicos, validação client-side. Pra conversa livre/multi-turn use `iag`. Pra perguntas avulsas use sequência `bot`+`user`.'
+  - '**Tratar `triggerLabel` longo.** Meta corta em 20 chars. "Clique aqui pra abrir o formulário" → vira "Clique aqui pra abrir…". Use verbo curto: "Cadastrar", "Agendar".'
+  - '**Não conectar o que vem DEPOIS do Flow.** Erro comum: emitir Flow como bloco final solto. Sempre conectar: `integracao` (envia dados), `bot` de confirmação, ou `direcionamento`. Sem isso, o usuário preenche o form e o fluxo morre.'
+  - '**Modelar Flow ESTRUTURADO sem precisar.** Se o escopo é "perguntar 2 coisas: nome e CPF", isso é `bot "Qual seu nome?"` + `user` + `bot "Seu CPF?"` + `user`. Flow só compensa de 4+ campos ou quando há validação client-side específica.'
+  - '**Confundir Flow com sub-fluxo/skill.** Frame de skill (AM/FA/EN) é UNIDADE DO BOT no canvas principal. Flow é MINI-APP DA META renderizado dentro do chat. São coisas totalmente diferentes apesar de "fluxo" no nome.'
 
 fields:
   flowName:
     type: string
     required: true
-    description: Nome do Flow (até 50 chars). Exibido internamente.
-    aiHint: 'Use um nome curto descritivo do propósito. Ex: "Cadastro de cliente", "Agendamento consulta"'
+    description: Nome interno do Flow (até 50 chars). Não aparece pro usuário — só pro dev/PM no editor.
+    aiHint: 'Frase descritiva curta do propósito: "Cadastro de cliente", "Agendamento de consulta", "Pesquisa NPS pós-atendimento", "Captura de lead B2B". Evite acrônimos sem contexto.'
   flowCategory:
     type: string
     required: true
@@ -56,31 +96,145 @@ fields:
       - SURVEY
       - SHOPPING
       - OTHER
-    description: Categoria Meta (exige na publicação).
+    description: Categoria Meta (obrigatória pra publicação)
     default: OTHER
+    aiHint: 'Escolha a categoria que melhor descreve o PROPÓSITO do Flow. `SIGN_UP` (cadastro novo), `SIGN_IN` (login), `APPOINTMENT_BOOKING` (agendamento), `LEAD_GENERATION` (captura B2B), `CONTACT_US` (contato), `CUSTOMER_SUPPORT` (ticket/suporte), `SURVEY` (pesquisa/NPS), `SHOPPING` (venda), `OTHER` (último recurso).'
   triggerLabel:
     type: string
     required: true
-    description: Texto do botão CTA que abre o Flow (max 20 chars).
+    description: Texto do botão CTA que abre o Flow no chat (até 20 chars — limite Meta).
     default: 'Abrir'
-    aiHint: 'Verbo de ação curto: "Cadastrar", "Agendar", "Iniciar"'
+    aiHint: 'Verbo de ação curto e direto: "Cadastrar", "Agendar", "Iniciar", "Preencher", "Responder". Evite frase ("Clique aqui pra…") — Meta corta em 20 chars.'
 
 builderRules:
   edgeFromPrevious: true
   updatesLastFlowId: true
 
 examples:
-  - description: Cadastro de cliente novo
+  - description: Cadastro de cliente novo (substitui sequência longa de bot+user)
     input: |
       Bot: Pra te conhecer melhor, vou abrir um formulário com seu cadastro.
-      [Flow: cadastro - Nome, CPF, Email, Aceite LGPD]
+      [Flow: cadastro — Nome, CPF, Email, Aceite LGPD]
     output:
       - { kind: bot, text: "Pra te conhecer melhor, vou abrir um formulário com seu cadastro." }
       - { kind: whatsapp-flow, flowName: "Cadastro de cliente", flowCategory: SIGN_UP, triggerLabel: "Cadastrar" }
+    note: 'Sequência clássica: bot de contexto + Flow. 4+ campos (nome, CPF, email, aceite) → Flow compensa vs `bot`+`user` repetidos. Categoria `SIGN_UP` (cadastro novo). CTA "Cadastrar" (verbo curto).'
 
-  - description: Agendamento de consulta
+  - description: Agendamento de consulta médica com data + hora + especialidade
     input: |
       Bot: Vamos agendar sua consulta. Toque em "Agendar" pra escolher data e horário.
     output:
       - { kind: bot, text: "Vamos agendar sua consulta. Toque em \"Agendar\" pra escolher data e horário." }
       - { kind: whatsapp-flow, flowName: "Agendamento de consulta", flowCategory: APPOINTMENT_BOOKING, triggerLabel: "Agendar" }
+    note: 'Categoria `APPOINTMENT_BOOKING` — exigido pela Meta nesse caso. CTA com aspas escapadas no `bot` (markdown do WhatsApp aceita aspas literais).'
+
+  - description: Pesquisa NPS pós-atendimento (substitui menu+bot+user inline)
+    input: |
+      Bot: Pra finalizar, gostaria de saber sua opinião sobre o atendimento.
+      [Flow: NPS — nota 0-10, motivo (texto), categoria (radio)]
+    output:
+      - { kind: bot, text: "Pra finalizar, gostaria de saber sua opinião sobre o atendimento." }
+      - { kind: whatsapp-flow, flowName: "Pesquisa NPS pós-atendimento", flowCategory: SURVEY, triggerLabel: "Responder" }
+    note: 'NPS estruturado (escala + comentário + categoria) merece Flow. Categoria `SURVEY`. NÃO confundir com a skill EN (Encerramento) — EN é avaliação simples de 4 níveis via `menu`. Flow NPS é mais sofisticado: 3 campos com validação.'
+
+  - description: Captura de lead B2B com qualificação
+    input: |
+      Bot: Pra te enviar uma proposta personalizada, preciso de alguns dados.
+      [Flow: lead B2B — Nome, Empresa, Cargo, Tamanho da empresa, Interesse, Telefone]
+    output:
+      - { kind: bot, text: "Pra te enviar uma proposta personalizada, preciso de alguns dados." }
+      - { kind: whatsapp-flow, flowName: "Captura de lead B2B", flowCategory: LEAD_GENERATION, triggerLabel: "Iniciar" }
+    note: 'Lead B2B com qualificação (cargo, tamanho da empresa) → `LEAD_GENERATION`. 6 campos → claramente Flow, não `bot`+`user` repetido. CTA "Iniciar" pra indicar começo de processo.'
+
+  - description: Flow seguido de integração + confirmação + direcionamento
+    input: |
+      Bot: Vou abrir o cadastro pra você.
+      [Flow: cadastro completo]
+      [Bot envia os dados pra CRM]
+      Bot: Pronto, {flow.nome}! Recebi seu cadastro. Em breve nossa equipe entra em contato.
+      [Cenário termina — pergunta se quer algo mais]
+    output:
+      - { kind: bot, text: "Vou abrir o cadastro pra você." }
+      - { kind: whatsapp-flow, flowName: "Cadastro completo de cliente", flowCategory: SIGN_UP, triggerLabel: "Cadastrar" }
+      - kind: integracao
+        integracao_type: api
+        title: "Enviar cadastro pro CRM"
+        fields:
+          - label: "Endpoint"
+            key: "url"
+            value: "https://api.crm/clientes"
+          - label: "Método"
+            key: "method"
+            value: "POST"
+          - label: "Body"
+            key: "body"
+            value: '{"nome":"{flow.nome}","cpf":"{flow.cpf}","email":"{flow.email}"}'
+      - { kind: bot, text: "Pronto, {flow.nome}! Recebi seu cadastro. Em breve nossa equipe entra em contato." }
+      - { kind: direcionamento, label: "Algo mais?", target_frame_id: "algo-mais" }
+    note: 'Cadeia completa: bot de contexto → Flow → integração que envia pro CRM (com placeholders `{flow.campo}`) → bot de confirmação personalizada → direcionamento pra skill AM. Sem AM duplicada inline. Padrão `feedback_sequencia_logica.md`: cada bloco encadeia logicamente, sem atalhos.'
+
+  - description: Flow com bifurcação por completou vs cancelou
+    input: |
+      Bot: Vou abrir o agendamento.
+      [Flow: agendar consulta]
+      - Se o cliente completar: confirma e envia pra calendário.
+      - Se cancelar: oferece atendimento humano.
+    output:
+      - { kind: bot, text: "Vou abrir o agendamento." }
+      - { kind: whatsapp-flow, flowName: "Agendamento de consulta", flowCategory: APPOINTMENT_BOOKING, triggerLabel: "Agendar" }
+      - { kind: condicional, condition: "Cliente completou o Flow?", true_label: "Sim", false_label: "Cancelou" }
+      - { kind: bot, text: "Consulta agendada pra {flow.data} às {flow.hora}, {flow.nome}!" }
+      - { kind: direcionamento, label: "Cancelou — falar com atendente", target_frame_id: "atendente" }
+    note: 'Bifurcação pós-Flow: TRUE = completou e renderiza confirmação; FALSE = cancelou e direciona pra skill FA (atendente). Cutoff TRUE imediatamente após o `condicional`, `direcionamento` logo depois cobre o FALSE — padrão parser regra #13 (`aprendizados_parser_ia.md`).'
+
+  - description: NÃO usar Flow — caso de menu simples mal interpretado
+    input: |
+      Bot: Você quer agendar, cancelar ou remarcar?
+      Opções: Agendar, Cancelar, Remarcar
+    output:
+      - { kind: bot, text: "Você quer agendar, cancelar ou remarcar?" }
+      - kind: buttons
+        options:
+          - { label: "Agendar" }
+          - { label: "Cancelar" }
+          - { label: "Remarcar" }
+    note: 'CONTRA-EXEMPLO: 3 opções avulsas → `buttons`, NÃO Flow. Flow é overkill pra menu simples. Use Flow só pra 4+ campos estruturados ou validação client-side específica.'
+
+aiInstructions: |
+  WhatsApp Flow é o componente "pesado" do canal — exige publicação Meta,
+  configuração de telas, validação JSON Schema. Use com critério.
+
+  1. **Em dúvida entre Flow e sequência conversacional (`bot`+`user`):** se
+     são 1-3 campos simples sem validação especial → conversacional. Se são
+     4+ campos OU há validação client-side (data, regex, range) OU é UX
+     reconhecível como "formulário", use Flow.
+  2. **Em dúvida entre Flow e `menu`/`buttons`:** se é ESCOLHA SIMPLES entre
+     opções (até ~10) → menu/buttons. Se é COLETA ESTRUTURADA de múltiplos
+     campos → Flow.
+  3. **Em dúvida entre Flow e `iag`:** se o usuário precisa preencher CAMPOS
+     ESTRUTURADOS predefinidos → Flow. Se o usuário CONVERSA livremente e a
+     IA extrai/responde → IAG. Em alguns casos faz sentido combinar: IAG
+     extrai dados de conversa livre + se faltar campo, abre Flow pra
+     completar.
+  4. **Sempre escolha uma `flowCategory` específica** — `OTHER` é último recurso.
+     Categoria errada ≠ rejeição na Meta, mas atrapalha analytics e moderação.
+  5. **Sempre conecte o que vem DEPOIS do Flow** — integração que envia dados,
+     bot de confirmação com placeholders `{flow.*}`, direcionamento pra skill
+     (AM/FA/EN). Flow solto no fim = dados coletados e descartados.
+  6. **Confirme o sucesso/cancelamento explicitamente** — `condicional` "Cliente
+     completou?" ramifica TRUE (continua) vs FALSE (oferece outra rota,
+     tipicamente `direcionamento` pra `atendente`).
+
+  **Glossário rápido:**
+  - **Flow / mini-app**: mini-aplicação nativa do WhatsApp, multi-screen,
+    com inputs estruturados. Publicada via Meta, status `DRAFT`/`PUBLISHED`.
+  - **screen**: uma TELA do Flow. Até 10 por Flow.
+  - **CTA**: Call To Action — o botão que ABRE o Flow no chat. Configurado
+    em `triggerLabel`, máx 20 chars.
+  - **flowCategory**: categorização Meta obrigatória — define como o Flow é
+    moderado e quais features estão disponíveis.
+  - **placeholder de retorno**: `{flow.campo}` — acesso aos dados preenchidos
+    no Flow, usável pelos blocos seguintes.
+  - **AM/FA/EN**: skills reusadas — Algo Mais (`algo-mais`), Falar com Atendente
+    (`atendente`), Encerramento (`encerramento`). Cenários com Flow que
+    terminam direcionam pra elas em vez de duplicar.

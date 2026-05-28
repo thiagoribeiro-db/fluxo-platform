@@ -6,48 +6,95 @@ nodeType: menu
 flowControl: linear
 
 description: |
-  Menu modal exibido pelo WhatsApp quando há 4 ou MAIS opções de escolha.
-  Tecnicamente: lista interativa do WhatsApp Business API (List Message).
-  Visualmente: um cabeçalho + opções clicáveis + botão "Enviar" no rodapé.
+  Menu modal exibido pelo WhatsApp quando há **4 ou mais** opções de escolha
+  fechada. Tecnicamente: lista interativa da WhatsApp Cloud API (`interactive`
+  type `list`, também chamado **List Message**). Visualmente no app do usuário:
+  um cabeçalho clicável + um botão "Ver opções" → ao tocar, abre um BOTTOM
+  SHEET MODAL com a lista vertical de opções + botão "Enviar" no rodapé.
 
-detectionCues:
-  - 'Lista de 4+ itens precedida por uma pergunta ou cabeçalho'
-  - 'Palavras "menu", "lista", "opções" precedendo as escolhas'
-  - 'Frase "selecione uma opção", "escolha uma", "qual deseja"'
-  - 'Listas marcadas com `-`, `*`, `•` ou numeradas `1.`, `2.` com 4+ itens'
+  É o equivalente em escala maior do `buttons` (2-3) e do `btn-long` (1). A
+  escolha do componente é determinada PURAMENTE pelo número de opções:
+  menu é obrigatório acima de 3 porque a Cloud API não aceita mais de 3
+  quick-replies por mensagem.
+
+  **Onde aparece no fluxo (topologia):**
+  - Vem normalmente DEPOIS de: um `bot` (que faz a pergunta longa), saída de
+    `condicional`, retorno de `integracao`/`iag`, opção de outro menu (raro —
+    sub-menus). Pode também ser o PRIMEIRO bloco do frame quando o cabeçalho
+    já contém a pergunta curta.
+  - Vem ANTES de: vários `direcionamento` (um por opção, na MESMA ordem das
+    `options` — o builder conecta 1:1 pelos botões, não pelo menu pai). Pode
+    também conectar a `condicional` (raro — quando 1 opção dispara validação)
+    ou `bot` (raro — quando todas as opções convergem pra mesma resposta).
+  - **Atualiza o cursor do fluxo** (`updatesLastFlowId: true`): o builder
+    aponta `lastFlowId` pro menu, mas os `direcionamento`s subsequentes
+    conectam-se pela ordem dos botões (regra do parser IA — ver
+    `aprendizados_parser_ia.md`).
+  - **Auto-children**: o builder cria automaticamente TRÊS trackings filhos à
+    esquerda: `_exibicao` (quando o menu aparece), `_selecao` (quando o usuário
+    escolhe), `_inesperado` (quando o usuário digita algo fora das opções).
+
+  **Constraints WhatsApp Cloud API:**
+  - **Header**: até **60 chars** (texto). É o título da lista, exibido em
+    negrito no topo do modal.
+  - **Body**: até **4096 chars** (gerado pelo bot anterior ou inferido). É a
+    pergunta longa antes do botão "Ver opções".
+  - **Footer**: até **60 chars**, opcional (default "Enviar" no Fluxo Platform).
+  - **Button**: até **20 chars** (texto do botão que abre o modal — gerado
+    pelo runtime, geralmente "Ver opções" / "Selecionar").
+  - **Options (sem sections)**: até **10 itens** por menu, cada item com
+    `title` até **24 chars** e `description` até **72 chars** opcional.
+  - **Sections (com agrupamento)**: até **10 sections**, somando até **10
+    opções totais** entre todas. Cada `section.title` até **24 chars**.
+  - **Formatação**: NÃO suporta `*bold*`/`_italic_` nos labels de opção —
+    texto puro. Suporta no header/body (que viram bot anteriores ou inferidos).
 
 usageRules:
-  - 'Use APENAS quando há 4 OU MAIS opções. Para 2-3 opções, use `buttons`. Para 1, use `btn-long`.'
-  - 'O `header` deve ser CURTO (cabeçalho do menu, max ~60 chars). Se a pergunta original era longa, divida: 1 bloco `bot` com a pergunta longa + 1 `menu` com header sintético'
-  - 'Use `sections` (em vez de `options`) quando as opções forem agrupadas por categorias distintas. Cada seção tem um `title` e suas `options`.'
-  - 'Quando o escopo agrupa opções com títulos/categorias visíveis, SEMPRE use `sections`. Ex: "Solicitar documentos / Suporte / Falar com IA".'
-  - 'Não misture `options` e `sections` no mesmo nó — use um ou outro.'
-  - 'Default do `footer`: "Enviar" (texto do botão final)'
-  - 'APÓS o menu, geralmente vêm `direcionamento`s — um por opção, apontando pro `target_frame_id` correspondente'
+  - '**Use APENAS quando há 4 OU MAIS opções.** Pra 2-3 opções, use `buttons` (row de quick-replies). Pra 1, use `btn-long` (CTA único). A escolha é DETERMINÍSTICA pelo número de opções — não pelo "estilo" do escopo. Tabela: 1 → btn-long, 2-3 → buttons, 4-10 → menu.'
+  - '**Limites Meta:** header até **60 chars**, cada label de opção até **24 chars**, máximo **10 opções totais** (somando todas as sections). Se o escopo tem mais de 10 opções, divida em sub-menus por categoria ou simplifique.'
+  - '**O `header` deve ser CURTO e direto** (cabeçalho do modal, max ~60 chars). Se a pergunta original era longa ("Em que podemos te ajudar hoje? Selecione uma das opções abaixo..."), DIVIDA: 1 bloco `bot` com a pergunta longa + 1 `menu` com header sintético tipo `"Menu Principal"` ou `"Selecione uma opção"`.'
+  - '**Use `sections` (em vez de `options`)** quando o escopo agrupa opções por categorias visíveis com títulos. Ex: "Solicitar documentos: Holerite, Informe... / Suporte: Endereço, E-mail... / Falar com IA: Dúvidas de RH". Cada seção tem `title` (até 24 chars) e `options` (lista de strings). NÃO misture `options` e `sections` no mesmo nó — escolha um ou outro.'
+  - '**Quando NÃO há agrupamento visível**, use `options` (lista flat). Mais simples, render como lista única no modal.'
+  - '**APÓS o menu, emita SEMPRE um `direcionamento` por opção**, na MESMA ORDEM das `options` — o builder conecta 1:1 pela posição (não pelo nome). Se há 8 opções, emita 8 direcionamentos sequenciais. Sem isso, o fluxo fica "morto" após a escolha — o usuário escolhe mas o bot não vai a lugar nenhum.'
+  - '**Sequência lógica obrigatória `bot → menu → direcionamento`**. NUNCA emita edge direta `bot_pergunta → bot_resposta` em paralelo às opções — quebra a regra de sequência lógica do Blip (ver `feedback_sequencia_logica.md`): o caminho SEMPRE passa pelas opções no meio, nunca atalha.'
+  - '**Skill EN usa menu de 4 opções** pra avaliação ("Muito satisfeito" / "Satisfeito" / "Pouco satisfeito" / "Muito insatisfeito") — esse menu específico fica DENTRO do frame `encerramento`, NÃO inline em outros cenários. Se o escopo descreve avaliação de atendimento ao final, emita `direcionamento` pro frame EN em vez de duplicar o menu.'
+  - '**Default do `footer`: "Enviar"** (texto do botão de confirmação no rodapé do modal). Pode customizar pra ações específicas: "Selecionar", "Confirmar", "Próximo".'
+
+detectionCues:
+  - '**Lista de 4+ itens** precedida por uma pergunta ou cabeçalho — sinal mais forte. Listas marcadas com `-`, `*`, `•`, ou numeradas `1.`, `2.` com 4+ itens viram menu.'
+  - '**Palavras "menu", "lista", "opções", "selecione"** precedendo as escolhas — vocabulário típico de List Message.'
+  - '**Frases "selecione uma opção", "escolha uma das alternativas", "qual deseja", "em que podemos ajudar"** seguidas de lista longa.'
+  - '**Opções AGRUPADAS por categoria** com títulos visíveis tipo "Solicitar documentos: ... / Suporte: ... / Outros: ..." — forte sinal de uso de `sections`.'
 
 commonMistakes:
-  - 'Usar menu pra 2-3 opções (deveria ser buttons)'
-  - 'Não emitir os direcionamentos pós-menu — o fluxo fica "morto" após escolha'
-  - 'Misturar `header` com texto longo de pergunta — separe'
+  - '**Usar menu pra 2-3 opções** — deveria ser `buttons` (row de quick-replies). Menu impõe overhead visual desnecessário pra escolhas curtas.'
+  - '**Não emitir os direcionamentos pós-menu.** Errado: emitir só o menu e parar. Certo: emitir menu + um `direcionamento` por opção (mesma ordem). Sem direcionamentos, o fluxo fica desconectado e o usuário escolhe sem ir a lugar nenhum.'
+  - '**Misturar `header` com texto longo de pergunta.** Errado: `header: "Olá! Como posso te ajudar hoje? Selecione uma opção..."` (passa do limite). Certo: bloco `bot` separado com a pergunta longa + `menu` com header curto tipo `"Menu Principal"`.'
+  - '**Misturar `options` e `sections` no mesmo nó.** Use UM dos dois. Se há agrupamento visível com títulos, é `sections`. Se é lista plana, é `options`.'
+  - '**Conectar direcionamentos pelo NOME ao invés da ORDEM.** O builder usa POSIÇÃO 1:1 — `options[0]` → `direcionamento[0]`, `options[1]` → `direcionamento[1]`, etc. Manter a ordem é crítico (ver `aprendizados_parser_ia.md` bug #3).'
+  - '**Duplicar inline a skill EN** (avaliação de atendimento). Errado: emitir bot "Como avalia?" + menu de 4 opções dentro do cenário. Certo: emitir `direcionamento` pro frame `encerramento` — a skill EN já tem a estrutura completa.'
+  - '**Exceder 10 opções totais.** Limite hard da Cloud API. Se o escopo lista 12 itens, agrupe em sections menores ou subdivida em sub-menus por categoria.'
+  - '**Emitir edge direta `bot → próximo-bot` ignorando o menu no meio.** Quebra a sequência lógica — o caminho do usuário SEMPRE passa pelas opções (ver `feedback_sequencia_logica.md`).'
 
 fields:
   header:
     type: string
     required: true
-    description: Cabeçalho/título do menu (max ~60 chars)
-    aiHint: 'Curto e direto. Ex: "Menu Principal", "Selecione uma opção", "Loja atacado"'
+    description: Cabeçalho/título do menu exibido no topo do modal (max 60 chars)
+    aiHint: 'Curto, direto, em negrito visual. Ex: "Menu Principal", "Selecione uma opção", "Loja atacado", "Como posso ajudar?". Se a pergunta original passa de 60 chars ou tem múltiplas frases, gere bot separado com a pergunta longa + menu com header sintético.'
   options:
     type: array
     itemType: string
     required: false
-    description: Lista de opções FLAT (sem categorias). Use quando NÃO há agrupamento por seção.
-    aiHint: 'Preserve o texto LITERAL e a ORDEM do documento original. Mínimo 4 itens.'
+    description: Lista de opções FLAT (sem categorias). Use quando NÃO há agrupamento por seção. Mínimo 4 itens, máximo 10.
+    aiHint: 'Preserve o texto LITERAL e a ORDEM do documento original — cada item até 24 chars. Não traduza, não abrevie sem necessidade. A ordem importa: o builder conecta direcionamentos 1:1 pela posição (ver `aprendizados_parser_ia.md`).'
   sections:
     type: array
     required: false
     description: |
       Lista de seções (grupos de opções com título). Use quando o escopo agrupa as opções
-      por categorias visíveis. Cada seção tem `title` (string) e `options` (string[]).
+      por categorias visíveis. Cada seção tem `title` (string, até 24 chars) e `options` (string[]).
+      Máximo 10 sections, somando até 10 opções totais.
     aiHint: |
       Exemplo:
         sections:
@@ -57,10 +104,12 @@ fields:
             options: ["Endereço", "E-mail", "Número de Telefone", "Cadastro e acessos"]
           - title: "Falar com nossa IA"
             options: ["Dúvidas de RH"]
+      Cada `title` até 24 chars; cada item dentro de `options` até 24 chars. Total de opções somando todas sections ≤ 10.
   footer:
     type: string
     default: "Enviar"
-    description: Texto do botão final do menu (default "Enviar")
+    description: Texto do botão final do menu (default "Enviar", até 60 chars)
+    aiHint: 'Default "Enviar" cobre 95% dos casos. Use customização só quando o escopo pede explicitamente: "Selecionar", "Confirmar", "Próximo".'
 
 builderRules:
   edgeFromPrevious: true
@@ -69,18 +118,18 @@ builderRules:
     - nodeType: tracking
       labelTemplate: "{{slug(header)}}_exibicao"
       relativePosition: { x: -256, y: 0 }
-      description: 'Tracking quando o menu é exibido'
+      description: 'Tracking de exibição — disparado quando o menu é apresentado ao usuário (modal aberto).'
     - nodeType: tracking
       labelTemplate: "{{slug(header)}}_selecao"
       relativePosition: { x: -256, y: 52 }
-      description: 'Tracking quando uma opção é selecionada'
+      description: 'Tracking de seleção — disparado quando o usuário escolhe uma opção válida do menu.'
     - nodeType: tracking
       labelTemplate: "{{slug(header)}}_inesperado"
       relativePosition: { x: -256, y: 104 }
-      description: 'Tracking quando o input é inesperado/fora das opções'
+      description: 'Tracking de input inesperado — disparado quando o usuário digita texto livre ao invés de escolher uma opção (fallback).'
 
 examples:
-  - description: Menu principal com 9 opções
+  - description: Menu principal com 8 opções planas (caso canônico)
     input: |
       Bot: Escolha uma opção:
       - Ofertas
@@ -97,21 +146,37 @@ examples:
         header: "Menu Principal"
         options: ["Ofertas", "Lojas", "Cartão de crédito", "Comprar no site", "Devolução", "SAC", "Ética e conduta", "Falar com atendente"]
         footer: "Enviar"
+      - { kind: direcionamento, label: "Ofertas", target_frame_id: "ofertas" }
+      - { kind: direcionamento, label: "Lojas", target_frame_id: "lojas" }
+      - { kind: direcionamento, label: "Cartão de crédito", target_frame_id: "cartao-credito" }
+      - { kind: direcionamento, label: "Comprar no site", target_frame_id: "comprar-site" }
+      - { kind: direcionamento, label: "Devolução", target_frame_id: "devolucao" }
+      - { kind: direcionamento, label: "SAC", target_frame_id: "sac" }
+      - { kind: direcionamento, label: "Ética e conduta", target_frame_id: "etica" }
+      - { kind: direcionamento, label: "Falar com atendente", target_frame_id: "atendente" }
+    note: |
+      8 opções → 8 direcionamentos, MESMA ORDEM. Note que "Falar com atendente" direciona pro frame **FA**
+      (skill que faz a cascata de 4 condicionais antes do atendimento-humano) — NUNCA usar
+      `atendimento-humano` inline aqui.
 
-  - description: Menu com 4 opções (limite mínimo)
+  - description: Menu de avaliação 4 opções (limite mínimo, usado SÓ dentro do frame EN)
     input: |
       Como avalia o atendimento?
       - Muito satisfeito
       - Satisfeito
       - Pouco satisfeito
-      - Insatisfeito
+      - Muito insatisfeito
     output:
       - { kind: bot, text: "Como avalia o atendimento?" }
       - kind: menu
         header: "Avaliação"
-        options: ["Muito satisfeito", "Satisfeito", "Pouco satisfeito", "Insatisfeito"]
+        options: ["Muito satisfeito", "Satisfeito", "Pouco satisfeito", "Muito insatisfeito"]
+    note: |
+      Esse é o menu canônico da skill **EN** (frame `encerramento`). Se aparece em
+      um cenário externo, NÃO emita inline — substitua por `direcionamento` pro
+      frame EN. O bloco mostrado aqui só existe DENTRO do frame `encerramento`.
 
-  - description: Menu com seções (Holerite / Suporte / IA)
+  - description: Menu com sections (Holerite / Suporte / IA — caso real RH)
     input: |
       Bot: Como eu posso te ajudar?
       Solicitar documentos: Holerite, Informe de Rendimentos, Outros Documentos
@@ -128,11 +193,126 @@ examples:
           - title: "Falar com nossa IA"
             options: ["Dúvidas de RH"]
         footer: "Enviar"
+    note: |
+      Quando o escopo agrupa opções com títulos de categoria visíveis, use `sections`.
+      Cada section.title (24 chars max) é exibido em negrito no modal, separando
+      visualmente os grupos. Total ≤ 10 opções somando todas as sections.
+
+  - description: Pergunta longa → divide em bot + menu (header curto)
+    input: |
+      Bot: Olá! Bem-vindo(a) à MarcaX! Em que podemos te ajudar hoje? Selecione uma das opções abaixo:
+      - Comprar online
+      - Comprar na loja física
+      - Devolução de produto
+      - SAC
+      - Falar com atendente
+    output:
+      - { kind: bot, text: "Olá! Bem-vindo(a) à MarcaX! Em que podemos te ajudar hoje? Selecione uma das opções abaixo:" }
+      - kind: menu
+        header: "Menu Principal"
+        options: ["Comprar online", "Comprar na loja física", "Devolução de produto", "SAC", "Falar com atendente"]
+        footer: "Enviar"
+      - { kind: direcionamento, label: "Comprar online", target_frame_id: "comprar-online" }
+      - { kind: direcionamento, label: "Comprar na loja física", target_frame_id: "comprar-loja" }
+      - { kind: direcionamento, label: "Devolução de produto", target_frame_id: "devolucao" }
+      - { kind: direcionamento, label: "SAC", target_frame_id: "sac" }
+      - { kind: direcionamento, label: "Falar com atendente", target_frame_id: "atendente" }
+    note: |
+      Pergunta longa (~90 chars) NÃO cabe em `header` (60 chars max). Divida:
+      bot com a pergunta inteira + menu com header sintético "Menu Principal". O
+      header é só o título visual do modal, não a pergunta semântica.
+
+  - description: Cenário ERRADO — menu pra 2 opções (deveria ser buttons)
+    input: |
+      Bot: Deseja receber ofertas?
+      - Sim
+      - Não
+    output:
+      - { kind: bot, text: "Deseja receber ofertas?" }
+      - { kind: buttons, options: ["Sim", "Não"] }
+    note: |
+      2 opções NUNCA viram menu — viram `buttons` (row horizontal de quick-replies).
+      A regra é determinística pelo número: 1 → btn-long, 2-3 → buttons, 4+ → menu.
+
+  - description: Cenário ERRADO — menu sem direcionamentos depois (fluxo morto)
+    input: |
+      Bot: Selecione:
+      - Opção A
+      - Opção B
+      - Opção C
+      - Opção D
+    output:
+      - { kind: bot, text: "Selecione:" }
+      - kind: menu
+        header: "Selecione"
+        options: ["Opção A", "Opção B", "Opção C", "Opção D"]
+      - { kind: direcionamento, label: "Opção A", target_frame_id: "opcao-a" }
+      - { kind: direcionamento, label: "Opção B", target_frame_id: "opcao-b" }
+      - { kind: direcionamento, label: "Opção C", target_frame_id: "opcao-c" }
+      - { kind: direcionamento, label: "Opção D", target_frame_id: "opcao-d" }
+    note: |
+      Esquecer os 4 direcionamentos abaixo é um dos erros mais comuns. Sem eles,
+      o usuário escolhe a opção mas o bot não tem pra onde ir → fluxo morto.
+
+  - description: Menu cujo "Falar com atendente" direciona pro frame FA (não inline)
+    input: |
+      Bot: Como podemos ajudar?
+      - Comprar
+      - Suporte técnico
+      - Financeiro
+      - Falar com atendente
+    output:
+      - { kind: bot, text: "Como podemos ajudar?" }
+      - kind: menu
+        header: "Menu Principal"
+        options: ["Comprar", "Suporte técnico", "Financeiro", "Falar com atendente"]
+      - { kind: direcionamento, label: "Comprar", target_frame_id: "comprar" }
+      - { kind: direcionamento, label: "Suporte técnico", target_frame_id: "suporte" }
+      - { kind: direcionamento, label: "Financeiro", target_frame_id: "financeiro" }
+      - { kind: direcionamento, label: "Falar com atendente", target_frame_id: "atendente" }
+    note: |
+      "Falar com atendente" SEMPRE direciona pro frame **FA** (skill `atendente`),
+      que faz a cascata de 4 condicionais (feriado / fim de semana / horário /
+      disponibilidade) antes do `atendimento-humano`. Cenário externo NUNCA usa
+      `atendimento-humano` inline — apenas direciona.
 
 aiInstructions: |
-  IMPORTANTE: depois de um menu, emita um bloco `direcionamento` PARA CADA opção,
-  apontando pro frame correspondente (use `target_frame_id` = slug do frame
-  destino). Sem isso, o fluxo fica desconectado.
+  Menu é o componente de escolha pra LISTAS LONGAS (4-10 opções). Heurísticas finais:
 
-  Quando as opções do menu estiverem agrupadas por categoria no escopo original,
-  use `sections` em vez de `options`. Nunca use ambos no mesmo nó.
+  1. **Decisão entre menu / buttons / btn-long é DETERMINÍSTICA pelo número:**
+     - 1 opção → `btn-long` (CTA único, linha inteira)
+     - 2-3 opções → `buttons` (row horizontal de quick-replies)
+     - 4-10 opções → `menu` (modal vertical)
+     - 11+ opções → divida em sub-menus ou agrupe em sections
+     Não escolha pelo "estilo" do escopo, escolha pela CONTAGEM.
+
+  2. **SEMPRE emita os direcionamentos pós-menu** — um por opção, na MESMA ORDEM
+     das `options` (ou achatando todas as sections). O builder conecta 1:1 pela
+     posição. Esquecer os direcionamentos = fluxo morto.
+
+  3. **Header curto, body separado:** se a pergunta passa de 60 chars, divida
+     em bot (pergunta longa) + menu (header sintético).
+
+  4. **Sections só quando há agrupamento visível por categoria** — se é lista
+     plana, use `options`. Nunca misture os dois.
+
+  5. **Skill EN tem menu de 4 opções de avaliação dentro do frame `encerramento`** —
+     nunca duplique inline. Em cenários externos, emita `direcionamento` pra EN.
+
+  6. **Sequência lógica obrigatória `bot → menu → direcionamento`** — nunca emita
+     edge direta `bot_pergunta → bot_resposta` pulando o menu (ver `feedback_sequencia_logica.md`).
+
+  **Glossário rápido:**
+  - **menu modal**: lista interativa do WhatsApp (`interactive.list`), abre como bottom sheet
+    no app do usuário, com header + body + opções verticais + footer com botão "Enviar".
+  - **header**: título do menu, em negrito no topo do modal (max 60 chars).
+  - **body**: texto sob o header — geralmente vem do `bot` anterior; até 4096 chars.
+  - **footer**: texto do botão de confirmação no rodapé (default "Enviar", max 60 chars).
+  - **sections**: agrupamento de opções por categoria, com `title` visível separando grupos.
+  - **direcionamento 1:1**: cada opção do menu conecta a UM direcionamento subsequente, pela
+    ORDEM (não pelo nome) — `options[i]` → `direcionamento[i]`.
+  - **cursor de fluxo** (`lastFlowId`): menu atualiza, e os direcionamentos saem dos botões
+    individuais (handles separados), não do menu pai.
+  - **AM/FA/EN**: skills reusadas — Algo Mais (`algo-mais`), Falar com Atendente (`atendente`),
+    Encerramento (`encerramento`). Menus cuja última opção é "Falar com atendente" → direcionar
+    pra FA (que tem cascata de validação), nunca usar `atendimento-humano` inline.

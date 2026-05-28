@@ -6,63 +6,194 @@ nodeType: direcionamento
 flowControl: leaf
 
 description: |
-  Salto/transição pra outro frame do fluxo. Renderiza como um botão verde
-  CLICÁVEL no canvas — clicar leva o usuário pro frame destino.
+  Salto/transição pra OUTRO ponto do fluxo — outro frame inteiro (mais comum)
+  ou um bloco específico dentro do mesmo frame. Renderiza como um botão verde
+  CLICÁVEL no canvas; clicar leva o usuário ao destino.
 
-  É a "cola" que conecta cenários. Após menus, geralmente cada opção tem
-  um direcionamento correspondente.
+  É a "cola" topológica que conecta cenários. Quando um cenário termina sua
+  parte específica, em vez de encerrar solto, ele faz um `direcionamento`
+  pro próximo frame (`algo-mais`, `encerramento`, etc.) ou pra uma skill
+  reusada (`atendente`, `algo-mais`, `encerramento`).
 
-detectionCues:
-  - 'Frases "vai pra X", "direciona pra X", "salta pra X", "pula pra X"'
-  - 'Após menu/buttons: cada opção geralmente tem um direcionamento implícito ou explícito'
-  - 'Frases de continuidade: "voltar ao menu", "encerrar atendimento", "falar com atendente"'
-  - 'Setas explícitas no texto: "Ofertas → frame Ofertas", "Atendente → Transbordo"'
+  **Onde aparece no fluxo (topologia):**
+  - Vem DEPOIS de: `bot` (no fim do cenário), opção de `menu`/`buttons`/
+    `btn-long` (uma direcionamento por opção, ordem 1:1), saída TRUE ou
+    FALSE de `condicional` (cutoff de bifurcação), retorno de `integracao`/
+    `iag` (quando o cenário só roteia e não responde).
+  - Vem ANTES de: nada no canvas dentro do frame atual — é **folha**
+    (`flowControl: leaf`). A próxima ação acontece no frame destino.
+  - **NÃO atualiza o cursor de fluxo** (`updatesLastFlowId: false`) — é
+    terminal local; o cursor não avança após um direcionamento. Próximos
+    blocos do mesmo frame continuam saindo do bloco ANTES do direcionamento.
+  - **Sem auto-children** — direcionamento é sempre uma folha isolada.
+
+  **Dois modos de destino:**
+  - `target_frame_id`: salta pro **início** de outro frame (modo padrão).
+    Slugs canônicos: `saudacao`, `algo-mais`, `atendente`, `encerramento`.
+  - `target_block_id`: salta pra um **bloco específico** dentro do MESMO
+    frame ou outro (raro; usado em loops internos, "tentar de novo",
+    retornar a um ponto específico). Use só quando a topologia exige.
 
 usageRules:
-  - 'O `target_frame_id` é o SLUG do frame destino — deve casar com o `frame_id` de algum frame na sua lista de frames'
-  - 'Se o destino é um frame que ainda NÃO existe na sua lista, use um slug consistente: "atendente", "encerramento", "saudacao", "algo-mais"'
-  - 'Após `menu`: emita UM direcionamento pra cada opção, em ordem'
-  - 'Direcionamento é folha — NÃO atualiza o cursor de fluxo'
+  - '**`target_frame_id` é um SLUG** (lowercase, sem acentos, hifenizado) — deve casar com o `frame_id` de algum frame na lista. Slugs canônicos das skills reusadas: `algo-mais`, `atendente`, `encerramento`, `saudacao`. Slugs de cenários: `ofertas`, `lojas`, `sac`, `devolucao`, etc.'
+  - '**Se o frame destino ainda não existe** na sua lista de frames, use um slug consistente — o builder reclama se o destino estiver órfão, mas é melhor que inventar nomes diferentes do canônico.'
+  - '**Após `menu`/`buttons`/`btn-long`: emita UM direcionamento POR OPÇÃO, em ordem 1:1** (regra #14 do parser). `options[0]` do menu conecta com `direcionamento[0]` seguinte, `options[1]` com `direcionamento[1]`, etc. O builder (`emitDirecionamentosFromButtons`) detecta esse padrão pela ordem e cria as edges botão→direcionamento corretamente.'
+  - '**Sequência lógica (feedback explícito do usuário, 2026-05):** quando há `btn-short` (botões) no meio, o caminho OBRIGATÓRIO é `main_pergunta → btn → main_resposta`. NUNCA crie edge direta `main_pergunta → main_resposta` em paralelo — é redundante e polui o canvas. Cada `direcionamento` pós-buttons conecta a partir do BOTÃO, não do bot pai.'
+  - '**Use direcionamento, NÃO duplicação inline, pras skills reusadas (AM/FA/EN):** quando um cenário termina perguntando "algo mais?", emita `direcionamento target_frame_id="algo-mais"` — NÃO emita bot + 3 opções inline. Quando pede atendente, `target_frame_id="atendente"` — NÃO emita `atendimento-humano` direto. Quando encerra, `target_frame_id="encerramento"` — NÃO duplique fluxo de avaliação.'
+  - '**Direcionamento é FOLHA — não atualiza o cursor.** Próximos blocos do mesmo frame continuam saindo do bloco ANTES do direcionamento (geralmente o último `bot` ou o `condicional`). Se um direcionamento for o último bloco do frame, o cenário simplesmente termina ali (sem dangling).'
+  - '**NÃO emita direcionamento pro próprio frame** — vira loop infinito que o builder rejeita. Se o cenário precisa "voltar ao início do mesmo frame", use `target_block_id` apontando pro primeiro bloco específico do frame.'
+  - '**Label do direcionamento** deve refletir o nome da opção/destino: `"Ofertas"`, `"Falar com atendente"`, `"Algo Mais"`, `"Finalizar"`. Quando vem de menu, label = opção do menu. Quando vem de cenário terminal, label = título do frame destino ou ação.'
+
+detectionCues:
+  - '**Frases explícitas de salto:** `"vai pra X"`, `"direciona pra X"`, `"salta pra X"`, `"pula pra X"`, `"leva ao frame X"`, `"retorna ao menu"`. Sempre que houver verbo de movimento + nome de cenário/frame, é direcionamento.'
+  - '**Opções de menu sem fluxo próprio detalhado:** se o escopo lista 3 opções (`Ofertas`, `Lojas`, `Atendente`) e cada uma tem um cenário próprio descrito depois, cada opção vira `direcionamento` pro frame correspondente. Ordem 1:1 com `options` do menu.'
+  - '**Frases de continuidade/encerramento de cenário:** `"voltar ao menu principal"`, `"encerrar atendimento"`, `"falar com atendente"`, `"posso ajudar com algo mais?"`, `"finalizar"`. Cada uma vira direcionamento pra skill reusada (`menu-principal`/`encerramento`/`atendente`/`algo-mais`).'
+  - '**Setas explícitas no texto:** `"Ofertas → frame Ofertas"`, `"Atendente → Transbordo"`, `"Devolução → DV"`. Notação de seta sinaliza direcionamento direto.'
+  - '**Frases que indicam fim de cenário sem encerramento:** `"depois disso, volta pra X"`, `"em seguida, segue pra Y"` no FINAL de um cenário — é direcionamento, não bot.'
+  - '**Skills reusadas mencionadas no fim de cenário:** quando o escopo diz "ao final, perguntar se quer algo mais" ou "depois, encerrar com avaliação", reconhecer que pertencem a frames AM/EN e emitir `direcionamento` pra eles em vez de duplicar inline.'
 
 commonMistakes:
-  - 'Esquecer de criar os direcionamentos pós-menu'
-  - 'Usar `target_frame_id` que não casa com nenhum `frame_id` (links quebrados)'
-  - 'Emitir direcionamento pra MESMO frame (loop infinito)'
+  - '**Duplicar inline conteúdo de skill reusada.** Errado: emitir bot `"Posso te ajudar com algo mais?"` + 3 botões + 3 direcionamentos no fim de cada cenário. Certo: 1 `direcionamento target_frame_id="algo-mais"` — o frame AM resolve. Vale igual pra FA (atendente) e EN (encerramento).'
+  - '**Esquecer direcionamentos pós-menu.** Errado: emitir `menu` com 3 opções e nenhum direcionamento. Resultado: opções clicáveis sem destino, usuário fica preso. Certo: 1 direcionamento por opção, em ordem 1:1 com `options[]`.'
+  - '**Edge main→main direta quando há btn no meio (regra de sequência lógica).** Errado: `bot_pergunta` ligado direto em `bot_resposta` quando existe `buttons` entre eles. Certo: edges via botão — `bot_pergunta → btn → bot_resposta` (cada `direcionamento` sai do botão, não do bot).'
+  - '**`target_frame_id` que não casa com nenhum frame.** Errado: `target_frame_id="atendentes"` (plural) quando o slug canônico é `atendente`. Sempre use slug canônico — links quebrados deixam direcionamentos órfãos.'
+  - '**Direcionamento pro mesmo frame de origem.** Errado: dentro do frame `ofertas`, emitir `direcionamento target_frame_id="ofertas"`. Causa loop. Se precisa voltar ao início, use `target_block_id` pro primeiro bloco do frame.'
+  - '**Ordem dos `direcionamento` invertida em relação a `options[]`.** Se `menu.options = ["Ofertas", "Lojas", "Atendente"]`, os direcionamentos seguintes devem ser na MESMA ordem. Inverter quebra a regra #14 do parser.'
+  - '**Emitir `atendimento-humano` inline em vez de `direcionamento` pro frame FA.** Errado: cenário pede atendente → emitir `atendimento-humano` direto. Certo: `direcionamento target_frame_id="atendente"` — o componente `atendimento-humano` SÓ aparece DENTRO do frame FA, depois da cascata de 4 condicionais.'
 
 fields:
   label:
     type: string
     required: true
     description: Texto exibido no botão de direcionamento
-    aiHint: 'Geralmente o nome da opção de menu, ex: "Ofertas", "Falar com atendente", "Algo Mais"'
+    aiHint: 'Geralmente o nome da opção de menu, do destino ou da ação. Ex: `"Ofertas"`, `"Falar com atendente"`, `"Algo Mais"`, `"Finalizar"`, `"Voltar ao menu"`. Quando vem após `menu`/`buttons`, label = texto literal da opção.'
   target_frame_id:
     type: string
-    required: true
-    description: Slug do frame destino
-    aiHint: 'Use o `frame_id` de outro frame. Slugs comuns: "saudacao", "algo-mais", "atendente", "encerramento"'
+    required: false
+    description: Slug do frame destino (modo padrão de salto)
+    aiHint: 'Use slug canônico de outro frame. Skills reusadas: `"saudacao"`, `"algo-mais"`, `"atendente"`, `"encerramento"`. Cenários: `"ofertas"`, `"lojas"`, `"sac"`, `"devolucao"`, etc. OBRIGATÓRIO quando não usa `target_block_id`.'
+  target_block_id:
+    type: string
+    required: false
+    description: ID de bloco específico (modo raro — salta pra um ponto dentro de um frame)
+    aiHint: 'Use só quando o salto for pra um BLOCO específico (ex: voltar ao 2º bot do frame), não pro início. Formato: `{prefix}{numero}` como `OF003`, `S001`. Use ou `target_frame_id` OU `target_block_id`, não ambos.'
 
 builderRules:
   edgeFromPrevious: true
-  updatesLastFlowId: false  # folha
+  updatesLastFlowId: false  # folha — não atualiza cursor
 
 examples:
-  - description: Direcionamentos pós-menu (um por opção)
+  - description: Direcionamentos pós-menu (um por opção, ordem 1:1 — regra #14)
     input: |
-      Bot: Escolha uma opção:
+      Bot: Como posso te ajudar?
+      Menu:
       - Ofertas
+      - Lojas
       - Falar com atendente
     output:
-      - { kind: bot, text: "Escolha uma opção:" }
-      - { kind: menu, header: "Menu Principal", options: ["Ofertas", "Falar com atendente"] }
+      - { kind: bot, text: "Como posso te ajudar?" }
+      - { kind: menu, header: "Menu Principal", options: ["Ofertas", "Lojas", "Falar com atendente"] }
       - { kind: direcionamento, label: "Ofertas", target_frame_id: "ofertas" }
+      - { kind: direcionamento, label: "Lojas", target_frame_id: "lojas" }
       - { kind: direcionamento, label: "Falar com atendente", target_frame_id: "atendente" }
+    note: 'Ordem 1:1 — `options[0]` ("Ofertas") conecta com `direcionamento[0]`, e assim por diante. O builder (`emitDirecionamentosFromButtons`) lê `lastButtonIds` do contexto e conecta cada botão ao seu direcionamento. Edges saem dos BOTÕES, não do bot/menu pai.'
 
-  - description: Direcionamento implícito de continuidade
-    input: 'Bot: Posso te ajudar com algo mais?'
+  - description: Cenário termina pedindo "algo mais?" → direciona pra skill AM (não duplica inline)
+    input: |
+      Bot: Pronto! Sua devolução foi registrada com sucesso.
+      Bot: Posso te ajudar com algo mais?
     output:
-      - { kind: bot, text: "Posso te ajudar com algo mais?" }
+      - { kind: bot, text: "Pronto! Sua devolução foi registrada com sucesso." }
       - { kind: direcionamento, label: "Algo Mais", target_frame_id: "algo-mais" }
+    note: 'O bot `"Posso te ajudar com algo mais?"` + suas 3 opções (Voltar/Atendente/Finalizar) é a skill AM. Em vez de duplicar inline em cada cenário, emite 1 direcionamento pro frame `algo-mais` — o frame resolve as 3 opções por conta própria.'
 
-  - description: Transbordo pra atendente humano
-    input: 'Esse caso vai pra atendimento humanizado.'
-    output: { kind: direcionamento, label: "Falar com atendente", target_frame_id: "atendente" }
+  - description: Cenário pede atendente → direciona pra skill FA (NÃO usa atendimento-humano inline)
+    input: 'O cliente seleciona "Falar com atendente" no menu principal.'
+    output:
+      - { kind: direcionamento, label: "Falar com atendente", target_frame_id: "atendente" }
+    note: 'REGRA FORTE: `atendimento-humano` (componente da pílula laranja) só aparece DENTRO do frame FA, depois da cascata de 4 condicionais (feriado/fim de semana/horário/disponibilidade). Cenários externos NUNCA emitem `atendimento-humano` direto — sempre `direcionamento target_frame_id="atendente"`.'
+
+  - description: Cenário termina com encerramento → direciona pra skill EN
+    input: |
+      Bot: Sua compra foi finalizada com sucesso!
+      Bot: Obrigado pelo contato.
+    output:
+      - { kind: bot, text: "Sua compra foi finalizada com sucesso!" }
+      - { kind: direcionamento, label: "Encerramento", target_frame_id: "encerramento" }
+    note: 'Não emitir o bot `"Obrigado pelo contato"` inline + menu de avaliação — esse é o conteúdo do frame EN (skill Encerramento, com NPS + feedback livre). Direciona e deixa a skill resolver. O label `"Encerramento"` é interno; o usuário NÃO clica em botão visível (direcionamento sem menu antes vira "auto-transition" via última edge).'
+
+  - description: Saída FALSE de condicional (bifurcação simples, regra #13)
+    input: |
+      O bot verifica se é o primeiro contato:
+      - Se sim: "Olá! Bem-vindo!"
+      - Se não: pula direto pro menu.
+    output:
+      - { kind: condicional, condition: "Primeiro contato?", true_label: "Sim", false_label: "Não" }
+      - { kind: bot, text: "Olá! Bem-vindo!" }
+      - { kind: direcionamento, label: "Menu principal", target_frame_id: "menu-principal" }
+    note: 'Após `condicional` + cutoff TRUE (bot), o `direcionamento` é interpretado pelo builder como saída FALSE (`sourceHandle: false`). Esse é o padrão da regra #13 — sempre emita `direcionamento` logo após o cutoff TRUE pra evitar saída FALSE órfã.'
+
+  - description: Direcionamento usando target_block_id (salto pra ponto específico)
+    input: |
+      Se o CPF é inválido, volta pro início da pergunta de CPF (bloco OF003) pra digitar de novo.
+    output:
+      - { kind: condicional, condition: "CPF válido?", true_label: "Válido", false_label: "Inválido" }
+      - { kind: bot, text: "CPF confirmado." }
+      - { kind: direcionamento, label: "Tentar de novo", target_block_id: "OF003" }
+    note: 'Uso raro de `target_block_id` — salta pra um bloco específico em vez do início de um frame. Útil em loops de retry. Use OU `target_frame_id` OU `target_block_id`, nunca os dois.'
+
+  - description: Cenário com sequência lógica via btn (NÃO criar edge main→main direta)
+    input: |
+      Bot: Você deseja receber as ofertas?
+      Buttons: [Sim, Não]
+      - Se sim: "Perfeito! Vou registrar."
+      - Se não: "Sem problema! Tenha um bom dia."
+    output:
+      - { kind: bot, text: "Você deseja receber as ofertas?" }
+      - { kind: buttons, options: ["Sim", "Não"] }
+      - { kind: direcionamento, label: "Sim", target_frame_id: "ofertas-confirmar" }
+      - { kind: direcionamento, label: "Não", target_frame_id: "ofertas-recusar" }
+    note: 'Cada direcionamento sai do BOTÃO correspondente (`btn-short`), não do bot pergunta. NUNCA crie edge direta `bot_pergunta → bot_resposta` em paralelo — caminho obrigatório é `pergunta → btn → resposta`. Feedback explícito do usuário 2026-05.'
+
+  - description: Direcionamento isolado no fim de cenário (sem menu antes)
+    input: |
+      Bot: Tudo certo, transação registrada.
+      [cenário termina aqui — fluxo segue automaticamente pra encerramento]
+    output:
+      - { kind: bot, text: "Tudo certo, transação registrada." }
+      - { kind: direcionamento, label: "Encerramento", target_frame_id: "encerramento" }
+    note: 'Direcionamento sem menu antes = transição automática quando o último bloco renderiza. Útil pra "ao terminar este cenário, vai automaticamente pro X". É a forma canônica de fechar um cenário sem deixar fluxo morto.'
+
+aiInstructions: |
+  Direcionamento é o componente que conecta a topologia do fluxo — sem ele,
+  cenários ficam ilhas. Heurísticas finais:
+
+  1. **Em dúvida sobre fim de cenário:** se o cenário entrega o que devia
+     entregar e "termina", quase sempre vem um direcionamento na saída —
+     pra `algo-mais` (continuar atendendo), `encerramento` (fechar) ou
+     algum frame de continuidade explícito.
+
+  2. **Em dúvida sobre target:** prefira slug canônico (`atendente`,
+     `algo-mais`, `encerramento`, `saudacao`). Cenários customizados usam
+     slug derivado do título do frame (hifenizado, sem acentos).
+
+  3. **Em dúvida sobre duplicar vs direcionar (skills reusadas):** SEMPRE
+     direcione. Duplicar bot + opções da skill AM/FA/EN inline em vários
+     cenários é o anti-padrão #1 — bloqueia manutenção e quebra o reuso.
+
+  4. **Em dúvida sobre ordem pós-menu:** mantenha 1:1 com `options[]`. Se o
+     menu tem 4 opções, emita 4 direcionamentos na MESMA ordem. Regra #14
+     do parser depende disso.
+
+  **Glossário rápido:**
+  - **Frame destino:** o frame pra onde o direcionamento aponta — abre
+    seu primeiro bloco quando o usuário "clica" no direcionamento.
+  - **Skill reusada (AM/FA/EN):** frame único reutilizável — Algo Mais
+    (`algo-mais`), Falar com Atendente (`atendente`), Encerramento
+    (`encerramento`). Cenários direcionam pra elas em vez de duplicar.
+  - **Cursor de fluxo (`lastFlowId`):** direcionamento NÃO atualiza —
+    próximos blocos saem do bloco ANTES do direcionamento.
+  - **Sequência lógica:** caminho `pergunta → btn → resposta` sempre via
+    botão, nunca atalho direto. Feedback canônico do usuário (2026-05).
+  - **Regra #14 (parser):** ordem 1:1 entre `options[]` e `direcionamento`
+    pós-menu. Builder usa `lastButtonIds` pra conectar corretamente.

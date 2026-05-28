@@ -6,71 +6,275 @@ nodeType: frame
 flowControl: none
 
 description: |
-  Container/agrupador de um conjunto de blocos do fluxo. Representa um
-  CENÁRIO, ETAPA ou SEÇÃO do chatbot. Visualmente: header roxo com título
-  + corpo branco com os blocos dentro.
+  Container/agrupador de um conjunto de blocos do fluxo. Cada frame representa
+  um **CENÁRIO, ETAPA ou SEÇÃO** do chatbot — uma unidade lógica de diálogo
+  com começo, meio e fim. Visualmente: header roxo com título + corpo branco
+  com os blocos dentro.
 
-  Frame NÃO é um `kind` emitido pela IA — é o nível ACIMA dos blocos. Cada
-  AIFrame (com title, prefix, frame_id, blocks) vira um frame no canvas.
+  **Frame NÃO é um `kind` emitido pela IA** — é o nível ACIMA dos blocos.
+  No formato AI, cada objeto da lista `frames[]` (com `title`, `prefix`,
+  `frame_id`, `blocks[]`) vira um frame no canvas. Os blocos dentro de
+  `blocks[]` é que carregam `kind`.
 
-  Atributos importantes:
-  - `prefix`: 1-3 letras maiúsculas, define IDs dos blocos dentro (S001, OF001…)
-  - `frame_id`: slug usado em `target_frame_id` de direcionamentos
+  **Onde aparece no fluxo (topologia):**
+  - Frame é o nível raiz da geração — fluxo = lista de frames.
+  - **NÃO participa do cursor de fluxo** (`flowControl: none`) — é só
+    container visual e estrutural; o cursor (`lastFlowId`) vive dentro
+    do frame, entre os blocos.
+  - **Conexões entre frames:** feitas via `direcionamento` (de um frame
+    pra outro), não por edges diretas frame→frame.
+  - **Sem auto-children no nível de frame** — auto-children acontecem
+    nos BLOCOS dentro do frame (bot gera tracking, user gera excecao).
+
+  **Atributos críticos:**
+  - `title`: nome humano exibido no header (ex: `"Saudação"`,
+    `"Cenário 1: Ofertas"`, `"Falar com atendente"`).
+  - `prefix`: 1-3 letras maiúsculas — define IDs dos blocos dentro
+    (`S001`, `OF001`, `FA001`...). DEVE ser único no documento.
+  - `frame_id`: slug usado em `target_frame_id` de direcionamentos —
+    o "link" pelo qual outros frames apontam pra cá. DEVE ser único.
+
+  **Prefixos canônicos (skills reusadas e cenários comuns):**
+
+  | Tipo                    | title                | prefix | frame_id      |
+  |-------------------------|----------------------|--------|---------------|
+  | Saudação / abertura     | "Saudação"           | `S`    | `saudacao`    |
+  | Menu principal          | "Menu Principal"     | `MP`   | `menu-principal` |
+  | Algo Mais (skill AM)    | "Algo Mais"          | `AM`   | `algo-mais`   |
+  | Falar atendente (FA)    | "Falar com atendente"| `FA`   | `atendente`   |
+  | Encerramento (skill EN) | "Encerramento"       | `EN`   | `encerramento`|
+  | Ofertas / promoções     | "Ofertas"            | `OF`   | `ofertas`     |
+  | Lojas / localização     | "Lojas"              | `LJ`   | `lojas`       |
+  | SAC / suporte           | "SAC"                | `SAC`  | `sac`         |
+  | Devolução               | "Devolução"          | `DV`   | `devolucao`   |
+  | Ética e conduta         | "Ética e conduta"    | `ET`   | `etica`       |
+  | Cartão de crédito       | "Cartão de crédito"  | `CC`   | `cartao`      |
+  | Site / app              | "Comprar no site"    | `CS`   | `comprar-site`|
+  | Atacado / B2B           | "Comprar atacado"    | `CA`   | `comprar-atacado` |
+
+  **Skills reusadas (AM/FA/EN):** Algo Mais, Falar com Atendente e Encerramento
+  são **frames únicos no fluxo**, reutilizados por múltiplos cenários via
+  `direcionamento`. NUNCA duplique seu conteúdo inline em outros frames —
+  cenário externo emite `direcionamento target_frame_id="{algo-mais|atendente|encerramento}"`
+  e a skill resolve o resto.
 
 usageRules:
-  - 'Identifique frames por cabeçalhos explícitos: "Cenário 1:", "Cenário 2:", "Abertura", "Encerramento", "Frame: X"'
-  - 'Cada cenário/seção lógica = um frame'
-  - 'Frames REUTILIZÁVEIS (referenciados por múltiplos direcionamentos) precisam ser frame próprio: "Algo Mais", "Falar com atendente", "Encerramento"'
-  - 'Garanta UNICIDADE de prefix e frame_id no documento'
+  - '**Identifique frames por cabeçalhos explícitos no escopo:** `"Cenário 1:"`, `"Cenário 2:"`, `"Abertura"`, `"Encerramento"`, `"Frame: X"`, `"Etapa N — ..."`. Quando o documento separa visualmente seções, cada seção = um frame.'
+  - '**Cada cenário/seção lógica = um frame.** Cenário aqui é uma unidade conversacional com início → desenvolvimento → fim. Ex: "Consultar ofertas" é UM frame, mesmo que tenha 8 bots e 2 menus dentro.'
+  - '**Frames REUTILIZÁVEIS (skills) precisam ser frame próprio:** Algo Mais, Falar com atendente, Encerramento, Saudação inicial. Mesmo se aparecem mencionados em vários cenários, são UMA instância (frame único) e outros direcionam pra eles.'
+  - '**Garanta UNICIDADE de `prefix` e `frame_id`** no documento inteiro. Dois frames com `prefix: "OF"` ou `frame_id: "ofertas"` vão gerar IDs colidindo e direcionamentos quebrados.'
+  - '**Prefixos canônicos têm prioridade.** Quando reconhecer Saudação/Algo Mais/Atendente/Encerramento, use `S`/`AM`/`FA`/`EN`. Não invente prefixos novos pra esses 4 — eles são fixos no padrão Blip/Digitalbot.'
+  - '**Frames das skills AM/FA/EN seguem estruturas FIXAS:** AM tem `bot + 3 direcionamentos` (Voltar/Atendente/Finalizar). FA tem `cascata de 4 condicionais + atendimento-humano`. EN tem `bot + menu NPS 4 níveis + bot + user feedback + bot final`. Veja specs das memórias `padrao_algo_mais`, `padrao_falar_com_atendente`, `padrao_encerramento`.'
+  - '**Hierarquia de marcadores (regra #12 do parser):** sub-bullets INDENTADOS pertencem ao bullet pai — NÃO viram frames separados. Ex: se "Cenário 1: Cadastro" tem sub-itens "Pede nome", "Pede CPF", esses sub-itens são BLOCOS do mesmo frame "Cadastro", não frames filhos.'
+  - '**NÃO quebre 1 cenário em 2 frames quando ele é único.** Se a sequência `pergunta → resposta → confirmação` é UMA conversa lógica, é UM frame. Quebrar em vários frames gera direcionamentos artificiais e fragmenta a leitura no canvas.'
+  - '**NÃO junte 2 cenários em 1 frame só.** Cada cenário lógico distinto (mesmo que curto) merece seu frame. Sinal: se você precisaria de um separador visual ("---") entre dois trechos, eles são frames separados.'
+
+detectionCues:
+  - '**Cabeçalhos numerados ou nominais:** `"Cenário 1:"`, `"Etapa 2:"`, `"Frame: Ofertas"`, `"Abertura"`, `"Encerramento"`. Hierarquia visual no documento sinaliza divisão em frames.'
+  - '**Títulos com prefixo já mapeado:** `"OF001 - ..."`, `"AM - Algo Mais"`, `"FA - Falar com atendente"`. Quando o escopo cita IDs com prefixo conhecido, o frame já está nomeado.'
+  - '**Mudança brusca de contexto/tópico:** quando o escopo termina um assunto ("Pronto, devolução registrada") e abre outro ("Agora, vamos ver as ofertas"), é fronteira de frame.'
+  - '**Menções a skills reusadas:** `"Algo mais?"`, `"Falar com atendente"`, `"Encerramento com avaliação"`, `"Saudação inicial"` — cada uma é UM frame único no fluxo, com prefixo canônico fixo.'
+  - '**Separação visual no documento:** linhas horizontais (`---`), quebras com `##` ou `###`, blocos com bordas — todos sinalizam fronteira entre frames.'
+  - '**Blocos referenciados por outros frames via direcionamento:** se vê `target_frame_id="X"` em vários cenários, `X` é um frame único reusado — confirme que existe e tem prefix/frame_id canônicos.'
 
 commonMistakes:
-  - 'Juntar 2 cenários em 1 frame só'
-  - 'Quebrar 1 cenário em 2 frames quando ele é único'
-  - 'Repetir prefix ou frame_id entre frames diferentes'
+  - '**Juntar 2 cenários em 1 frame só.** Errado: frame "Atendimento" contendo cadastro + ofertas + encerramento (3 cenários distintos). Certo: 3 frames separados (`cadastro`, `ofertas`, `encerramento`), conectados por `direcionamento`.'
+  - '**Quebrar 1 cenário em 2 frames quando é único.** Errado: frame "Pedir nome" com 1 bot + 1 user, e frame "Confirmar nome" com 1 bot + 1 direcionamento. Certo: 1 frame "Cadastro de nome" com tudo dentro.'
+  - '**Repetir `prefix` ou `frame_id` entre frames diferentes.** Errado: dois frames com `prefix: "OF"`. Sintoma: IDs duplicados (`OF001` em dois frames), direcionamentos ambíguos. Cada frame DEVE ter prefix e frame_id únicos.'
+  - '**Duplicar conteúdo de skills AM/FA/EN em vários frames.** Errado: frame "Ofertas" termina com bot `"Posso ajudar com algo mais?"` + 3 botões/direcionamentos inline. Certo: frame "Ofertas" termina com `direcionamento target_frame_id="algo-mais"`. A skill AM é UM frame, reusado.'
+  - '**Tratar sub-bullets aninhados como frames filhos (regra #12 corrigida).** Errado: sub-bullets indentados de um bullet pai viram frames separados com 1-2 blocos cada. Certo: sub-bullets indentados são BLOCOS do mesmo frame do pai — hierarquia textual ≠ hierarquia de frames.'
+  - '**Inventar prefixos novos pras skills canônicas.** Errado: frame `"Algo Mais"` com prefix `"AL"` ou frame `"Atendente"` com prefix `"AT"`. Certo: SEMPRE `AM`/`FA`/`EN`/`S` pras 4 skills canônicas — é padrão fixo Blip.'
+  - '**Frames órfãos (sem direcionamento de entrada).** Frame que nenhum outro frame referencia — usuário nunca chega lá. Exceção: o frame de saudação (entry point do fluxo) é o ÚNICO que pode não ter entrada.'
 
 fields:
   title:
     type: string
     required: true
-    description: Título humano do frame
-    aiHint: 'Ex: "Saudação", "Cenário 1: Ofertas", "Encerramento"'
+    description: Título humano do frame (exibido no header do canvas)
+    aiHint: 'Nome legível, pode ter espaços e acentos. Ex: `"Saudação"`, `"Cenário 1: Ofertas"`, `"Falar com atendente"`, `"Encerramento"`. Pras skills canônicas, use o título exato: `"Algo Mais"`, `"Falar com atendente"`, `"Encerramento"`, `"Saudação"`.'
   prefix:
     type: string
     required: true
-    description: Prefixo de 1-3 letras maiúsculas pra IDs dos blocos
+    description: Prefixo de 1-3 letras maiúsculas pra IDs dos blocos dentro
     aiHint: |
       Convenções:
-      - 1 palavra → primeira letra: "Saudação" → "S"
-      - 2 palavras → iniciais: "Algo Mais" → "AM", "Falar Atendente" → "FA"
-      - Acrônimos preservados: "SAC", "FAQ"
-      - DEVE ser único no documento
+      - 1 palavra → primeira letra: `"Saudação"` → `S`, `"Ofertas"` → `OF` (2 letras se 1 ambíguo)
+      - 2 palavras → iniciais: `"Algo Mais"` → `AM`, `"Falar Atendente"` → `FA`
+      - Acrônimos preservados: `SAC`, `FAQ`, `CC` (Cartão de Crédito)
+      - DEVE ser único no documento.
+      - Skills canônicas: SEMPRE `S` (Saudação), `MP` (Menu Principal), `AM` (Algo Mais), `FA` (Falar com Atendente), `EN` (Encerramento).
   frame_id:
     type: string
     required: true
-    description: Slug do frame (lowercase, sem acentos, hífens)
+    description: Slug do frame (lowercase, sem acentos, hifenizado) — usado em target_frame_id
     aiHint: |
       Slugs canônicos comuns:
-      - saudacao, ofertas, lojas, atendente, algo-mais, encerramento
-      - sac, devolucao, etica, cartao, comprar-site, comprar-atacado
-      DEVE ser único; outros frames usam isso em target_frame_id.
+      - Skills: `saudacao`, `menu-principal`, `algo-mais`, `atendente`, `encerramento`
+      - Cenários: `ofertas`, `lojas`, `sac`, `devolucao`, `etica`, `cartao`, `comprar-site`, `comprar-atacado`
+      - Customizados: derive do título (lowercase, sem acentos, espaços → hífens).
+      DEVE ser único; outros frames usam isso em `target_frame_id`.
+
+builderRules:
+  edgeFromPrevious: false  # frames não conectam por edge a outros frames
+  updatesLastFlowId: false # frame não participa do cursor
+
+examples:
+  - description: Frame de saudação (entry point do fluxo)
+    input: |
+      Cenário 1: Saudação
+      Bot: Olá! Sou o assistente virtual da MarcaX.
+      Bot: Como posso te ajudar hoje?
+      Menu: [Ofertas, Lojas, Atendente]
+    output:
+      title: "Saudação"
+      prefix: "S"
+      frame_id: "saudacao"
+      blocks:
+        - { kind: bot, text: "Olá! Sou o assistente virtual da MarcaX." }
+        - { kind: bot, text: "Como posso te ajudar hoje?" }
+        - { kind: menu, header: "Menu Principal", options: ["Ofertas", "Lojas", "Atendente"] }
+        - { kind: direcionamento, label: "Ofertas", target_frame_id: "ofertas" }
+        - { kind: direcionamento, label: "Lojas", target_frame_id: "lojas" }
+        - { kind: direcionamento, label: "Atendente", target_frame_id: "atendente" }
+    note: 'Prefixo `S` e frame_id `saudacao` são canônicos pra frame inicial. É o ÚNICO frame que pode não ter direcionamento de entrada (é o entry point do fluxo).'
+
+  - description: Frame de skill reusada "Algo Mais" (AM)
+    input: |
+      Frame "Algo Mais" — após cada cenário, perguntar se cliente quer continuar.
+      - Voltar ao menu principal
+      - Falar com atendente
+      - Finalizar
+    output:
+      title: "Algo Mais"
+      prefix: "AM"
+      frame_id: "algo-mais"
+      blocks:
+        - { kind: bot, text: "Posso te ajudar com algo mais?" }
+        - { kind: buttons, options: ["Voltar ao menu", "Falar com atendente", "Finalizar"] }
+        - { kind: direcionamento, label: "Voltar ao menu", target_frame_id: "menu-principal" }
+        - { kind: direcionamento, label: "Falar com atendente", target_frame_id: "atendente" }
+        - { kind: direcionamento, label: "Finalizar", target_frame_id: "encerramento" }
+    note: 'Frame AM é único no fluxo. Cada outro cenário (Ofertas, Lojas, etc.) que termina perguntando "algo mais?" direciona pra cá — NÃO duplica o bot + opções inline. Vide memória `padrao_algo_mais`.'
+
+  - description: Frame de skill reusada "Falar com atendente" (FA) com cascata
+    input: |
+      Frame Atendente — cascata de validações antes do transbordo:
+      feriado → fim de semana → fora do horário → disponibilidade.
+    output:
+      title: "Falar com atendente"
+      prefix: "FA"
+      frame_id: "atendente"
+      blocks:
+        - { kind: condicional, condition: "Feriado?", true_label: "Sim", false_label: "Não" }
+        - { kind: bot, text: "Agradecemos seu contato. No momento estamos em feriado e não temos atendimento disponível." }
+        - { kind: condicional, condition: "Fim de semana?", true_label: "Sim", false_label: "Não" }
+        - { kind: bot, text: "Aos finais de semana não temos atendimento." }
+        - { kind: condicional, condition: "Fora do horário?", true_label: "Sim", false_label: "Não" }
+        - { kind: bot, text: "No momento estamos fora do nosso horário de atendimento." }
+        - { kind: condicional, condition: "Atendente disponível?", true_label: "Sim", false_label: "Não" }
+        - { kind: bot, text: "Em alguns instantes um atendente fará seu atendimento." }
+        - { kind: "atendimento-humano", label: "Início do atendimento humanizado" }
+    note: 'Frame FA é único no fluxo. Cenários externos NUNCA emitem `atendimento-humano` direto — sempre `direcionamento target_frame_id="atendente"`. Vide memória `padrao_falar_com_atendente`.'
+
+  - description: Frame de skill reusada "Encerramento" (EN) com NPS + feedback livre
+    input: |
+      Frame Encerramento — agradecimento + NPS 4 níveis + feedback opcional.
+    output:
+      title: "Encerramento"
+      prefix: "EN"
+      frame_id: "encerramento"
+      blocks:
+        - { kind: bot, text: "Obrigado pelo seu contato! Antes de encerrar, como você avalia sua experiência com o nosso atendimento?" }
+        - { kind: menu, header: "Avaliação", options: ["Muito satisfeito", "Satisfeito", "Pouco satisfeito", "Muito insatisfeito"] }
+        - { kind: bot, text: "Se desejar, você também pode nos contar o que faltou ou o que poderia ter sido diferente no atendimento." }
+        - { kind: user, text: "{feedback livre}" }
+        - { kind: bot, text: "Obrigado pelo feedback! Tenha um ótimo dia." }
+    note: 'Frame EN é único. Cenários que terminam em "encerrar"/"finalizar"/"obrigado" direcionam pra cá — NÃO duplicam NPS+feedback inline. Vide memória `padrao_encerramento`.'
+
+  - description: Frame de cenário customizado (Ofertas) terminando com direcionamento AM
+    input: |
+      Cenário 2: Ofertas
+      Bot: Hoje temos 20% de desconto em toda a coleção!
+      Bot: Aproveite no link abaixo: https://marca.com/ofertas
+      [Ao final, perguntar se cliente quer mais alguma coisa]
+    output:
+      title: "Ofertas"
+      prefix: "OF"
+      frame_id: "ofertas"
+      blocks:
+        - { kind: bot, text: "Hoje temos 20% de desconto em toda a coleção!" }
+        - { kind: bot, text: "Aproveite no link abaixo: https://marca.com/ofertas" }
+        - { kind: direcionamento, label: "Algo Mais", target_frame_id: "algo-mais" }
+    note: 'Cenário customizado com prefixo derivado do título (`OF` de Ofertas). Ao final, em vez de duplicar a pergunta "algo mais?" inline, direciona pra skill AM.'
+
+  - description: NÃO criar frame separado pra sub-bullets aninhados (regra #12)
+    input: |
+      Cenário 3: Cadastro
+      - Bot pede nome
+        - Cliente digita
+      - Bot pede CPF
+        - Cliente digita
+        - Bot valida na API
+    output:
+      title: "Cadastro"
+      prefix: "CD"
+      frame_id: "cadastro"
+      blocks:
+        - { kind: bot, text: "Qual seu nome?" }
+        - { kind: user, text: "{nome}" }
+        - { kind: bot, text: "Qual seu CPF?" }
+        - { kind: user, text: "{cpf}" }
+        - kind: integracao
+          integracao_type: api
+          title: "Validar CPF"
+    note: 'Sub-bullets indentados ("Cliente digita", "Bot valida na API") são BLOCOS do mesmo frame "Cadastro", não frames separados. Hierarquia textual no escopo ≠ hierarquia de frames no canvas. Vide regra #12 e memória `aprendizados_parser_ia`.'
+
+  - description: Múltiplos cenários em frames separados (NÃO juntar)
+    input: |
+      Cenário 4: Devolução
+      Bot: Vou te ajudar com a devolução.
+      ...
+      Cenário 5: Trocas
+      Bot: Para trocas, preciso do número do pedido.
+      ...
+    output:
+      - title: "Devolução"
+        prefix: "DV"
+        frame_id: "devolucao"
+        blocks: []
+      - title: "Trocas"
+        prefix: "TR"
+        frame_id: "trocas"
+        blocks: []
+    note: 'Dois cenários distintos = dois frames separados, mesmo que tematicamente próximos. Cada frame tem prefix e frame_id próprios. NÃO junte sob `prefix: "DT"` ou similar. (Blocos omitidos no exemplo pra focar na divisão por frame.)'
 
 aiInstructions: |
-  Frames canônicos (use esses nomes/prefixos/slugs quando reconhecer o padrão):
+  Frame é o esqueleto do fluxo — definir os frames corretos é o passo 1 da
+  geração. Heurísticas finais:
 
-  | Tipo no escopo | Título | prefix | frame_id |
-  |---|---|---|---|
-  | Saudação inicial / abertura | "Saudação" | "S" | "saudacao" |
-  | Encerramento / CSAT | "Encerramento" | "EN" | "encerramento" |
-  | Continuidade ("Algo mais?") | "Algo Mais" | "AM" | "algo-mais" |
-  | Falar com atendente | "Falar com atendente" | "FA" | "atendente" |
-  | Ofertas / promoções | "Ofertas" | "OF" | "ofertas" |
-  | Lojas / localização | "Lojas" | "LJ" | "lojas" |
-  | SAC / suporte | "SAC" | "SAC" | "sac" |
-  | Devolução | "Devolução" | "DV" | "devolucao" |
-  | Ética e conduta | "Ética e conduta" | "ET" | "etica" |
-  | Cartão de crédito | "Cartão de crédito" | "CC" | "cartao" |
-  | Site / app | "Comprar no site" | "CS" | "comprar-site" |
-  | Atacado / B2B | "Comprar atacado" | "CA" | "comprar-atacado" |
+  1. **Em dúvida sobre quebrar/juntar:** prefira mais frames pequenos a um
+     frame gigante. Cada unidade conversacional lógica merece seu próprio
+     container. Mas NÃO crie frame com 1-2 blocos só (geralmente sinal de
+     que sub-bullets viraram frames errados — regra #12).
 
-  Pra frames sem padrão pré-definido, gere prefix e frame_id consistentes
-  com o título.
+  2. **Em dúvida sobre skills reusadas:** se reconhecer Algo Mais, Falar
+     com Atendente, Encerramento ou Saudação Inicial, use os prefixos
+     canônicos (`AM`/`FA`/`EN`/`S`) e estruturas fixas das memórias.
+
+  3. **Em dúvida sobre prefix/frame_id:** consulte primeiro a tabela de
+     canônicos no `description`. Pra cenários customizados, derive do
+     título (iniciais maiúsculas pro prefix, slug pro frame_id).
+
+  4. **Em dúvida sobre frame órfão:** todo frame DEVE ter pelo menos um
+     `direcionamento` apontando pra ele (exceto a saudação inicial, que é
+     entry point). Frame sem entrada = código morto no canvas.
+
+  **Glossário rápido:**
+  - **prefix:** 1-3 letras pra IDs dos blocos (`S001`, `OF003`, `AM002`).
+  - **frame_id:** slug usado em `target_frame_id` de direcionamentos.
+  - **Skill reusada (AM/FA/EN):** frame único reusado por múltiplos
+    cenários — Algo Mais, Falar com Atendente, Encerramento.
+  - **Entry point:** o frame de saudação (`S`/`saudacao`), único que não
+    precisa de direcionamento de entrada.
+  - **Cenário:** unidade conversacional lógica com início, meio e fim —
+    1 cenário = 1 frame.
